@@ -17,7 +17,7 @@ professor/
 │   │   ├── Admin/            # Full MVC (dashboard, users, features, finance…)
 │   │   ├── Professor/
 │   │   ├── Student/
-│   │   ├── Hod/
+│   │   ├── Hod/            # DashboardController, StudentsController
 │   │   ├── Api/
 │   │   ├── NotificationController.php
 │   │   └── LegacyController.php   # Bridges remaining modules into MVC routing
@@ -27,28 +27,41 @@ professor/
 ├── config/
 ├── database/
 ├── assets/
-└── professor|student|hod/    # Module scripts served via LegacyController
+└── professor|student|hod/    # Legacy modules (attendance, subjects, approvals, …)
 ```
 
 **Pattern:** Route → Controller → Model/Service → View
 
-## Admin interface (yes)
+## Admin interface
 
-Full admin portal (MVC):
+Full admin portal (MVC). Paths are relative to the app base (e.g. `http://localhost/professor/admin/dashboard`):
 
-| URL | Purpose |
-|-----|---------|
-| `/professor/admin/dashboard` | Stats + module hub |
-| `/professor/admin/institution` | College setup |
-| `/professor/admin/users` | Roles & users |
-| `/professor/admin/features` | Expandable feature flags |
-| `/professor/admin/formulas` | Internal marks formulas |
-| `/professor/admin/finance` | Expenses |
-| `/professor/admin/naac` | NAAC snapshot |
-| `/professor/admin/analytics` | Institution KPIs |
-| `/professor/admin/billing` | Subscription seats |
+| Route | Purpose |
+|-------|---------|
+| `/admin/dashboard` | Stats + module hub |
+| `/admin/institution` | College setup (departments, classes — **not** courses) |
+| `/admin/users` | Roles & users (HOD, professor, student) |
+| `/admin/features` | Feature flags |
+| `/admin/formulas` | Internal marks formulas |
+| `/admin/finance` | Expenses |
+| `/admin/naac` | NAAC snapshot |
+| `/admin/analytics` | Institution KPIs |
+| `/admin/billing` | Subscription seats |
+| `/admin/notifications` | Notifications |
 
-Login: `admin@proprofessor.local` / `Password@123`
+**Admin login (preserved install account):** `admin@proprofessor.local` / `Password@123`
+
+**Local data reset (CLI, keeps Admin only):**
+
+```bash
+php database/reset_dev_data.php --confirm-local-reset
+```
+
+**E2E demo seed (CLI, full academic dataset):**
+
+```bash
+php database/seed_e2e_test_data.php --confirm-local-reset
+```
 
 ## Quick start (local XAMPP)
 
@@ -73,14 +86,329 @@ Enable `mod_rewrite` in Apache (XAMPP default usually on).
 
 If you only see a 404 for the whole folder, the files are not in the path the domain expects — confirm the upload path in File Manager.
 
-## Roles
+## Roles (dashboard routes)
 
-- Professor — `/professor/dashboard` (under your base path)
-- Student — `/student/dashboard`
-- HOD — `/hod/dashboard`
-- Admin — `/admin/dashboard`
+| Role | Route |
+|------|-------|
+| Admin | `/admin/dashboard` |
+| HOD | `/hod/dashboard` |
+| Professor | `/professor/dashboard` |
+| Student | `/student/dashboard` |
 
+---
 
+# ProProfessor AI — Current Implementation
+
+This section documents **what is actually implemented** in the PHP MVC codebase (`routes/web.php`, `app/Controllers/`, `app/Models/`, legacy `professor/`, `student/`, `hod/` modules, and `includes/helpers.php`). It reflects the real database schema in `database/schema.sql`.
+
+**Stack:** PHP 8+, MySQL, session-based auth (not JWT), front controller (`index.php`), Gemini AI via `POST /api/ai`.
+
+## Role hierarchy
+
+```
+Institution (tenant)
+  └── Department
+        ├── HOD (one department)
+        ├── Professors (department-scoped accounts)
+        └── Students (department + class assignment)
+              └── Enrolled courses (via HOD assignments)
+```
+
+| Role | Scope | Primary responsibility (implemented) |
+|------|-------|--------------------------------------|
+| **Admin** | One institution (`users.institution_id`) | Institution structure, departments, classes, user accounts, formulas, features, finance, NAAC, analytics |
+| **HOD** | One department (`users.department_id`) | Department courses, professor assignments, student roster view, course-plan approvals, faculty circulars, department analytics |
+| **Professor** | Assigned courses/classes only (`subject_assignments`) | Course plans, attendance, marks, assignments, notes/PPT, AI tools — **only for HOD-assigned course + class pairs** |
+| **Student** | Own class (`users.class_id`) | View own courses, attendance, marks, assignments, notes, calendar, Ask AI |
+
+There is **no separate Platform Admin** role in the current PHP app. Multi-tenancy is **institution-scoped** via `institution_id` on queries.
+
+---
+
+## Admin functionality (implemented)
+
+| Module | Route | Status |
+|--------|-------|--------|
+| Institution profile | `/admin/institution` | Implemented — name, NAAC, academic year, semester, attendance minimum |
+| Departments | `/admin/institution` | Implemented — add department (code, name) |
+| Classes | `/admin/institution`, `/admin/users` | Implemented — UG/PG (`classes.meta.level`), year (1–4), section, department |
+| Users & roles | `/admin/users` | Implemented — admin, HOD, professor, student; CSV import; class assignment for students |
+| Feature flags | `/admin/features` | Implemented |
+| Marks formulas | `/admin/formulas` | Implemented — components + expression engine |
+| Finance | `/admin/finance` | Implemented |
+| NAAC builder | `/admin/naac` | Implemented |
+| Analytics | `/admin/analytics` | Implemented |
+| Billing | `/admin/billing` | Implemented |
+| Notifications | `/admin/notifications` | Implemented |
+
+**Important:** Admin manages **accounts and academic structure** (departments, classes, years, sections). Admin **does not** create department courses/subjects — that is implemented under **HOD → Courses** (`/hod/subjects`).
+
+---
+
+## HOD functionality (implemented)
+
+HOD belongs to **exactly one department**. All HOD queries filter by `users.department_id` and `institution_id` (backend enforced in legacy pages and `User::studentsForDepartment()`, `hod_save_subject()`, etc.).
+
+| Feature | Route / API | Status |
+|---------|-------------|--------|
+| Dashboard | `/hod/dashboard` | Implemented |
+| Course plan approvals | `/hod/approvals` | Implemented — approve, reject, return (`returned` status), feedback |
+| Faculty list + circulars | `/hod/faculty` | Implemented — department announcements to professors |
+| Department students | `/hod/students` | Implemented — year/section/class/search filters; grouped by year → section |
+| Students JSON API | `GET /api/hod/students` | Implemented — department-isolated; HOD cannot override dept via query |
+| **Courses / subjects** | `/hod/subjects` | Implemented — create course, assign professor + class, auto-enroll students |
+| Analytics | `/hod/analytics` | Implemented — Bloom + submission status |
+| Compliance | `/hod/compliance` | Implemented |
+| Timeline | `/hod/timeline` | Implemented |
+| NAAC reports | `/hod/reports` | Implemented |
+| Notifications | `/hod/notifications` | Implemented |
+| Marks formulas | `/admin/formulas` | Partially — HOD role can access formula page if permitted |
+
+**Not implemented for HOD:** dedicated professor CRUD (professors are created by Admin); HOD only assigns existing department professors to courses.
+
+---
+
+## Course and subject workflow (implemented)
+
+```
+HOD creates subject (subjects table)
+  → HOD assigns professor + class (subject_assignments)
+  → Students in that class enrolled (enrollments, current academic_year)
+  → Professor sees only assigned course+class pairs
+  → Professor generates/submits course plan (course_plans)
+  → HOD reviews (/hod/approvals)
+  → Professor sees approval status on /professor/plans
+  → Professor manages attendance, marks, assignments for that course+class only
+```
+
+**Tables:** `subjects`, `subject_assignments` (unique: subject + professor + class + academic_year), `enrollments`, `course_plans`.
+
+**Course plan statuses (schema):** `draft`, `submitted`, `under_review`, `approved`, `returned`.
+
+**Professor assignment rules (implemented):**
+
+- A professor may have **multiple** `subject_assignments` rows (different subjects and/or classes/sections).
+- Professors **cannot** create subjects (`save_professor_subject()` throws; UI removed from professor pages).
+- Backend: `professor_can_manage_subject($user, $subjectId, $classId)` and `professor_manageable_classes()` (assigned classes only).
+
+---
+
+## Class and section structure (implemented)
+
+Stored in `classes` table:
+
+| Field | Purpose |
+|-------|---------|
+| `department_id` | Department (e.g. CSE) |
+| `meta.level` | Program: `UG` or `PG` (JSON) |
+| `year` | Academic year level: 1–4 |
+| `section` | Section label (e.g. `A`, `B`) |
+| `name` | Display name (e.g. `CSE-A`) |
+| `academic_year` | Copied from institution when class is created |
+
+Students link via `users.class_id`. Example structure:
+
+```
+CSE → UG → Year 1 → Section A → students (Mohammed, Ananya)
+CSE → UG → Year 1 → Section B → students (Arjun, …)
+```
+
+Courses link to a **specific class** through `subject_assignments.class_id` and `enrollments.class_id`.
+
+---
+
+## Student functionality (implemented)
+
+| Feature | Route | Status |
+|---------|-------|--------|
+| Dashboard | `/student/dashboard` | Implemented |
+| My courses | `/student/courses` | Implemented — `courses_for_student()` |
+| Attendance | `/student/attendance` | Implemented — own class + register number |
+| Internal marks | `/student/marks` | Implemented — own class only |
+| Assignments | `/student/assignments` | Implemented — published, same `class_id` |
+| Notes & PPT | `/student/notes` | Implemented — enrolled course materials |
+| Calendar | `/student/calendar` | Implemented — institution + department events |
+| Ask AI | `/student/ask-ai` | Implemented — enrollment-gated subjects |
+| Notifications | `/student/notifications` | Implemented |
+
+**Visibility rules (backend):**
+
+- Institution: `users.institution_id`
+- Department: `users.department_id` (implicit via class/subject)
+- Class/section/year/program: resolved from `users.class_id` → `classes`
+- Courses: active `enrollments` where `class_id` matches student's current class and (when set) institution `academic_year`
+
+Students do **not** see other sections, years, or departments.
+
+---
+
+## Professor functionality (implemented)
+
+| Feature | Route | Status |
+|---------|-------|--------|
+| Dashboard | `/professor/dashboard` | Implemented |
+| New course plan | `/professor/generate-plan` | Implemented — assigned course+class pairs only |
+| My plans | `/professor/plans` | Implemented — submit for HOD review |
+| Plan view | `/professor/plan-view` | Implemented |
+| Lesson planner | `/professor/lessons` | Implemented |
+| Question bank | `/professor/questions` | Implemented |
+| PPT generator | `/professor/ppt` | Implemented |
+| Attendance | `/professor/attendance` | Implemented — class + assigned subject; roster import |
+| Internal marks | `/professor/marks` | Implemented — formula-driven |
+| Assignments | `/professor/assignments` | Implemented — AI generate + grade |
+| Settings | `/professor/settings` | Implemented |
+| Notifications | `/professor/notifications` | Implemented |
+
+Professors work **only** with HOD-assigned course + class combinations. URL/query tampering is blocked server-side via `professor_can_manage_class()` and `professor_can_manage_subject()`.
+
+---
+
+## Academic year progression (partially implemented)
+
+| Aspect | Status | Notes |
+|--------|--------|-------|
+| Institution `academic_year` | Implemented | Set on `/admin/institution` |
+| Enrollments tagged with `academic_year` | Implemented | Set when HOD assigns course / on enrollment |
+| Student current courses | Implemented | Filtered by current `class_id` + active enrollment + current `academic_year` |
+| Admin moves student to new class | Implemented | Update student `class_id` in `/admin/users` |
+| Automatic year promotion | **Pending** | No one-click “promote all 1st year → 2nd year” job |
+| Historical attendance/marks | **Preserved** | Stored by `class_id`; not deleted on promotion |
+| Academic-year column on attendance/marks | **Not in schema** | History isolated by class row, not by year label |
+
+When a student is moved to a new class (e.g. 1st Year A → 2nd Year A), **old enrollments** for the previous class no longer match `courses_for_student()` — the student sees courses for the new class after HOD assigns them. **Historical** attendance/marks remain in the database tied to the old class.
+
+---
+
+## Department and institution isolation (implemented)
+
+| Actor | Enforcement |
+|-------|-------------|
+| **Institution** | `institution_id` on virtually all queries |
+| **HOD** | `department_id` from session; ignored/forbidden cross-dept params (`hod/students`, `hod/subjects`, approvals) |
+| **Professor** | `subject_assignments` + `professor_can_manage_subject()` |
+| **Student** | `users.class_id`, enrollment checks, assignment `class_id` match |
+
+Helpers in `includes/helpers.php`: `professor_can_manage_class()`, `professor_can_manage_subject()`, `courses_for_student()`, `assignments_visible_to_student()`, `User::studentsForDepartment()`, `hod_assign_professor_subject()`.
+
+---
+
+## Formula configuration (implemented)
+
+**Route:** `/admin/formulas` (Admin; HOD can access with role check)
+
+Institution-level formulas stored in `marks_formulas` with JSON `components` and a parsed `expression` evaluated in `/professor/marks`.
+
+**E2E seed example (CSE department):**
+
+| Field | Value |
+|-------|-------|
+| Name | CBCS Internal 25 |
+| Plain English | Average of CIA 1 and CIA 2 scaled to 15, plus assignment and attendance to 25. |
+| Expression | `((cia1+cia2)/2)*(15/50)+assignment+attendance` |
+| Components | CIA 1 (max 50), CIA 2 (max 50), Assignment (max 5), Attendance (max 5) |
+| Total max | 25 |
+
+**Professor fallback** (when no formula in DB): `((cia1+cia2)/2)*(25/50)` — CIA average scaled to 25.
+
+---
+
+## Demo / test setup
+
+> Demo accounts exist **after** running `php database/seed_e2e_test_data.php --confirm-local-reset`.  
+> A reset database contains **only** Admin until seeded.
+
+**Password for all seeded demo accounts:** `Test@12345`
+
+### CSE test accounts (from `database/seed_e2e_test_data.php`)
+
+| Role | Email | Notes |
+|------|-------|-------|
+| CSE HOD | `csehod@test.com` | CSE department only |
+| Professor — DBMS | `arun.kumar@test.com` | CS301 · CSE 1st Year A (+ DBMS also 1B in seed) |
+| Professor — OS | `priya.kumar@test.com` | CS302 · CSE 1st Year A (+ OS on 2A in seed) |
+| Professor — Networks | `rahul.kumar@test.com` | CS303 · CSE 1st Year A |
+| Professor — Java | `divya.kumar@test.com` | CS304 · CSE 1st Year A |
+| Professor — SE | `karthik.kumar@test.com` | CS305 · CSE 1st Year A |
+| Student — 1st Year A | `mohammed@test.com` | Register: CSE24001 |
+| Student — 1st Year A | `ananya@test.com` | Register: CSE24002 |
+| Student — 1st Year B | `arjun@test.com` | Register: CSE24011 |
+
+Other departments (ECE, EEE, IT, MECH) also have HOD, professor, and student seed accounts — see script output after seeding.
+
+### CSE demo academic structure (after seed)
+
+**Subjects created:**
+
+| Code | Name | Default assignment (seed) |
+|------|------|---------------------------|
+| CS301 | Database Management Systems | Arun → CSE UG Year 1 Section A |
+| CS302 | Operating Systems | Priya → CSE UG Year 1 Section A |
+| CS303 | Computer Networks | Rahul → CSE UG Year 1 Section A |
+| CS304 | Java Programming | Divya → CSE UG Year 1 Section A |
+| CS305 | Software Engineering | Karthik → CSE UG Year 1 Section A |
+
+**Classes (examples):** `CSE|UG|1|A`, `CSE|UG|1|B`, years 2–4, PG — see seed for full matrix.
+
+---
+
+## Manual end-to-end testing workflow
+
+1. Login as **Admin** (`admin@proprofessor.local`).
+2. Create or verify **department** (Institution page).
+3. Create **classes** (UG/PG, year 1–4, section).
+4. Create **HOD**, **professors**, **students** (Users page; assign students to class).
+5. Login as **HOD**.
+6. Open **Courses** (`/hod/subjects`) — create subjects.
+7. **Assign** each course to a professor and class/section.
+8. Login as **Professor** — confirm only assigned course+class appear.
+9. **Generate course plan** → submit (`/professor/plans`).
+10. Login as **HOD** — **Approvals** → approve or reject with feedback.
+11. Login as **Professor** — attendance, marks, assignments, notes/PPT for assigned class.
+12. Login as **Student** — verify courses, attendance, marks, assignments match **own class/section only**.
+13. (Optional) Admin updates student to next-year class — verify course list changes after new HOD assignments.
+
+---
+
+## Database scripts
+
+| Script | Purpose |
+|--------|---------|
+| `install.php` | Web installer — schema + basic demo users (`Password@123`) |
+| `database/schema.sql` | Full schema reference |
+| `database/seed.sql` | Minimal demo seed |
+| `database/seed_e2e_test_data.php --confirm-local-reset` | Full E2E academic dataset (`Test@12345`) |
+| `database/reset_dev_data.php --confirm-local-reset` | Wipe demo data; **keep Admin id=1** |
+
+---
+
+# Current Status
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| Admin | **Implemented** | Institution, users, classes, formulas, features, finance, NAAC, analytics |
+| HOD | **Implemented** | Dashboard, approvals, faculty, students, **courses**, analytics, compliance, reports |
+| Professor | **Implemented** | Assigned-course-only academic + AI tools |
+| Student | **Implemented** | Class-scoped portal |
+| Courses (HOD-owned) | **Implemented** | `/hod/subjects`; Admin does not create subjects |
+| Course plans | **Implemented** | AI generate, submit, HOD approve/reject/return |
+| Attendance | **Implemented** | Class + subject; no `academic_year` column on sessions |
+| Internal marks | **Implemented** | Configurable formulas |
+| Assignments | **Implemented** | Class-scoped publish + submit |
+| Notes/PPT | **Implemented** | `documents`, `presentations` |
+| Academic calendar | **Implemented** | Student calendar + `academic_events` |
+| Formula configuration | **Implemented** | `/admin/formulas` |
+| Department isolation | **Implemented** | Backend helpers + SQL filters |
+| Academic year progression | **Partially implemented** | Manual class change + enrollment year filter; no auto-promotion UI |
+| Platform multi-college SaaS | **Partially implemented** | Single-app institution isolation; no separate platform admin UI |
+| JWT / React / Node API | **Not implemented** | PHP session auth; see appendix below |
+
+---
+
+## Appendix: Original product specification (reference only)
+
+> The long-form specification below was an **early product brief** targeting React + Node.js + JWT.  
+> **The shipped application is PHP MVC + MySQL** as documented in the sections above.  
+> Use the appendix for product vision and security requirements; do not assume those APIs or folders exist unless verified in this repo.
 
 You are a SENIOR FULL-STACK ARCHITECT, SOFTWARE ENGINEER, DATABASE ARCHITECT, SECURITY ENGINEER, and AI APPLICATION DEVELOPER.
 
@@ -2751,18 +3079,3 @@ DO NOT CLAIM SOMETHING IS IMPLEMENTED UNLESS IT ACTUALLY EXISTS AND HAS BEEN VER
 
 
 
-
-<!-- admin@proprofessor.local -->
-<!-- Password@123 -->
-<!-- CSE HOD	csehod@test.com
-CSE Professor – DBMS	arun.kumar@test.com
-CSE Professor – OS	priya.kumar@test.com
-CSE Professor – Networks	rahul.kumar@test.com
-CSE Professor – Java	divya.kumar@test.com
-CSE Professor – SE	karthik.kumar@test.com
-CSE Student – 1st Year A	mohammed@test.com
-CSE Student – 1st Year A	ananya@test.com
-CSE Student – 1st Year B	arjun@test.com -->
-
-
-<!-- Test@12345 : password -->
