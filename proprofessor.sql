@@ -2,10 +2,10 @@
 -- version 5.2.1
 -- https://www.phpmyadmin.net/
 --
--- Host: 127.0.0.1
--- Generation Time: Aug 09, 2026 at 06:56 PM
+-- Host: 127.0.0.1:3307
+-- Generation Time: Aug 22, 2026 at 09:32 AM
 -- Server version: 10.4.32-MariaDB
--- PHP Version: 8.0.30
+-- PHP Version: 8.2.12
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -38,15 +38,6 @@ CREATE TABLE `academic_events` (
   `meta` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`meta`))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Dumping data for table `academic_events`
---
-
-INSERT INTO `academic_events` (`id`, `institution_id`, `title`, `event_type`, `event_date`, `end_date`, `description`, `meta`) VALUES
-(1, 1, 'CIA Test I', 'exam', '2025-09-15', NULL, 'Continuous Internal Assessment I', NULL),
-(2, 1, 'CIA Test II', 'exam', '2025-11-10', NULL, 'Continuous Internal Assessment II', NULL),
-(3, 1, 'Diwali Holiday', 'holiday', '2025-10-20', NULL, 'College holiday', NULL);
-
 -- --------------------------------------------------------
 
 --
@@ -70,23 +61,8 @@ CREATE TABLE `activity_logs` (
 --
 
 INSERT INTO `activity_logs` (`id`, `institution_id`, `user_id`, `action`, `entity_type`, `entity_id`, `ip_address`, `details`, `created_at`) VALUES
-(1, 1, 3, 'login', NULL, NULL, '::1', NULL, '2026-08-08 17:27:11'),
-(2, 1, 3, 'logout', NULL, NULL, '::1', NULL, '2026-08-08 17:27:35'),
-(3, 1, 4, 'login', NULL, NULL, '::1', NULL, '2026-08-08 17:29:01'),
-(4, 1, 4, 'logout', NULL, NULL, '::1', NULL, '2026-08-08 17:37:03'),
-(5, 1, 3, 'login', NULL, NULL, '::1', NULL, '2026-08-08 17:37:08'),
-(6, 1, 3, 'logout', NULL, NULL, '::1', NULL, '2026-08-08 17:37:22'),
-(7, 1, 1, 'login', NULL, NULL, '::1', NULL, '2026-08-08 17:37:26'),
-(8, 1, 1, 'logout', NULL, NULL, '::1', NULL, '2026-08-08 17:37:41'),
-(9, 1, 2, 'login', NULL, NULL, '::1', NULL, '2026-08-08 17:37:47'),
-(10, 1, 2, 'logout', NULL, NULL, '::1', NULL, '2026-08-08 17:38:00'),
-(11, 1, 1, 'login', NULL, NULL, '::1', NULL, '2026-08-08 18:04:31'),
-(12, 1, 1, 'logout', NULL, NULL, '::1', NULL, '2026-08-08 18:05:40'),
-(13, 1, 2, 'login', NULL, NULL, '::1', NULL, '2026-08-08 18:05:45'),
-(14, 1, 2, 'logout', NULL, NULL, '::1', NULL, '2026-08-08 18:06:03'),
-(15, 1, 4, 'login', NULL, NULL, '::1', NULL, '2026-08-08 18:06:28'),
-(16, 1, 4, 'logout', NULL, NULL, '::1', NULL, '2026-08-08 18:06:54'),
-(17, 1, 3, 'login', NULL, NULL, '::1', NULL, '2026-08-08 18:16:38');
+(1, 1, 1, 'login', NULL, NULL, '::1', NULL, '2026-08-22 06:19:42'),
+(2, 1, 1, 'logout', NULL, NULL, '::1', NULL, '2026-08-22 06:50:58');
 
 -- --------------------------------------------------------
 
@@ -103,13 +79,6 @@ CREATE TABLE `ai_chats` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Dumping data for table `ai_chats`
---
-
-INSERT INTO `ai_chats` (`id`, `institution_id`, `user_id`, `subject_id`, `title`, `created_at`) VALUES
-(1, 1, 4, NULL, 'new courses', '2026-08-08 17:29:19');
-
 -- --------------------------------------------------------
 
 --
@@ -124,14 +93,6 @@ CREATE TABLE `ai_chat_messages` (
   `citations` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`citations`)),
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `ai_chat_messages`
---
-
-INSERT INTO `ai_chat_messages` (`id`, `chat_id`, `role`, `content`, `citations`, `created_at`) VALUES
-(1, 1, 'user', 'new courses', NULL, '2026-08-08 17:29:19'),
-(2, 1, 'assistant', '', '[]', '2026-08-08 17:29:19');
 
 -- --------------------------------------------------------
 
@@ -157,14 +118,6 @@ CREATE TABLE `ai_generations` (
   `ref_id` int(10) UNSIGNED DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `ai_generations`
---
-
-INSERT INTO `ai_generations` (`id`, `institution_id`, `user_id`, `module`, `prompt_code`, `input_payload`, `output_payload`, `model`, `tokens_in`, `tokens_out`, `latency_ms`, `status`, `error_message`, `ref_type`, `ref_id`, `created_at`) VALUES
-(1, 1, 4, 'ask_ai', 'ask_ai', '{\"question\":\"new courses\",\"subjectId\":null}', '{\"text\":null,\"error\":\"This model models\\/gemini-2.0-flash is no longer available. Please update your code to use a newer model for the latest features and improvements. We recommend you to use the Interactions API (https:\\/\\/ai.google.dev\\/gemini-api\\/docs\\/migrate-to-interactions).\"}', 'gemini-2.0-flash', NULL, NULL, 2536, 'error', 'This model models/gemini-2.0-flash is no longer available. Please update your code to use a newer model for the latest features and improvements. We recommend you to use the Interactions API (https://ai.google.dev/gemini-api/docs/migrate-to-interactions).', 'ai_chat', 1, '2026-08-08 17:29:19'),
-(2, 1, 3, 'ppt', 'ppt', '{\"title\":\"dbms\"}', '{\"text\":null,\"error\":\"This model models\\/gemini-2.0-flash is no longer available. Please update your code to use a newer model for the latest features and improvements. We recommend you to use the Interactions API (https:\\/\\/ai.google.dev\\/gemini-api\\/docs\\/migrate-to-interactions).\"}', 'gemini-2.0-flash', NULL, NULL, 810, 'error', 'This model models/gemini-2.0-flash is no longer available. Please update your code to use a newer model for the latest features and improvements. We recommend you to use the Interactions API (https://ai.google.dev/gemini-api/docs/migrate-to-interactions).', 'presentation', 1, '2026-08-08 18:17:13');
 
 -- --------------------------------------------------------
 
@@ -222,13 +175,6 @@ CREATE TABLE `announcements` (
   `meta` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`meta`)),
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `announcements`
---
-
-INSERT INTO `announcements` (`id`, `institution_id`, `department_id`, `created_by`, `title`, `body`, `announcement_type`, `starts_at`, `ends_at`, `meta`, `created_at`) VALUES
-(1, 1, NULL, 1, 'Welcome to ProProfessor AI', 'Academic year 2025-26 portal is live. Upload course plans before the HOD deadline.', 'general', NULL, NULL, NULL, '2026-08-08 17:07:02');
 
 -- --------------------------------------------------------
 
@@ -364,14 +310,6 @@ CREATE TABLE `classes` (
   `is_active` tinyint(1) DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Dumping data for table `classes`
---
-
-INSERT INTO `classes` (`id`, `institution_id`, `department_id`, `program_id`, `name`, `section`, `year`, `semester`, `academic_year`, `meta`, `is_active`) VALUES
-(1, 1, 1, NULL, 'II B.Sc CS', 'A', 2, 'Odd Semester', '2025-26', NULL, 1),
-(2, 1, 2, NULL, 'II B.Com', 'A', 2, 'Odd Semester', '2025-26', NULL, 1);
-
 -- --------------------------------------------------------
 
 --
@@ -464,15 +402,6 @@ CREATE TABLE `departments` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Dumping data for table `departments`
---
-
-INSERT INTO `departments` (`id`, `institution_id`, `name`, `code`, `hod_user_id`, `meta`, `is_active`, `created_at`) VALUES
-(1, 1, 'Computer Science', 'CS', 2, NULL, 1, '2026-08-08 17:07:02'),
-(2, 1, 'Commerce', 'COM', NULL, NULL, 1, '2026-08-08 17:07:02'),
-(3, 1, 'English', 'ENG', NULL, NULL, 1, '2026-08-08 17:07:02');
-
 -- --------------------------------------------------------
 
 --
@@ -527,13 +456,6 @@ CREATE TABLE `enrollments` (
   `status` enum('active','dropped','completed') DEFAULT 'active'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Dumping data for table `enrollments`
---
-
-INSERT INTO `enrollments` (`id`, `student_id`, `subject_id`, `class_id`, `academic_year`, `semester`, `status`) VALUES
-(1, 4, 1, 1, '2025-26', 'Odd Semester', 'active');
-
 -- --------------------------------------------------------
 
 --
@@ -570,17 +492,6 @@ CREATE TABLE `expense_categories` (
   `code` varchar(40) DEFAULT NULL,
   `meta` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`meta`))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `expense_categories`
---
-
-INSERT INTO `expense_categories` (`id`, `institution_id`, `name`, `code`, `meta`) VALUES
-(1, 1, 'Salaries', 'SAL', NULL),
-(2, 1, 'Lab & Library', 'LAB', NULL),
-(3, 1, 'Infrastructure', 'INFRA', NULL),
-(4, 1, 'Events', 'EVT', NULL),
-(5, 1, 'Utilities', 'UTIL', NULL);
 
 -- --------------------------------------------------------
 
@@ -661,7 +572,7 @@ CREATE TABLE `institutions` (
 --
 
 INSERT INTO `institutions` (`id`, `name`, `code`, `affiliation_university`, `naac_grade`, `nba_status`, `address`, `city`, `state`, `pincode`, `phone`, `email`, `logo_url`, `subscription_tier`, `licensed_seats`, `academic_year`, `current_semester`, `settings`, `is_active`, `created_at`, `updated_at`) VALUES
-(1, 'Madurai Demo Arts & Science College', 'MDASC', 'Madurai Kamaraj University', 'A', NULL, NULL, 'Madurai', 'Tamil Nadu', NULL, NULL, NULL, NULL, 'professional', 120, '2025-26', 'Odd Semester', '{\"timezone\": \"Asia/Kolkata\", \"attendance_min\": 75, \"marks_pattern\": \"Madurai\"}', 1, '2026-08-08 17:07:02', '2026-08-08 17:07:02');
+(1, 'Institution', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'trial', 60, NULL, NULL, '{\"attendance_min\": 75}', 1, '2026-08-08 17:07:02', '2026-08-22 06:17:44');
 
 -- --------------------------------------------------------
 
@@ -693,7 +604,7 @@ INSERT INTO `institution_features` (`id`, `institution_id`, `feature_code`, `is_
 (7, 1, 'ppt_generator', 1, NULL, '2026-08-08 17:07:02', NULL),
 (8, 1, 'assignment_ai', 1, NULL, '2026-08-08 17:07:02', NULL),
 (9, 1, 'attendance', 1, '{\"min_pct\": 75}', '2026-08-08 17:07:02', NULL),
-(10, 1, 'internal_marks', 1, NULL, '2026-08-08 17:07:02', NULL),
+(10, 1, 'internal_marks', 0, NULL, NULL, '2026-08-12 07:43:15'),
 (11, 1, 'version_control', 1, NULL, '2026-08-08 17:07:02', NULL),
 (12, 1, 'notifications', 1, NULL, '2026-08-08 17:07:02', NULL),
 (13, 1, 'student_portal', 1, NULL, '2026-08-08 17:07:02', NULL),
@@ -703,7 +614,7 @@ INSERT INTO `institution_features` (`id`, `institution_id`, `feature_code`, `is_
 (17, 1, 'naac_reports', 1, NULL, '2026-08-08 17:07:02', NULL),
 (18, 1, 'finance', 1, NULL, '2026-08-08 17:07:02', NULL),
 (19, 1, 'user_management', 1, NULL, '2026-08-08 17:07:02', NULL),
-(20, 1, 'api_hub', 0, '{\"coming_soon\": true}', '2026-08-08 17:07:02', NULL);
+(20, 1, 'api_hub', 1, NULL, '2026-08-21 10:58:33', NULL);
 
 -- --------------------------------------------------------
 
@@ -779,13 +690,6 @@ CREATE TABLE `marks_formulas` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Dumping data for table `marks_formulas`
---
-
-INSERT INTO `marks_formulas` (`id`, `institution_id`, `department_id`, `name`, `pattern`, `plain_english`, `components`, `expression`, `total_max`, `ai_parsed`, `is_default`, `meta`, `created_by`, `created_at`) VALUES
-(1, 1, 1, 'Madurai Pattern CIA', 'Madurai', 'Average of CIA1 and CIA2 scaled to 15, plus Assignment 5 and Attendance 5, total 25', '[{\"code\": \"cia1\", \"label\": \"CIA 1\", \"max\": 50, \"weight\": 0.3}, {\"code\": \"cia2\", \"label\": \"CIA 2\", \"max\": 50, \"weight\": 0.3}, {\"code\": \"assignment\", \"label\": \"Assignment\", \"max\": 5, \"weight\": 0.2}, {\"code\": \"attendance\", \"label\": \"Attendance\", \"max\": 5, \"weight\": 0.2}]', '((cia1+cia2)/2)*(15/50) + assignment + attendance', 25.00, NULL, 1, NULL, NULL, '2026-08-08 17:07:02');
-
 -- --------------------------------------------------------
 
 --
@@ -803,15 +707,6 @@ CREATE TABLE `notifications` (
   `meta` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`meta`)),
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `notifications`
---
-
-INSERT INTO `notifications` (`id`, `user_id`, `type`, `title`, `body`, `action_url`, `is_read`, `meta`, `created_at`) VALUES
-(1, 3, 'system', 'Welcome Professor', 'Generate your first AI course plan today.', '/professor/generate-plan.php', 0, NULL, '2026-08-08 17:07:02'),
-(2, 2, 'system', 'Approval queue ready', 'Review faculty course plans from Approvals.', '/hod/approvals.php', 0, NULL, '2026-08-08 17:07:02'),
-(3, 4, 'system', 'Portal active', 'Check courses, attendance and Ask AI.', '/student/dashboard.php', 0, NULL, '2026-08-08 17:07:02');
 
 -- --------------------------------------------------------
 
@@ -886,13 +781,6 @@ CREATE TABLE `presentations` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Dumping data for table `presentations`
---
-
-INSERT INTO `presentations` (`id`, `plan_id`, `professor_id`, `subject_id`, `title`, `slide_count`, `slides`, `status`, `meta`, `created_at`, `updated_at`) VALUES
-(1, NULL, 3, NULL, 'dbms', 0, '[]', 'ready', NULL, '2026-08-08 18:17:13', '2026-08-08 18:17:13');
-
 -- --------------------------------------------------------
 
 --
@@ -910,14 +798,6 @@ CREATE TABLE `programs` (
   `meta` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`meta`)),
   `is_active` tinyint(1) DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `programs`
---
-
-INSERT INTO `programs` (`id`, `institution_id`, `department_id`, `name`, `code`, `level`, `duration_years`, `meta`, `is_active`) VALUES
-(1, 1, 1, 'B.Sc Computer Science', 'BSC-CS', 'UG', 3.0, NULL, 1),
-(2, 1, 2, 'B.Com', 'BCOM', 'UG', 3.0, NULL, 1);
 
 -- --------------------------------------------------------
 
@@ -976,17 +856,6 @@ CREATE TABLE `students_roster` (
   `is_active` tinyint(1) DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Dumping data for table `students_roster`
---
-
-INSERT INTO `students_roster` (`id`, `institution_id`, `class_id`, `user_id`, `register_no`, `full_name`, `email`, `phone`, `meta`, `is_active`) VALUES
-(1, 1, 1, 4, 'CS2024001', 'Rahul Kumar', 'student@proprofessor.local', NULL, NULL, 1),
-(2, 1, 1, NULL, 'CS2024002', 'Priya S', NULL, NULL, NULL, 1),
-(3, 1, 1, NULL, 'CS2024003', 'Arun V', NULL, NULL, NULL, 1),
-(4, 1, 1, NULL, 'CS2024004', 'Meena R', NULL, NULL, NULL, 1),
-(5, 1, 1, NULL, 'CS2024005', 'Karthik M', NULL, NULL, NULL, 1);
-
 -- --------------------------------------------------------
 
 --
@@ -1007,14 +876,6 @@ CREATE TABLE `subjects` (
   `is_active` tinyint(1) DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Dumping data for table `subjects`
---
-
-INSERT INTO `subjects` (`id`, `institution_id`, `department_id`, `code`, `name`, `credits`, `contact_hours`, `semester`, `syllabus_text`, `meta`, `is_active`) VALUES
-(1, 1, 1, 'CS301', 'Database Management Systems', 4.0, 60, 'Odd Semester', 'Unit 1: Introduction to DBMS, Data Models, ER Diagrams\nUnit 2: Relational Model, SQL DDL DML\nUnit 3: Normalization, Transactions\nUnit 4: Indexing, Query Optimization\nUnit 5: NoSQL and Emerging Trends', NULL, 1),
-(2, 1, 1, 'CS302', 'Web Technologies', 3.0, 45, 'Odd Semester', 'Unit 1: HTML5 CSS3 Basics\nUnit 2: JavaScript & DOM\nUnit 3: PHP & MySQL\nUnit 4: REST APIs\nUnit 5: Security & Deployment', NULL, 1);
-
 -- --------------------------------------------------------
 
 --
@@ -1030,13 +891,6 @@ CREATE TABLE `subject_assignments` (
   `semester` varchar(40) DEFAULT NULL,
   `meta` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`meta`))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `subject_assignments`
---
-
-INSERT INTO `subject_assignments` (`id`, `subject_id`, `professor_id`, `class_id`, `academic_year`, `semester`, `meta`) VALUES
-(1, 1, 3, 1, '2025-26', 'Odd Semester', NULL);
 
 -- --------------------------------------------------------
 
@@ -1071,10 +925,7 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `institution_id`, `department_id`, `role`, `email`, `password_hash`, `full_name`, `employee_id`, `register_no`, `phone`, `avatar_url`, `class_id`, `designation`, `preferences`, `extra`, `is_active`, `last_login_at`, `created_at`, `updated_at`) VALUES
-(1, 1, NULL, 'admin', 'admin@proprofessor.local', '$2y$10$xAyEPAOZAEOEbYNTxh5wTO9iBbQ2HrmpogYsezccaXsld0Je4Z0/a', 'College Admin', 'ADM001', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1, '2026-08-08 23:34:31', '2026-08-08 17:07:02', '2026-08-08 18:04:31'),
-(2, 1, 1, 'hod', 'hod@proprofessor.local', '$2y$10$xAyEPAOZAEOEbYNTxh5wTO9iBbQ2HrmpogYsezccaXsld0Je4Z0/a', 'Dr. HOD Computer Science', 'HOD001', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1, '2026-08-08 23:35:45', '2026-08-08 17:07:02', '2026-08-08 18:05:45'),
-(3, 1, 1, 'professor', 'professor@proprofessor.local', '$2y$10$xAyEPAOZAEOEbYNTxh5wTO9iBbQ2HrmpogYsezccaXsld0Je4Z0/a', 'Prof. Anita Sharma', 'PRO001', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1, '2026-08-08 23:46:38', '2026-08-08 17:07:02', '2026-08-08 18:16:38'),
-(4, 1, 1, 'student', 'student@proprofessor.local', '$2y$10$xAyEPAOZAEOEbYNTxh5wTO9iBbQ2HrmpogYsezccaXsld0Je4Z0/a', 'Rahul Kumar', NULL, 'CS2024001', NULL, NULL, 1, NULL, NULL, NULL, 1, '2026-08-08 23:36:28', '2026-08-08 17:07:02', '2026-08-08 18:06:28');
+(1, 1, NULL, 'admin', 'admin@proprofessor.local', '$2y$10$xAyEPAOZAEOEbYNTxh5wTO9iBbQ2HrmpogYsezccaXsld0Je4Z0/a', 'College Admin', 'ADM001', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1, '2026-08-22 11:49:42', '2026-08-08 17:07:02', '2026-08-22 06:19:42');
 
 --
 -- Indexes for dumped tables
@@ -1372,31 +1223,31 @@ ALTER TABLE `users`
 -- AUTO_INCREMENT for table `academic_events`
 --
 ALTER TABLE `academic_events`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `activity_logs`
 --
 ALTER TABLE `activity_logs`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `ai_chats`
 --
 ALTER TABLE `ai_chats`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `ai_chat_messages`
 --
 ALTER TABLE `ai_chat_messages`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `ai_generations`
 --
 ALTER TABLE `ai_generations`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `ai_prompt_templates`
@@ -1408,7 +1259,7 @@ ALTER TABLE `ai_prompt_templates`
 -- AUTO_INCREMENT for table `announcements`
 --
 ALTER TABLE `announcements`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `app_settings`
@@ -1450,7 +1301,7 @@ ALTER TABLE `budgets`
 -- AUTO_INCREMENT for table `classes`
 --
 ALTER TABLE `classes`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `compliance_alerts`
@@ -1474,7 +1325,7 @@ ALTER TABLE `course_plan_versions`
 -- AUTO_INCREMENT for table `departments`
 --
 ALTER TABLE `departments`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `documents`
@@ -1492,7 +1343,7 @@ ALTER TABLE `document_chunks`
 -- AUTO_INCREMENT for table `enrollments`
 --
 ALTER TABLE `enrollments`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `expenses`
@@ -1504,7 +1355,7 @@ ALTER TABLE `expenses`
 -- AUTO_INCREMENT for table `expense_categories`
 --
 ALTER TABLE `expense_categories`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `feature_flags`
@@ -1540,13 +1391,13 @@ ALTER TABLE `lesson_plans`
 -- AUTO_INCREMENT for table `marks_formulas`
 --
 ALTER TABLE `marks_formulas`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `notifications`
 --
 ALTER TABLE `notifications`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `password_resets`
@@ -1570,13 +1421,13 @@ ALTER TABLE `plan_units`
 -- AUTO_INCREMENT for table `presentations`
 --
 ALTER TABLE `presentations`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `programs`
 --
 ALTER TABLE `programs`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `questions`
@@ -1594,25 +1445,25 @@ ALTER TABLE `question_banks`
 -- AUTO_INCREMENT for table `students_roster`
 --
 ALTER TABLE `students_roster`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `subjects`
 --
 ALTER TABLE `subjects`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `subject_assignments`
 --
 ALTER TABLE `subject_assignments`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
 -- Constraints for dumped tables
