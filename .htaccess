@@ -1,0 +1,13 @@
+# Apache — enable rewrite for this folder (some hosts need this)
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  RewriteRule ^ index.php [L]
+</IfModule>
+
+# If the site still 404s on /login, ask host to enable AllowOverride All
+# or open install.php / index.php directly first.
