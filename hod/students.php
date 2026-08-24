@@ -94,6 +94,7 @@ render_header('Department Students', 'students');
   <div class="alert alert-warn">Your HOD account is not linked to a department. Contact the College Admin.</div>
 </div>
 <?php else: ?>
+<div class="hod-students-page">
 <section class="welcome-banner reveal">
   <div>
     <h2><?= e((string)($dept['name'] ?? 'Department')) ?> students</h2>
@@ -101,7 +102,7 @@ render_header('Department Students', 'students');
   </div>
 </section>
 
-<div class="panel reveal">
+<div class="panel reveal hod-students-filters-panel">
   <form method="get" class="form-grid hod-student-filters">
     <div class="form-row hod-student-year-tabs">
       <label>Year</label>
@@ -150,14 +151,14 @@ render_header('Department Students', 'students');
     <?php if ($year > 0): ?>
       <input type="hidden" name="year" value="<?= $year ?>">
     <?php endif; ?>
-    <div class="filters">
+    <div class="filters hod-students-filter-actions">
       <button class="btn btn-primary" type="submit">Apply filters</button>
       <a class="btn btn-ghost" href="<?= e(url('/hod/students')) ?>">Reset</a>
     </div>
   </form>
 </div>
 
-<div class="panel reveal" style="margin-top:1rem">
+<div class="panel reveal hod-students-list-panel">
   <?php if (!$students): ?>
     <div class="empty">No students match the current filters in this department.</div>
   <?php else: ?>
@@ -185,15 +186,15 @@ render_header('Department Students', 'students');
                       $level = strtoupper((string)($classMeta['level'] ?? ''));
                     ?>
                       <tr>
-                        <td>
+                        <td data-label="Student">
                           <strong><?= e($row['full_name']) ?></strong>
                           <div class="cell-sub"><?= e($row['email']) ?></div>
                           <div class="cell-sub"><?= e((string)($row['dept_name'] ?? '')) ?></div>
                         </td>
-                        <td><?= e((string)($row['register_no'] ?? '—')) ?></td>
-                        <td><?= $level !== '' ? e($level) : '—' ?></td>
-                        <td><?= e((string)($row['class_name'] ?? '—')) ?></td>
-                        <td><?= e((string)($row['class_section'] ?? '—')) ?></td>
+                        <td data-label="Roll / Reg. No."><?= e((string)($row['register_no'] ?? '—')) ?></td>
+                        <td data-label="Program"><?= $level !== '' ? e($level) : '—' ?></td>
+                        <td data-label="Class"><?= e((string)($row['class_name'] ?? '—')) ?></td>
+                        <td data-label="Section"><?= e((string)($row['class_section'] ?? '—')) ?></td>
                       </tr>
                     <?php endforeach; ?>
                   </tbody>
@@ -205,6 +206,7 @@ render_header('Department Students', 'students');
       <?php endforeach; ?>
     </div>
   <?php endif; ?>
+</div>
 </div>
 <?php endif; ?>
 <?php render_footer(); ?>

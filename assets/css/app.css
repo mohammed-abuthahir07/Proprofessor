@@ -889,6 +889,150 @@ a.chip.active {
 }
 
 .hod-student-filters .hod-student-year-tabs .chip-row { margin-top: .35rem; }
+
+/* HOD Students — mobile layout (scoped to this module only) */
+.hod-students-page {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+}
+.hod-students-page .welcome-banner,
+.hod-students-page .panel {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.hod-students-page .hod-student-filters select,
+.hod-students-page .hod-student-filters input[type="search"] {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.hod-students-page .hod-student-year-tabs .chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+}
+.hod-students-page .hod-student-year-tabs .chip {
+  flex: 1 1 calc(50% - .25rem);
+  justify-content: center;
+  text-align: center;
+  min-height: 40px;
+}
+.hod-students-page .hod-students-filter-actions {
+  width: 100%;
+  gap: .5rem;
+}
+.hod-students-page .hod-students-filter-actions .btn {
+  flex: 1 1 8rem;
+  min-height: 44px;
+}
+.hod-students-page .students-section {
+  padding-left: 0;
+  border-left: none;
+  padding-top: .15rem;
+}
+.hod-students-page .students-section > h4 {
+  padding-left: .15rem;
+}
+.hod-students-page .students-section .table-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .hod-students-page .students-section .table-wrap table {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .hod-students-page .hod-student-filters .form-row.two {
+    grid-template-columns: 1fr;
+    gap: .75rem;
+  }
+  .hod-students-page .hod-students-filter-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .hod-students-page .hod-students-filter-actions .btn {
+    width: 100%;
+    flex: 1 1 auto;
+  }
+  .hod-students-page .students-section .table-wrap {
+    overflow-x: visible;
+    border: none;
+    background: transparent;
+  }
+  .hod-students-page .students-section table thead {
+    display: none;
+  }
+  .hod-students-page .students-section table,
+  .hod-students-page .students-section tbody,
+  .hod-students-page .students-section tr,
+  .hod-students-page .students-section td {
+    display: block;
+    width: 100%;
+  }
+  .hod-students-page .students-section tr {
+    margin-bottom: .75rem;
+    padding: .9rem .95rem;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(15, 12, 35, 0.55);
+  }
+  .hod-students-page .students-section tr:hover td {
+    background: transparent;
+  }
+  .hod-students-page .students-section td {
+    border: none;
+    padding: .45rem 0;
+    font-size: .88rem;
+  }
+  .hod-students-page .students-section td:first-child {
+    padding-top: 0;
+  }
+  .hod-students-page .students-section td:last-child {
+    padding-bottom: 0;
+  }
+  .hod-students-page .students-section td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: .2rem;
+  }
+  .hod-students-page .students-section td[data-label="Student"]::before {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .hod-students-page .welcome-banner {
+    padding: 1rem .95rem;
+  }
+  .hod-students-page .welcome-banner h2 {
+    font-size: 1.2rem;
+    line-height: 1.25;
+  }
+  .hod-students-page .welcome-banner p {
+    font-size: .82rem;
+  }
+  .hod-students-page .hod-student-year-tabs .chip {
+    flex: 1 1 100%;
+  }
+  .hod-students-page .students-year > h3 {
+    font-size: .98rem;
+  }
+}
+
 .hod-course-nav .form-row { margin-bottom: .85rem; }
 .hod-course-nav .form-row:last-of-type { margin-bottom: .35rem; }
 .hod-course-context {
