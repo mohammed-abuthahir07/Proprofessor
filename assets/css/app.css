@@ -889,6 +889,14 @@ a.chip.active {
 }
 
 .hod-student-filters .hod-student-year-tabs .chip-row { margin-top: .35rem; }
+.hod-course-nav .form-row { margin-bottom: .85rem; }
+.hod-course-nav .form-row:last-of-type { margin-bottom: .35rem; }
+.hod-course-context {
+  margin: .55rem 0 0;
+  color: var(--muted);
+  font-size: .88rem;
+}
+.hod-course-context strong { color: var(--ink-soft); font-weight: 650; }
 .students-tree { display: grid; gap: 1.25rem; }
 .students-year > h3 {
   margin: 0 0 .75rem;

@@ -357,13 +357,15 @@ function professor_manageable_classes(array $user): array
     );
 }
 
-function enroll_class_students_in_subject(int $institutionId, int $classId, int $subjectId): void
+function enroll_class_students_in_subject(int $institutionId, int $classId, int $subjectId, ?string $semesterOverride = null): void
 {
     if ($classId < 1 || $subjectId < 1) {
         return;
     }
     $academicYear = institution_academic_year($institutionId);
-    $semester = institution_current_semester($institutionId);
+    $semester = trim((string)$semesterOverride) !== ''
+        ? subject_normalize_semester((string)$semesterOverride)
+        : institution_current_semester($institutionId);
     $students = Database::fetchAll(
         'SELECT id FROM users WHERE institution_id = ? AND role = "student" AND class_id = ? AND is_active = 1',
         [$institutionId, $classId]
@@ -404,9 +406,11 @@ function courses_for_student(array $user): array
         return [];
     }
     $academicYear = institution_academic_year($inst);
-    $sql = 'SELECT s.*, u.full_name AS professor_name, e.semester, cp.bloom_data, cp.ai_score
+    $sql = 'SELECT s.*, u.full_name AS professor_name, e.semester, cp.bloom_data, cp.ai_score,
+                   c.year AS class_year
             FROM enrollments e
             JOIN subjects s ON s.id = e.subject_id
+            LEFT JOIN classes c ON c.id = e.class_id
             LEFT JOIN subject_assignments sa ON sa.subject_id = s.id AND sa.class_id = e.class_id
             LEFT JOIN users u ON u.id = sa.professor_id
             LEFT JOIN course_plans cp ON cp.subject_id = s.id AND cp.class_id = e.class_id AND cp.status = "approved"
@@ -418,7 +422,28 @@ function courses_for_student(array $user): array
         $params[] = $academicYear;
     }
     $sql .= ' ORDER BY s.name';
-    return Database::fetchAll($sql, $params);
+    $rows = Database::fetchAll($sql, $params);
+    $classYear = 0;
+    foreach ($rows as $row) {
+        $classYear = (int)($row['class_year'] ?? 0);
+        if ($classYear > 0) {
+            break;
+        }
+    }
+    if ($classYear < 1) {
+        $class = Database::fetch('SELECT year FROM classes WHERE id = ?', [$classId]);
+        $classYear = (int)($class['year'] ?? 0);
+    }
+    if ($classYear < 1) {
+        return $rows;
+    }
+    return array_values(array_filter(
+        $rows,
+        static function (array $row) use ($classYear): bool {
+            $subjectYear = subject_academic_year_level($row);
+            return $subjectYear < 1 || $subjectYear === $classYear;
+        }
+    ));
 }
 
 function announcements_for_user(array $user, int $limit = 0): array
@@ -544,6 +569,65 @@ function hod_department_id(array $user): int
     return 0;
 }
 
+function subject_year_label(int $year): string
+{
+    return match ($year) {
+        1 => '1st Year',
+        2 => '2nd Year',
+        3 => '3rd Year',
+        4 => '4th Year',
+        default => $year > 0 ? ('Year ' . $year) : 'Unassigned',
+    };
+}
+
+function subject_normalize_semester(?string $semester): string
+{
+    $raw = strtolower(trim((string)$semester));
+    if ($raw === '' || str_contains($raw, 'odd')) {
+        return 'Odd Semester';
+    }
+    if (str_contains($raw, 'even')) {
+        return 'Even Semester';
+    }
+    return 'Odd Semester';
+}
+
+function subject_semester_key(?string $semester): string
+{
+    return str_contains(strtolower(subject_normalize_semester($semester)), 'even') ? 'even' : 'odd';
+}
+
+function subject_meta_array(array $subject): array
+{
+    $meta = json_decode((string)($subject['meta'] ?? ''), true);
+    return is_array($meta) ? $meta : [];
+}
+
+function subject_academic_year_level(array $subject): int
+{
+    $meta = subject_meta_array($subject);
+    $year = (int)($meta['year'] ?? $meta['academic_year_level'] ?? 0);
+    return ($year >= 1 && $year <= 4) ? $year : 0;
+}
+
+function subject_course_type(array $subject): string
+{
+    $meta = subject_meta_array($subject);
+    $type = strtolower(trim((string)($meta['course_type'] ?? $meta['type'] ?? 'theory')));
+    return $type === 'lab' ? 'lab' : 'theory';
+}
+
+function subject_build_meta(int $year, string $courseType, ?string $existingMeta = null): string
+{
+    $meta = json_decode((string)$existingMeta, true);
+    if (!is_array($meta)) {
+        $meta = [];
+    }
+    $meta['year'] = ($year >= 1 && $year <= 4) ? $year : 0;
+    $meta['course_type'] = strtolower(trim($courseType)) === 'lab' ? 'lab' : 'theory';
+    return json_encode($meta, JSON_UNESCAPED_UNICODE);
+}
+
 function hod_save_subject(array $hodUser, string $code, string $name, array $extra = []): int
 {
     $deptId = hod_department_id($hodUser);
@@ -556,8 +640,14 @@ function hod_save_subject(array $hodUser, string $code, string $name, array $ext
     if ($code === '' || $name === '') {
         throw new RuntimeException('Subject code and name are required.');
     }
+    $year = (int)($extra['year'] ?? 0);
+    if ($year < 1 || $year > 4) {
+        throw new RuntimeException('Select an academic year (1st–4th).');
+    }
+    $courseType = strtolower(trim((string)($extra['course_type'] ?? 'theory'))) === 'lab' ? 'lab' : 'theory';
+    $semester = subject_normalize_semester((string)($extra['semester'] ?? 'Odd Semester'));
     $existing = Database::fetch(
-        'SELECT id, department_id FROM subjects WHERE institution_id = ? AND code = ?',
+        'SELECT id, department_id, meta FROM subjects WHERE institution_id = ? AND code = ?',
         [$inst, $code]
     );
     $payload = [
@@ -565,8 +655,9 @@ function hod_save_subject(array $hodUser, string $code, string $name, array $ext
         'department_id' => $deptId,
         'credits' => (float)($extra['credits'] ?? 3.0),
         'contact_hours' => (int)($extra['contact_hours'] ?? 45),
-        'semester' => trim((string)($extra['semester'] ?? '')) ?: null,
+        'semester' => $semester,
         'syllabus_text' => trim((string)($extra['syllabus_text'] ?? '')) ?: null,
+        'meta' => subject_build_meta($year, $courseType, $existing['meta'] ?? null),
         'is_active' => 1,
     ];
     if ($existing) {
@@ -589,7 +680,7 @@ function hod_assign_professor_subject(array $hodUser, int $subjectId, int $profe
     }
     $inst = (int)$hodUser['institution_id'];
     $subject = Database::fetch(
-        'SELECT id, department_id FROM subjects WHERE id = ? AND institution_id = ? AND department_id = ? AND is_active = 1',
+        'SELECT id, department_id, semester, meta FROM subjects WHERE id = ? AND institution_id = ? AND department_id = ? AND is_active = 1',
         [$subjectId, $inst, $deptId]
     );
     if (!$subject) {
@@ -603,14 +694,24 @@ function hod_assign_professor_subject(array $hodUser, int $subjectId, int $profe
         throw new RuntimeException('Professor not found in your department.');
     }
     $class = Database::fetch(
-        'SELECT id FROM classes WHERE id = ? AND institution_id = ? AND department_id = ? AND is_active = 1',
+        'SELECT id, year FROM classes WHERE id = ? AND institution_id = ? AND department_id = ? AND is_active = 1',
         [$classId, $inst, $deptId]
     );
     if (!$class) {
         throw new RuntimeException('Class not found in your department.');
     }
+    $subjectYear = subject_academic_year_level($subject);
+    $classYear = (int)($class['year'] ?? 0);
+    if ($subjectYear > 0 && $classYear > 0 && $subjectYear !== $classYear) {
+        throw new RuntimeException(
+            'Class year must match the course year (' . subject_year_label($subjectYear) . ').'
+        );
+    }
     $academicYear = institution_academic_year($inst);
-    $semester = institution_current_semester($inst);
+    $subjectSemester = trim((string)($subject['semester'] ?? ''));
+    $semester = $subjectSemester !== ''
+        ? subject_normalize_semester($subjectSemester)
+        : (institution_current_semester($inst) ?: null);
     $existing = Database::fetch(
         'SELECT id FROM subject_assignments
          WHERE subject_id = ? AND professor_id = ? AND class_id = ?
@@ -631,7 +732,7 @@ function hod_assign_professor_subject(array $hodUser, int $subjectId, int $profe
             'semester' => $semester ?: null,
         ]);
     }
-    enroll_class_students_in_subject($inst, $classId, $subjectId);
+    enroll_class_students_in_subject($inst, $classId, $subjectId, is_string($semester) ? $semester : null);
 }
 
 function subjects_for_department(int $institutionId, int $departmentId): array
@@ -645,6 +746,36 @@ function subjects_for_department(int $institutionId, int $departmentId): array
          ORDER BY s.code, s.name',
         [$institutionId, $departmentId]
     );
+}
+
+/**
+ * @return list<array<string,mixed>>
+ */
+function subjects_for_department_context(
+    int $institutionId,
+    int $departmentId,
+    int $year,
+    string $semesterKey,
+    ?string $courseType = null
+): array {
+    $semesterKey = $semesterKey === 'even' ? 'even' : 'odd';
+    $typeFilter = $courseType !== null
+        ? (strtolower($courseType) === 'lab' ? 'lab' : 'theory')
+        : null;
+    $out = [];
+    foreach (subjects_for_department($institutionId, $departmentId) as $subject) {
+        if ($year > 0 && subject_academic_year_level($subject) !== $year) {
+            continue;
+        }
+        if (subject_semester_key((string)($subject['semester'] ?? '')) !== $semesterKey) {
+            continue;
+        }
+        if ($typeFilter !== null && subject_course_type($subject) !== $typeFilter) {
+            continue;
+        }
+        $out[] = $subject;
+    }
+    return $out;
 }
 
 function subject_assignments_for_department(int $institutionId, int $departmentId): array
