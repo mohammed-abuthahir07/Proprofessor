@@ -415,6 +415,7 @@ After `php database/seed_e2e_test_data.php --confirm-local-reset`:
 | Student — 1st Year A | `mohammed@test.com` | Register CSE24001 |
 | Student — 1st Year A | `ananya@test.com` | Register CSE24002 |
 | Student — 1st Year B | `arjun@test.com` | Register CSE24011 |
+| Student - 2nd Year A | `mani@test.com` | Register CSE230012
 
 Seed also creates ECE, EEE, IT, MECH HODs/professors/students — see script output.
 
