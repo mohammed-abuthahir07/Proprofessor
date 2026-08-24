@@ -797,6 +797,106 @@ function subject_assignments_for_department(int $institutionId, int $departmentI
     );
 }
 
+/**
+ * Active students in a department grouped by class year (1–4).
+ *
+ * @return array{labels: list<string>, counts: list<int>, total: int}
+ */
+function hod_analytics_students_by_year(int $institutionId, int $departmentId): array
+{
+    $labels = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+    $counts = [0, 0, 0, 0];
+    if ($departmentId < 1 || $institutionId < 1) {
+        return ['labels' => $labels, 'counts' => $counts, 'total' => 0];
+    }
+    $rows = Database::fetchAll(
+        'SELECT COALESCE(c.year, 0) AS class_year, COUNT(*) AS student_count
+         FROM users u
+         LEFT JOIN classes c ON c.id = u.class_id
+         WHERE u.institution_id = ?
+           AND u.department_id = ?
+           AND u.role = "student"
+           AND u.is_active = 1
+         GROUP BY COALESCE(c.year, 0)',
+        [$institutionId, $departmentId]
+    );
+    $total = 0;
+    foreach ($rows as $row) {
+        $year = (int)($row['class_year'] ?? 0);
+        $count = (int)($row['student_count'] ?? 0);
+        $total += $count;
+        if ($year >= 1 && $year <= 4) {
+            $counts[$year - 1] = $count;
+        }
+    }
+    return ['labels' => $labels, 'counts' => $counts, 'total' => $total];
+}
+
+/**
+ * Professor theory/lab workload for a department (distinct assigned subjects).
+ *
+ * @return list<array{professor_id:int, name:string, theory:int, labs:int, total:int}>
+ */
+function hod_analytics_professor_workload(int $institutionId, int $departmentId): array
+{
+    if ($departmentId < 1 || $institutionId < 1) {
+        return [];
+    }
+    $professors = Database::fetchAll(
+        'SELECT id, full_name FROM users
+         WHERE institution_id = ? AND department_id = ? AND role = "professor" AND is_active = 1
+         ORDER BY full_name',
+        [$institutionId, $departmentId]
+    );
+    $assignments = Database::fetchAll(
+        'SELECT sa.professor_id, sa.subject_id, s.meta
+         FROM subject_assignments sa
+         JOIN subjects s ON s.id = sa.subject_id
+         JOIN users u ON u.id = sa.professor_id
+         WHERE s.institution_id = ?
+           AND s.department_id = ?
+           AND s.is_active = 1
+           AND u.department_id = ?
+           AND u.role = "professor"
+           AND u.is_active = 1',
+        [$institutionId, $departmentId, $departmentId]
+    );
+
+    /** @var array<int, array{theory: array<int, true>, labs: array<int, true>}> $byProf */
+    $byProf = [];
+    foreach ($assignments as $row) {
+        $pid = (int)$row['professor_id'];
+        $sid = (int)$row['subject_id'];
+        if ($pid < 1 || $sid < 1) {
+            continue;
+        }
+        if (!isset($byProf[$pid])) {
+            $byProf[$pid] = ['theory' => [], 'labs' => []];
+        }
+        $type = subject_course_type(['meta' => $row['meta'] ?? null]);
+        if ($type === 'lab') {
+            $byProf[$pid]['labs'][$sid] = true;
+        } else {
+            $byProf[$pid]['theory'][$sid] = true;
+        }
+    }
+
+    $out = [];
+    foreach ($professors as $p) {
+        $pid = (int)$p['id'];
+        $theory = isset($byProf[$pid]) ? count($byProf[$pid]['theory']) : 0;
+        $labs = isset($byProf[$pid]) ? count($byProf[$pid]['labs']) : 0;
+        $out[] = [
+            'professor_id' => $pid,
+            'name' => (string)$p['full_name'],
+            'theory' => $theory,
+            'labs' => $labs,
+            'total' => $theory + $labs,
+        ];
+    }
+    return $out;
+}
+
 function save_professor_subject(array $user, string $code, string $name, ?int $classId = null): int
 {
     throw new RuntimeException('Courses are created by your HOD. Contact the department HOD to add or assign subjects.');

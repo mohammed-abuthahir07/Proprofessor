@@ -254,4 +254,175 @@ window.PPAI = {
       },
     });
   },
+
+  _chartDefaults() {
+    return {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: {
+          labels: { color: '#c4b5fd', boxWidth: 12, font: { family: 'DM Sans' } },
+        },
+        tooltip: {
+          backgroundColor: 'rgba(26, 22, 53, 0.95)',
+          titleColor: '#f5f3ff',
+          bodyColor: '#c4b5fd',
+          borderColor: 'rgba(167, 139, 250, 0.35)',
+          borderWidth: 1,
+        },
+      },
+    };
+  },
+
+  renderBarChart(canvasId, cfg) {
+    const el = document.getElementById(canvasId);
+    if (!el || !window.Chart) return;
+    const labels = cfg.labels || [];
+    const values = cfg.values || [];
+    new Chart(el, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: cfg.label || 'Count',
+          data: values,
+          backgroundColor: cfg.color || '#8b5cf6',
+          borderRadius: 8,
+          maxBarThickness: 48,
+        }],
+      },
+      options: {
+        ...this._chartDefaults(),
+        plugins: {
+          ...this._chartDefaults().plugins,
+          legend: { display: false },
+        },
+        scales: {
+          x: {
+            ticks: { color: '#c4b5fd', font: { family: 'DM Sans' } },
+            grid: { color: 'rgba(139, 92, 246, 0.12)' },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: {
+              color: '#c4b5fd',
+              font: { family: 'DM Sans' },
+              precision: 0,
+              stepSize: 1,
+            },
+            grid: { color: 'rgba(139, 92, 246, 0.12)' },
+          },
+        },
+      },
+    });
+  },
+
+  renderWorkloadChart(canvasId, cfg) {
+    const el = document.getElementById(canvasId);
+    if (!el || !window.Chart) return;
+    const labels = cfg.labels || [];
+    const values = (cfg.values || []).map((v) => Number(v) || 0);
+    const preferBar = !!cfg.preferBar || labels.length > 6;
+    const colors = cfg.colors || ['#8b5cf6', '#a78bfa', '#6366f1', '#38bdf8', '#fbbf24', '#fb923c', '#22d3ee', '#34d399'];
+    if (preferBar) {
+      new Chart(el, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: cfg.label || 'Assigned',
+            data: values,
+            backgroundColor: colors[0],
+            borderRadius: 8,
+            maxBarThickness: 28,
+          }],
+        },
+        options: {
+          ...this._chartDefaults(),
+          indexAxis: 'y',
+          plugins: {
+            ...this._chartDefaults().plugins,
+            legend: { display: false },
+          },
+          scales: {
+            x: {
+              beginAtZero: true,
+              ticks: { color: '#c4b5fd', precision: 0, stepSize: 1 },
+              grid: { color: 'rgba(139, 92, 246, 0.12)' },
+            },
+            y: {
+              ticks: { color: '#c4b5fd', font: { family: 'DM Sans', size: 11 } },
+              grid: { display: false },
+            },
+          },
+        },
+      });
+      return;
+    }
+    new Chart(el, {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: labels.map((_, i) => colors[i % colors.length]),
+          borderWidth: 0,
+        }],
+      },
+      options: {
+        ...this._chartDefaults(),
+        cutout: '58%',
+        plugins: {
+          ...this._chartDefaults().plugins,
+          legend: {
+            position: 'bottom',
+            labels: { color: '#c4b5fd', boxWidth: 12, font: { family: 'DM Sans' } },
+          },
+        },
+      },
+    });
+  },
+
+  renderStackedBarChart(canvasId, cfg) {
+    const el = document.getElementById(canvasId);
+    if (!el || !window.Chart) return;
+    new Chart(el, {
+      type: 'bar',
+      data: {
+        labels: cfg.labels || [],
+        datasets: [
+          {
+            label: 'Theory',
+            data: cfg.theory || [],
+            backgroundColor: '#8b5cf6',
+            borderRadius: 6,
+            maxBarThickness: 36,
+          },
+          {
+            label: 'Labs',
+            data: cfg.labs || [],
+            backgroundColor: '#38bdf8',
+            borderRadius: 6,
+            maxBarThickness: 36,
+          },
+        ],
+      },
+      options: {
+        ...this._chartDefaults(),
+        scales: {
+          x: {
+            stacked: true,
+            ticks: { color: '#c4b5fd', font: { family: 'DM Sans', size: 11 } },
+            grid: { color: 'rgba(139, 92, 246, 0.12)' },
+          },
+          y: {
+            stacked: true,
+            beginAtZero: true,
+            ticks: { color: '#c4b5fd', precision: 0, stepSize: 1 },
+            grid: { color: 'rgba(139, 92, 246, 0.12)' },
+          },
+        },
+      },
+    });
+  },
 };

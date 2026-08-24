@@ -840,6 +840,70 @@ tr.inline-fb-row:hover td { background: transparent; }
 
 .analytics-grid { align-items: start; }
 .chart-box { min-height: 240px; }
+.hod-analytics-page {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.hod-analytics-page .panel {
+  min-width: 0;
+  max-width: 100%;
+}
+.hod-analytics-legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin-top: .75rem;
+}
+.hod-analytics-page .chart-box-bar {
+  min-height: 260px;
+}
+.hod-workload-table {
+  margin-top: .35rem;
+}
+@media (max-width: 900px) {
+  .hod-analytics-page .analytics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 768px) {
+  .hod-analytics-page .hod-workload-table table thead {
+    display: none;
+  }
+  .hod-analytics-page .hod-workload-table table,
+  .hod-analytics-page .hod-workload-table tbody,
+  .hod-analytics-page .hod-workload-table tr,
+  .hod-analytics-page .hod-workload-table td {
+    display: block;
+    width: 100%;
+  }
+  .hod-analytics-page .hod-workload-table tr {
+    margin-bottom: .65rem;
+    padding: .8rem .9rem;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(15, 12, 35, 0.55);
+  }
+  .hod-analytics-page .hod-workload-table td {
+    border: none;
+    padding: .35rem 0;
+  }
+  .hod-analytics-page .hod-workload-table td::before {
+    content: attr(data-label);
+    display: inline-block;
+    min-width: 4.5rem;
+    color: var(--muted);
+    font-size: .72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-right: .5rem;
+  }
+  .hod-analytics-page .chart-box,
+  .hod-analytics-page .chart-box-bar {
+    min-height: 220px;
+  }
+}
 .analytics-status h2 { margin-bottom: 1rem; }
 .analytics-status h3 {
   margin: 1.4rem 0 .75rem;
