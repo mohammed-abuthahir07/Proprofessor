@@ -467,15 +467,19 @@ final class AttendanceTools
             if ($exists) {
                 continue;
             }
-            Database::insert('notifications', [
-                'user_id' => $uid,
-                'type' => 'attendance_shortage',
-                'title' => 'Attendance: ' . $band['label'],
-                'body' => 'Your attendance is ' . $pct . '%. ' . $band['label'] . ' [' . $marker . ']',
-                'action_url' => base_url('/student/attendance.php'),
-                'is_read' => 0,
-                'meta' => json_encode(['marker' => $marker, 'percent' => $pct, 'band' => $band['band']], JSON_UNESCAPED_UNICODE),
-            ]);
+            notify_user(
+                $uid,
+                'attendance_shortage',
+                'Attendance: ' . $band['label'],
+                'Your attendance is ' . $pct . '%. ' . $band['label'] . ' [' . $marker . ']',
+                '/student/attendance.php',
+                [
+                    'priority' => $band['band'] === 'below' ? 'high' : 'medium',
+                    'category' => 'attendance',
+                    'action' => ['type' => 'STUDENT_ATTENDANCE'],
+                    'meta' => ['marker' => $marker, 'percent' => $pct, 'band' => $band['band']],
+                ]
+            );
             $sent++;
         }
         return $sent;
@@ -669,7 +673,16 @@ final class AttendanceTools
             'attendance_regularization',
             'Regularization request',
             (string)($student['full_name'] ?? 'Student') . ' requested ' . $requestedStatus . ' for ' . $session['session_date'],
-            base_url('/professor/attendance.php?class_id=' . (int)$session['class_id'] . '&subject_id=' . (int)$session['subject_id'] . '&tab=tools')
+            '/professor/attendance.php?class_id=' . (int)$session['class_id'] . '&subject_id=' . (int)$session['subject_id'] . '&tab=tools',
+            [
+                'priority' => 'medium',
+                'category' => 'attendance',
+                'action' => [
+                    'type' => 'VIEW_ATTENDANCE',
+                    'class_id' => (int)$session['class_id'],
+                    'subject_id' => (int)$session['subject_id'],
+                ],
+            ]
         );
         return ['ok' => true, 'id' => $id];
     }
@@ -721,7 +734,12 @@ final class AttendanceTools
             $decision === 'approved'
                 ? 'Your attendance was updated to ' . $req['requested_status'] . '.'
                 : 'Your regularization request was rejected.' . ($note !== '' ? ' ' . $note : ''),
-            base_url('/student/attendance.php')
+            '/student/attendance.php',
+            [
+                'priority' => 'medium',
+                'category' => 'attendance',
+                'action' => ['type' => 'STUDENT_ATTENDANCE'],
+            ]
         );
         return ['ok' => true];
     }

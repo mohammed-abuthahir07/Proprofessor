@@ -58,5 +58,24 @@ return [
         'provider' => getenv('AI_CONTENT_DETECTION_PROVIDER') ?: '',
     ],
 
+    // Notification delivery channels. Leave disabled until real credentials are set.
+    // Never put API keys in the frontend — only server-side config / env vars.
+    'notifications' => [
+        'email' => [
+            'enabled' => (getenv('PPAI_MAIL_ENABLED') ?: '') === '1',
+            'from' => getenv('PPAI_MAIL_FROM') ?: '',
+        ],
+        'whatsapp' => [
+            'enabled' => (getenv('PPAI_WHATSAPP_ENABLED') ?: '') === '1',
+            'provider' => getenv('PPAI_WHATSAPP_PROVIDER') ?: '',
+            'api_key' => getenv('PPAI_WHATSAPP_API_KEY') ?: '',
+        ],
+        'sms' => [
+            'enabled' => (getenv('PPAI_SMS_ENABLED') ?: '') === '1',
+            'provider' => getenv('PPAI_SMS_PROVIDER') ?: '',
+            'api_key' => getenv('PPAI_SMS_API_KEY') ?: '',
+        ],
+    ],
+
 ];
 

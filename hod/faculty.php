@@ -35,7 +35,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'announce') {
         $deptId ? [$instId, $deptId] : [$instId]
     );
     foreach ($profs as $p) {
-        notify_user((int)$p['id'], 'system', $title, $body, '/professor/notifications.php');
+        notify_user((int)$p['id'], 'system', $title, $body, '/professor/notifications.php', [
+            'priority' => 'medium',
+            'category' => 'system',
+            'action' => ['type' => 'OPEN_NOTIFICATIONS'],
+        ]);
     }
     flash('success', 'Circular sent to department faculty.');
     redirect('/hod/faculty.php');

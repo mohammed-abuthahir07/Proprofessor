@@ -74,7 +74,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $hodUserId = (int)($fallbackHod['id'] ?? 0);
         }
         if ($hodUserId > 0) {
-            notify_user($hodUserId, 'approval', 'Course plan submitted', 'A faculty plan awaits review.', '/hod/approvals.php');
+            notify_user(
+                $hodUserId,
+                'approval',
+                'Course plan submitted',
+                'A faculty plan awaits review.',
+                '/hod/approvals.php',
+                [
+                    'priority' => 'high',
+                    'category' => 'approvals',
+                    'action' => ['type' => 'APPROVE_PLAN', 'record_id' => $id],
+                ]
+            );
         }
         flash('success', 'Plan submitted to HOD.');
         redirect('/professor/plans.php');

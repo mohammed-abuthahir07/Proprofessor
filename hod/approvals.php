@@ -61,7 +61,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'approval',
             'Plan ' . str_replace('_', ' ', $status),
             $summary,
-            '/professor/plan-view.php?id=' . $planId
+            '/professor/plan-view.php?id=' . $planId,
+            [
+                'priority' => 'high',
+                'category' => 'approvals',
+                'action' => ['type' => 'VIEW_PLAN', 'record_id' => $planId],
+            ]
         );
         flash('success', 'Point-by-point feedback saved.');
     }

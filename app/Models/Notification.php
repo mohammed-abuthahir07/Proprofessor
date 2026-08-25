@@ -10,18 +10,23 @@ final class Notification extends Model
 {
     protected static string $table = 'notifications';
 
-    public static function forUser(int $userId, ?string $type = null, int $limit = 100): array
+    public static function forUser(int $userId, ?string $type = null, int $limit = 100, ?string $priority = null): array
     {
-        if ($type) {
-            return Database::fetchAll(
-                'SELECT * FROM notifications WHERE user_id = ? AND type = ? ORDER BY created_at DESC LIMIT ' . (int)$limit,
-                [$userId, $type]
-            );
+        if (class_exists('\\NotificationService', false)) {
+            \NotificationService::ensureSchema();
         }
-        return Database::fetchAll(
-            'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ' . (int)$limit,
-            [$userId]
-        );
+        $sql = 'SELECT * FROM notifications WHERE user_id = ?';
+        $params = [$userId];
+        if ($type) {
+            $sql .= ' AND type = ?';
+            $params[] = $type;
+        }
+        if ($priority && in_array($priority, ['high', 'medium', 'low'], true)) {
+            $sql .= ' AND priority = ?';
+            $params[] = $priority;
+        }
+        $sql .= ' ORDER BY created_at DESC LIMIT ' . (int)$limit;
+        return Database::fetchAll($sql, $params);
     }
 
     public static function markAllRead(int $userId): void

@@ -622,7 +622,12 @@ final class AssignmentTools
                 'assignment_extension',
                 'Extension request: ' . (string)$asg['title'],
                 (string)($user['full_name'] ?? 'Student') . ' requested an extension.',
-                base_url('/professor/assignments.php?id=' . $assignmentId)
+                '/professor/assignments.php?id=' . $assignmentId,
+                [
+                    'priority' => 'high',
+                    'category' => 'assignments',
+                    'action' => ['type' => 'GRADE_ASSIGNMENT', 'record_id' => $assignmentId],
+                ]
             );
         }
         return ['ok' => true, 'id' => $id];
@@ -662,7 +667,12 @@ final class AssignmentTools
             $decision === 'approved'
                 ? ('Your new deadline is ' . $approvedDeadline)
                 : ('Your extension request was rejected.' . ($note !== '' ? ' ' . $note : '')),
-            base_url('/student/assignments.php')
+            '/student/assignments.php',
+            [
+                'priority' => 'medium',
+                'category' => 'assignments',
+                'action' => ['type' => 'STUDENT_ASSIGNMENTS'],
+            ]
         );
         return ['ok' => true];
     }

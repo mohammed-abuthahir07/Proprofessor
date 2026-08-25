@@ -16,6 +16,7 @@ require_once __DIR__ . '/../includes/SimplePdf.php';
 require_once __DIR__ . '/../includes/LessonPlanTools.php';
 require_once __DIR__ . '/../includes/QuestionBankTools.php';
 require_once __DIR__ . '/../includes/Permissions.php';
+require_once __DIR__ . '/../includes/NotificationService.php';
 
 require_once __DIR__ . '/Core/Autoloader.php';
 \App\Core\Autoloader::register(__DIR__);

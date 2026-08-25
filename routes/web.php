@@ -43,6 +43,7 @@ $router->get('/admin/naac', [NaacController::class, 'index']);
 $router->get('/admin/analytics', [AdminAnalyticsController::class, 'index']);
 $router->get('/admin/billing', [BillingController::class, 'index']);
 $router->get('/admin/notifications', [NotificationController::class, 'index']);
+$router->post('/admin/notifications', [NotificationController::class, 'index']);
 
 // Role dashboards (MVC)
 $router->get('/professor/dashboard', [ProfessorDashboardController::class, 'index']);
@@ -52,8 +53,11 @@ $router->get('/hod/dashboard', [HodDashboardController::class, 'index']);
 $router->get('/api/hod/students', [HodStudentsController::class, 'list']);
 
 $router->get('/professor/notifications', [NotificationController::class, 'index']);
+$router->post('/professor/notifications', [NotificationController::class, 'index']);
 $router->get('/student/notifications', [NotificationController::class, 'index']);
+$router->post('/student/notifications', [NotificationController::class, 'index']);
 $router->get('/hod/notifications', [NotificationController::class, 'index']);
+$router->post('/hod/notifications', [NotificationController::class, 'index']);
 
 // AI API
 $router->post('/api/ai', [AiController::class, 'handle']);

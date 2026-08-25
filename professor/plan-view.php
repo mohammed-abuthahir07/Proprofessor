@@ -47,7 +47,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'plan_comment',
                 'New course plan comment',
                 $user['full_name'] . ' commented on ' . $plan['title'],
-                '/professor/plan-view.php?id=' . $id . '&tab=comments'
+                '/professor/plan-view.php?id=' . $id . '&tab=comments',
+                [
+                    'priority' => 'medium',
+                    'category' => 'course_plans',
+                    'action' => ['type' => 'VIEW_PLAN', 'record_id' => $id],
+                ]
             );
         }
         flash('success', 'Comment added.');

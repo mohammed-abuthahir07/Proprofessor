@@ -20,4 +20,10 @@ return [
         'pass' => 'YOUR_DB_PASSWORD',
         'charset' => 'utf8mb4',
     ],
+    // Optional notification providers (disabled until real credentials are set via env):
+    // 'notifications' => [
+    //     'email' => ['enabled' => true, 'from' => 'noreply@yourcollege.edu'],
+    //     'whatsapp' => ['enabled' => false, 'provider' => '', 'api_key' => ''],
+    //     'sms' => ['enabled' => false, 'provider' => '', 'api_key' => ''],
+    // ],
 ];

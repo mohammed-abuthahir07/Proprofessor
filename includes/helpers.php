@@ -171,8 +171,26 @@ function feature_enabled(string $code, ?int $institutionId = null): bool
     return $row ? (bool)$row['enabled'] : false;
 }
 
-function notify_user(int $userId, string $type, string $title, string $body = '', ?string $url = null): void
+/**
+ * Create an in-app notification (and optional external channels via NotificationService).
+ *
+ * @param array{
+ *   priority?:string,
+ *   action?:array{type:string,record_id?:int,class_id?:int,subject_id?:int,label?:string},
+ *   category?:string,
+ *   meta?:array<string,mixed>
+ * } $options
+ */
+function notify_user(int $userId, string $type, string $title, string $body = '', ?string $url = null, array $options = []): void
 {
+    if (class_exists('NotificationService', false) || is_file(__DIR__ . '/NotificationService.php')) {
+        if (!class_exists('NotificationService', false)) {
+            require_once __DIR__ . '/NotificationService.php';
+        }
+        NotificationService::notify($userId, $type, $title, $body, $url, $options);
+        return;
+    }
+    // Fallback if service file is missing — preserve legacy insert.
     Database::insert('notifications', [
         'user_id' => $userId,
         'type' => $type,
