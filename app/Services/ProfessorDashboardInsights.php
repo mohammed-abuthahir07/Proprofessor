@@ -475,7 +475,7 @@ final class ProfessorDashboardInsights
     }
 
     /**
-     * @param list<array{subject_id:int,class_id:int,subject_name:string}> $assignments
+     * @param list<array{subject_id:int,class_id:int,subject_name:string,subject_code?:string,class_label?:string}> $assignments
      * @return list<array<string,mixed>>
      */
     private static function atRiskStudents(int $professorId, int $instId, array $assignments, float $minAtt): array
@@ -484,12 +484,49 @@ final class ProfessorDashboardInsights
             return [];
         }
 
+        $classMeta = [];
+        $subjectByClass = [];
+        foreach ($assignments as $a) {
+            $classId = (int)$a['class_id'];
+            $subjectId = (int)$a['subject_id'];
+            if ($classId < 1) {
+                continue;
+            }
+            if (!isset($classMeta[$classId])) {
+                $cls = Database::fetch(
+                    'SELECT c.id, c.year, c.section, c.name, c.meta, d.code AS dept_code, d.name AS dept_name
+                     FROM classes c
+                     LEFT JOIN departments d ON d.id = c.department_id
+                     WHERE c.id = ? AND c.institution_id = ?',
+                    [$classId, $instId]
+                );
+                if ($cls) {
+                    $classMeta[$classId] = [
+                        'year' => (int)($cls['year'] ?? 0),
+                        'section' => trim((string)($cls['section'] ?? '')),
+                        'class_label' => class_batch_label($cls),
+                    ];
+                } else {
+                    $classMeta[$classId] = [
+                        'year' => 0,
+                        'section' => '',
+                        'class_label' => (string)($a['class_label'] ?? 'Class'),
+                    ];
+                }
+            }
+            $subjectByClass[$classId][$subjectId] = trim(
+                ((string)($a['subject_code'] ?? '') !== '' ? $a['subject_code'] . ' · ' : '')
+                . (string)$a['subject_name']
+            );
+        }
+
         /** @var array<string,array<string,mixed>> $risk */
         $risk = [];
 
         foreach ($assignments as $a) {
             $classId = (int)$a['class_id'];
             $subjectId = (int)$a['subject_id'];
+            $subjectLabel = $subjectByClass[$classId][$subjectId] ?? (string)$a['subject_name'];
             $rows = Database::fetchAll(
                 'SELECT r.register_no, r.status
                  FROM attendance_records r
@@ -509,17 +546,27 @@ final class ProfessorDashboardInsights
                 $reg = (string)$reg;
                 $pct = !empty($v['total']) ? ($v['present'] ?? 0) * 100 / $v['total'] : 100.0;
                 if ($pct < $minAtt) {
-                    $key = $classId . '|' . $reg;
-                    $risk[$key] = self::riskBucket($risk[$key] ?? null, $classId, $reg, 'attendance', 'Below ' . $minAtt . '%');
+                    $key = $classId . '|' . $subjectId . '|' . $reg;
+                    $risk[$key] = self::riskBucket(
+                        $risk[$key] ?? null,
+                        $classId,
+                        $reg,
+                        'attendance',
+                        'Below ' . $minAtt . '%',
+                        $subjectId,
+                        $subjectLabel,
+                        $classMeta[$classId] ?? []
+                    );
                 }
             }
         }
 
         $marks = Database::fetchAll(
-            'SELECT m.class_id, m.register_no, m.student_name, m.computed_total, m.meta, m.formula_id,
-                    f.total_max
+            'SELECT m.class_id, m.subject_id, m.register_no, m.student_name, m.computed_total, m.meta, m.formula_id,
+                    f.total_max, s.code AS subject_code, s.name AS subject_name
              FROM internal_marks m
              LEFT JOIN marks_formulas f ON f.id = m.formula_id AND f.institution_id = m.institution_id
+             LEFT JOIN subjects s ON s.id = m.subject_id AND s.institution_id = m.institution_id
              WHERE m.professor_id = ? AND m.institution_id = ?',
             [$professorId, $instId]
         );
@@ -536,9 +583,21 @@ final class ProfessorDashboardInsights
             $pct = ((float)$total / $max) * 100.0;
             if ($pct < self::MARKS_RISK_PCT) {
                 $classId = (int)$m['class_id'];
+                $subjectId = (int)$m['subject_id'];
                 $reg = (string)$m['register_no'];
-                $key = $classId . '|' . $reg;
-                $bucket = self::riskBucket($risk[$key] ?? null, $classId, $reg, 'marks', 'Below ' . self::MARKS_RISK_PCT . '% of internal max');
+                $subjectLabel = $subjectByClass[$classId][$subjectId]
+                    ?? trim(((string)($m['subject_code'] ?? '') !== '' ? $m['subject_code'] . ' · ' : '') . (string)($m['subject_name'] ?? 'Subject'));
+                $key = $classId . '|' . $subjectId . '|' . $reg;
+                $bucket = self::riskBucket(
+                    $risk[$key] ?? null,
+                    $classId,
+                    $reg,
+                    'marks',
+                    'Below ' . self::MARKS_RISK_PCT . '% of internal max',
+                    $subjectId,
+                    $subjectLabel,
+                    $classMeta[$classId] ?? []
+                );
                 if (!empty($m['student_name'])) {
                     $bucket['name'] = (string)$m['student_name'];
                 }
@@ -547,13 +606,18 @@ final class ProfessorDashboardInsights
         }
 
         $assignmentIds = Database::fetchAll(
-            'SELECT id, class_id FROM assignments WHERE professor_id = ? AND institution_id = ?',
+            'SELECT a.id, a.class_id, a.subject_id, s.code AS subject_code, s.name AS subject_name
+             FROM assignments a
+             LEFT JOIN subjects s ON s.id = a.subject_id
+             WHERE a.professor_id = ? AND a.institution_id = ?',
             [$professorId, $instId]
         );
-        // If assignments lack institution_id column, fallback without it
         if (!$assignmentIds) {
             $assignmentIds = Database::fetchAll(
-                'SELECT id, class_id FROM assignments WHERE professor_id = ?',
+                'SELECT a.id, a.class_id, a.subject_id, s.code AS subject_code, s.name AS subject_name
+                 FROM assignments a
+                 LEFT JOIN subjects s ON s.id = a.subject_id
+                 WHERE a.professor_id = ?',
                 [$professorId]
             );
         }
@@ -561,9 +625,21 @@ final class ProfessorDashboardInsights
         foreach ($assignmentIds as $asg) {
             $aid = (int)$asg['id'];
             $classId = (int)($asg['class_id'] ?? 0);
+            $subjectId = (int)($asg['subject_id'] ?? 0);
             if ($classId < 1) {
                 continue;
             }
+            // If assignment has no subject, attribute to each subject the professor teaches in that class.
+            $subjectTargets = [];
+            if ($subjectId > 0) {
+                $subjectTargets[$subjectId] = $subjectByClass[$classId][$subjectId]
+                    ?? trim(((string)($asg['subject_code'] ?? '') !== '' ? $asg['subject_code'] . ' · ' : '') . (string)($asg['subject_name'] ?? 'Subject'));
+            } elseif (!empty($subjectByClass[$classId])) {
+                $subjectTargets = $subjectByClass[$classId];
+            } else {
+                $subjectTargets[0] = '—';
+            }
+
             $pending = Database::fetchAll(
                 'SELECT s.student_id, u.register_no, u.full_name, s.status, s.grade
                  FROM assignment_submissions s
@@ -577,15 +653,25 @@ final class ProfessorDashboardInsights
                 if ($reg === '') {
                     continue;
                 }
-                $key = $classId . '|' . $reg;
-                $bucket = self::riskBucket($risk[$key] ?? null, $classId, $reg, 'assignments', 'Pending / ungraded submission');
-                if (!empty($p['full_name'])) {
-                    $bucket['name'] = (string)$p['full_name'];
+                foreach ($subjectTargets as $sid => $subjectLabel) {
+                    $key = $classId . '|' . (int)$sid . '|' . $reg;
+                    $bucket = self::riskBucket(
+                        $risk[$key] ?? null,
+                        $classId,
+                        $reg,
+                        'assignments',
+                        'Pending / ungraded submission',
+                        (int)$sid,
+                        (string)$subjectLabel,
+                        $classMeta[$classId] ?? []
+                    );
+                    if (!empty($p['full_name'])) {
+                        $bucket['name'] = (string)$p['full_name'];
+                    }
+                    $risk[$key] = $bucket;
                 }
-                $risk[$key] = $bucket;
             }
 
-            // Missing submissions: enrolled students with no submission row
             $missing = Database::fetchAll(
                 'SELECT u.register_no, u.full_name
                  FROM enrollments e
@@ -600,21 +686,37 @@ final class ProfessorDashboardInsights
             );
             foreach ($missing as $m) {
                 $reg = (string)$m['register_no'];
-                $key = $classId . '|' . $reg;
-                $bucket = self::riskBucket($risk[$key] ?? null, $classId, $reg, 'assignments', 'Missing submission');
-                $bucket['name'] = (string)$m['full_name'];
-                $risk[$key] = $bucket;
+                foreach ($subjectTargets as $sid => $subjectLabel) {
+                    $key = $classId . '|' . (int)$sid . '|' . $reg;
+                    $bucket = self::riskBucket(
+                        $risk[$key] ?? null,
+                        $classId,
+                        $reg,
+                        'assignments',
+                        'Missing submission',
+                        (int)$sid,
+                        (string)$subjectLabel,
+                        $classMeta[$classId] ?? []
+                    );
+                    $bucket['name'] = (string)$m['full_name'];
+                    $risk[$key] = $bucket;
+                }
             }
         }
 
-        // Resolve names from roster where missing
         foreach ($risk as $key => &$item) {
+            $cid = (int)$item['class_id'];
+            if (isset($classMeta[$cid])) {
+                $item['year'] = $classMeta[$cid]['year'];
+                $item['section'] = $classMeta[$cid]['section'];
+                $item['class_label'] = $classMeta[$cid]['class_label'];
+            }
             if (!empty($item['name'])) {
                 continue;
             }
             $row = Database::fetch(
                 'SELECT full_name FROM students_roster WHERE class_id = ? AND register_no = ? AND institution_id = ?',
-                [(int)$item['class_id'], (string)$item['register_no'], $instId]
+                [$cid, (string)$item['register_no'], $instId]
             );
             if (!$row) {
                 $row = Database::fetch(
@@ -629,17 +731,30 @@ final class ProfessorDashboardInsights
         $list = array_values($risk);
         usort($list, static function ($a, $b) {
             $rank = ['High' => 0, 'Medium' => 1, 'Low' => 2];
-            return ($rank[$a['level']] ?? 9) <=> ($rank[$b['level']] ?? 9);
+            $cmp = ($rank[$a['level']] ?? 9) <=> ($rank[$b['level']] ?? 9);
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            return strcmp((string)($a['name'] ?? ''), (string)($b['name'] ?? ''));
         });
-        return array_slice($list, 0, 12);
+        return array_slice($list, 0, 20);
     }
 
     /**
      * @param array<string,mixed>|null $existing
+     * @param array{year?:int,section?:string,class_label?:string} $classInfo
      * @return array<string,mixed>
      */
-    private static function riskBucket(?array $existing, int $classId, string $reg, string $flag, string $detail): array
-    {
+    private static function riskBucket(
+        ?array $existing,
+        int $classId,
+        string $reg,
+        string $flag,
+        string $detail,
+        int $subjectId = 0,
+        string $subjectLabel = '',
+        array $classInfo = []
+    ): array {
         $item = $existing ?? [
             'class_id' => $classId,
             'register_no' => $reg,
@@ -647,7 +762,21 @@ final class ProfessorDashboardInsights
             'flags' => [],
             'details' => [],
             'level' => 'Medium',
+            'subject_id' => $subjectId,
+            'subject' => $subjectLabel,
+            'year' => (int)($classInfo['year'] ?? 0),
+            'section' => (string)($classInfo['section'] ?? ''),
+            'class_label' => (string)($classInfo['class_label'] ?? ''),
         ];
+        if ($subjectLabel !== '' && empty($item['subject'])) {
+            $item['subject'] = $subjectLabel;
+            $item['subject_id'] = $subjectId;
+        }
+        if (!empty($classInfo)) {
+            $item['year'] = (int)($classInfo['year'] ?? $item['year'] ?? 0);
+            $item['section'] = (string)($classInfo['section'] ?? $item['section'] ?? '');
+            $item['class_label'] = (string)($classInfo['class_label'] ?? $item['class_label'] ?? '');
+        }
         if (!in_array($flag, $item['flags'], true)) {
             $item['flags'][] = $flag;
             $item['details'][$flag] = $detail;

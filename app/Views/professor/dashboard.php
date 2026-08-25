@@ -190,6 +190,9 @@ ob_start();
       <thead>
         <tr>
           <th>Student</th>
+          <th>Year</th>
+          <th>Class / Sec</th>
+          <th>Subject</th>
           <th>Signals</th>
           <th>Risk</th>
         </tr>
@@ -209,12 +212,27 @@ ob_start();
           $bits[] = $label . (!empty($details[$f]) ? ' (' . $details[$f] . ')' : '');
         }
         $level = (string)($r['level'] ?? 'Medium');
+        $year = (int)($r['year'] ?? 0);
+        $section = trim((string)($r['section'] ?? ''));
+        $classLabel = trim((string)($r['class_label'] ?? ''));
+        $classSec = $section !== '' ? ('Sec ' . $section) : '';
+        if ($classLabel !== '' && $classSec === '') {
+          $classSec = $classLabel;
+        } elseif ($classLabel !== '' && $section !== '' && stripos($classLabel, 'Sec ') === false) {
+          $classSec = $classLabel;
+        } elseif ($classSec === '') {
+          $classSec = '—';
+        }
+        $subject = trim((string)($r['subject'] ?? ''));
       ?>
         <tr>
           <td>
             <strong><?= e((string)($r['name'] ?: $r['register_no'])) ?></strong>
             <div style="font-size:.82rem;color:var(--muted)"><?= e((string)$r['register_no']) ?></div>
           </td>
+          <td><?= $year > 0 ? e('Year ' . $year) : '—' ?></td>
+          <td><?= e($classSec) ?></td>
+          <td><?= $subject !== '' ? e($subject) : '—' ?></td>
           <td style="font-size:.9rem"><?= e(implode(' · ', $bits)) ?></td>
           <td>
             <?php if ($level === 'High'): ?>
