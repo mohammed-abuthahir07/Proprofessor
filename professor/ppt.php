@@ -5,10 +5,12 @@ require_once __DIR__ . '/../includes/layout.php';
 Auth::requireRole('professor', 'admin');
 $user = Auth::user();
 $planId = (int)get('plan_id');
-$plans = Database::fetchAll('SELECT id, title, subject_name, syllabus_input FROM course_plans WHERE professor_id=?', [$user['id']]);
+$prefillTitle = trim((string)get('title', ''));
+$prefillContext = trim((string)get('context', ''));
+$plans = Database::fetchAll('SELECT id, title, subject_name, syllabus_input FROM course_plans WHERE professor_id=? AND institution_id=?', [$user['id'], $user['institution_id']]);
 $ppts = Database::fetchAll('SELECT id, title, slide_count, status, created_at FROM presentations WHERE professor_id=? ORDER BY id DESC', [$user['id']]);
-$ctx = '';
-foreach ($plans as $p) if ($planId && (int)$p['id']===$planId) $ctx = (string)$p['syllabus_input'];
+$ctx = $prefillContext;
+foreach ($plans as $p) if ($planId && (int)$p['id']===$planId && $ctx === '') $ctx = (string)$p['syllabus_input'];
 render_header('PPT Generator', 'ppt', ['subtitle' => 'AI lecture decks with speaker notes']);
 ?>
 <div class="grid grid-2">
@@ -16,7 +18,7 @@ render_header('PPT Generator', 'ppt', ['subtitle' => 'AI lecture decks with spea
     <form class="form-grid" method="post" action="<?= e(base_url('/api/ai?module=ppt')) ?>" data-ai-form="#out">
       <?= csrf_field() ?>
       <input type="hidden" name="module" value="ppt">
-      <div class="form-row"><label>Title</label><input name="title" required placeholder="Programming in C · Unit 1"></div>
+      <div class="form-row"><label>Title</label><input name="title" required placeholder="Programming in C · Unit 1" value="<?= e($prefillTitle) ?>"></div>
       <div class="form-row">
         <label>From plan</label>
         <select name="plan_id">

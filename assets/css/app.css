@@ -1391,16 +1391,140 @@ canvas { display: block; max-width: 100%; }
 .heat-legend { margin: .6rem 0 0; font-size: .8rem; color: var(--muted); }
 .lesson-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+  gap: 1.1rem;
   margin-top: 1rem;
+  width: 100%;
+  align-items: start;
+}
+.lesson-card {
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 .lesson-card header { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .5rem; }
-.lesson-card h3 { margin: 0 0 .4rem; font-size: 1.05rem; }
-.lesson-obj { color: var(--muted); font-size: .85rem; margin: 0 0 .8rem; }
+.lesson-card h3 {
+  margin: 0 0 .4rem;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.lesson-obj { color: var(--muted); font-size: .85rem; margin: 0 0 .8rem; overflow-wrap: anywhere; }
 .lesson-card dl { display: grid; gap: .65rem; margin: 0; }
 .lesson-card dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-.lesson-card dd { margin: .15rem 0 0; line-height: 1.45; }
+.lesson-card dd { margin: .15rem 0 0; line-height: 1.45; overflow-wrap: anywhere; }
+
+.lesson-extra {
+  margin-top: 1rem;
+  padding-top: .85rem;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: .85rem;
+  min-width: 0;
+}
+.lesson-extra .form-grid {
+  display: grid;
+  gap: .55rem;
+  margin: 0;
+}
+.lesson-extra .form-row {
+  display: grid;
+  gap: .3rem;
+  min-width: 0;
+}
+.lesson-extra .form-row.two {
+  grid-template-columns: 1fr;
+  gap: .55rem;
+}
+.lesson-extra label {
+  font-size: .78rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.lesson-extra input,
+.lesson-extra select,
+.lesson-extra textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.lesson-extra .btn {
+  width: 100%;
+  justify-content: center;
+  white-space: normal;
+  text-align: center;
+}
+.lesson-actions {
+  display: grid;
+  gap: .45rem;
+  grid-template-columns: 1fr;
+}
+.lesson-actions form,
+.lesson-actions a.btn {
+  width: 100%;
+  margin: 0;
+}
+.lesson-status-grid {
+  display: grid;
+  gap: .75rem;
+  grid-template-columns: 1fr;
+}
+.lesson-status-grid .btn { margin-top: .35rem; }
+.lesson-resources-list {
+  margin: .4rem 0 .6rem;
+  padding-left: 1.1rem;
+}
+.lesson-resources-list li { margin-bottom: .4rem; overflow-wrap: anywhere; }
+
+@media (min-width: 720px) {
+  .lesson-extra .form-row.two {
+    grid-template-columns: 1fr 1fr;
+    gap: .65rem;
+    align-items: end;
+  }
+  .lesson-status-grid {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+  .lesson-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .lesson-actions .btn {
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 719px) {
+  .lesson-grid {
+    grid-template-columns: 1fr;
+    gap: .9rem;
+  }
+  .lesson-card {
+    padding: 1rem;
+  }
+  .lesson-extra .form-row.two {
+    grid-template-columns: 1fr;
+  }
+  .lesson-status-grid,
+  .lesson-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 1200px) {
+  .lesson-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1600px) {
+  .lesson-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
 
 .rubric-box {
   white-space: pre-wrap;

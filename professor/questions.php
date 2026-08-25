@@ -6,13 +6,25 @@ Auth::requireRole('professor', 'admin');
 $user = Auth::user();
 $bankId = (int)get('bank_id');
 $planId = (int)get('plan_id');
-$plans = Database::fetchAll('SELECT id, title, subject_name, syllabus_input, plan_data FROM course_plans WHERE professor_id=?', [$user['id']]);
+$prefillUnit = max(1, min(20, (int)get('unit', 1)));
+$prefillK = strtoupper(trim((string)get('klevel', 'K2')));
+if (!preg_match('/^K[1-6]$/', $prefillK)) {
+    $prefillK = 'K2';
+}
+$prefillTopic = trim((string)get('topic', ''));
+$prefillContext = trim((string)get('context', ''));
+$plans = Database::fetchAll('SELECT id, title, subject_name, syllabus_input, plan_data FROM course_plans WHERE professor_id=? AND institution_id=?', [$user['id'], $user['institution_id']]);
 $banks = Database::fetchAll('SELECT * FROM question_banks WHERE professor_id=? ORDER BY id DESC LIMIT 20', [$user['id']]);
 $bank = $bankId ? Database::fetch('SELECT * FROM question_banks WHERE id=? AND professor_id=?', [$bankId, $user['id']]) : null;
 $questions = $bank ? Database::fetchAll('SELECT * FROM questions WHERE bank_id=?', [$bank['id']]) : [];
-$context = '';
-if ($planId) {
+$context = $prefillContext;
+if ($context === '' && $planId) {
     foreach ($plans as $p) if ((int)$p['id']===$planId) { $context = $p['syllabus_input'] ?: $p['plan_data']; break; }
+}
+if ($prefillTopic !== '' && $context !== '' && !str_contains($context, $prefillTopic)) {
+    $context = $prefillTopic . "\n\n" . $context;
+} elseif ($prefillTopic !== '' && $context === '') {
+    $context = $prefillTopic;
 }
 render_header('Question Bank Generator', 'questions', ['subtitle' => 'MCQ · Short · Long · By K-level']);
 ?>
@@ -39,13 +51,13 @@ render_header('Question Bank Generator', 'questions', ['subtitle' => 'MCQ · Sho
           <label>Bloom K-level</label>
           <select name="klevel">
             <?php foreach (['K1','K2','K3','K4','K5','K6'] as $k): ?>
-              <option><?= $k ?></option>
+              <option <?= $prefillK === $k ? 'selected' : '' ?>><?= $k ?></option>
             <?php endforeach; ?>
           </select>
         </div>
       </div>
       <div class="form-row two">
-        <div><label>Unit</label><input name="unit" value="1"></div>
+        <div><label>Unit</label><input name="unit" value="<?= (int)$prefillUnit ?>"></div>
         <div><label>Count</label><input name="count" type="number" value="5" min="1" max="20"></div>
       </div>
       <div class="form-row">
@@ -59,7 +71,7 @@ render_header('Question Bank Generator', 'questions', ['subtitle' => 'MCQ · Sho
       </div>
       <div class="form-row">
         <label>Context / syllabus excerpt</label>
-        <textarea name="context"><?= e($context) ?></textarea>
+        <textarea name="context"><?= e(is_string($context) ? $context : '') ?></textarea>
       </div>
       <button class="btn btn-accent" type="submit">Generate questions</button>
     </form>
