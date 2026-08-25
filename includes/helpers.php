@@ -104,8 +104,19 @@ function get_flashes(): array
 function json_response(array $data, int $code = 200): void
 {
     http_response_code($code);
-    header('Content-Type: application/json');
-    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    header('Content-Type: application/json; charset=utf-8');
+    $flags = JSON_UNESCAPED_UNICODE;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+        $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    }
+    $json = json_encode($data, $flags);
+    if ($json === false) {
+        $json = json_encode([
+            'ok' => false,
+            'error' => 'Could not encode response as JSON.',
+        ], JSON_UNESCAPED_UNICODE);
+    }
+    echo $json !== false ? $json : '{"ok":false,"error":"JSON encode failed"}';
     exit;
 }
 

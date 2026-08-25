@@ -215,6 +215,11 @@ function render_plan_html(array $plan, int $planId = 0): string
     ob_start();
     $units = $plan['units'] ?? [];
     $bloom = $plan['bloom_distribution'] ?? [];
+    $balance = CoursePlanTools::bloomBalance([
+        'bloom_data' => json_encode($bloom),
+        'plan_data' => json_encode($plan),
+    ], is_array($units) ? $units : []);
+    $tpl = CoursePlanTools::templateLabel((string)($plan['accreditation_template'] ?? 'standard'));
     ?>
     <div class="grid grid-2">
       <div class="panel">
@@ -222,6 +227,7 @@ function render_plan_html(array $plan, int $planId = 0): string
           <?php if ($planId): ?><a class="btn btn-sm btn-primary" href="<?= e(base_url('/professor/plan-view.php?id='.$planId)) ?>">Open plan</a><?php endif; ?>
         </div>
         <?php if (!empty($plan['demo'])): ?><div class="alert alert-info">Demo mode (no Gemini key). Structure is editable after save.</div><?php endif; ?>
+        <p style="font-size:.9rem;color:var(--muted)">Template: <strong><?= e($tpl) ?></strong></p>
         <p><strong>Outcomes</strong></p>
         <ul><?php foreach (($plan['learning_outcomes'] ?? []) as $o): ?><li><?= e(is_string($o)?$o:json_encode($o)) ?></li><?php endforeach; ?></ul>
         <p><strong>Resources</strong></p>
@@ -230,7 +236,15 @@ function render_plan_html(array $plan, int $planId = 0): string
       <div class="panel">
         <h3>Bloom's distribution</h3>
         <canvas id="bloomPreview" height="180"></canvas>
-        <script>document.addEventListener('DOMContentLoaded',()=>PPAI.renderBloomChart('bloomPreview', <?= json_encode($bloom) ?>));</script>
+        <script>document.addEventListener('DOMContentLoaded',()=>PPAI.renderBloomChart('bloomPreview', <?= json_encode($balance['distribution']) ?>));</script>
+        <div class="bloom-bars" style="margin-top:.8rem">
+          <?php foreach ($balance['distribution'] as $k => $v): ?>
+            <div class="bloom-row"><strong><?= e((string)$k) ?></strong><div class="bar"><span style="width:<?= (float)$v ?>%"></span></div><span><?= e((string)$v) ?>%</span></div>
+          <?php endforeach; ?>
+        </div>
+        <?php if (!empty($balance['warning'])): ?>
+          <div class="alert alert-warn" style="margin-top:.8rem"><?= e((string)$balance['warning']) ?></div>
+        <?php endif; ?>
       </div>
     </div>
     <div class="panel" style="margin-top:1rem">
@@ -256,6 +270,24 @@ function render_plan_html(array $plan, int $planId = 0): string
 
 try {
     switch ($module) {
+        case 'syllabus_extract': {
+            // Prefer AiController::syllabusExtract; keep this as fallback. Never HTML-redirect.
+            $role = (string)($user['role'] ?? '');
+            if (!in_array($role, ['professor', 'admin', 'superadmin'], true)) {
+                json_response(['ok' => false, 'error' => 'Permission denied.'], 403);
+            }
+            $file = $_FILES['syllabus_file'] ?? null;
+            if (!is_array($file)) {
+                json_response(['ok' => false, 'error' => 'No file uploaded.'], 422);
+            }
+            try {
+                $text = CoursePlanTools::extractUploadedSyllabus($file);
+            } catch (Throwable $e) {
+                json_response(['ok' => false, 'error' => $e->getMessage()], 422);
+            }
+            json_response(['ok' => true, 'text' => $text]);
+        }
+
         case 'course_plan': {
             Auth::requireRole('professor', 'admin', 'hod');
             $subject = trim((string)post('subject'));
@@ -264,6 +296,21 @@ try {
             $syllabus = trim((string)post('syllabus'));
             $subjectId = (int)post('subject_id', 0) ?: null;
             $classId = (int)post('class_id', 0) ?: null;
+            $template = CoursePlanTools::normalizeTemplate(post('accreditation_template', 'standard'));
+            $existingPlanId = (int)post('plan_id', 0);
+            $existingPlan = null;
+            if ($existingPlanId > 0) {
+                $existingPlan = Database::fetch(
+                    'SELECT * FROM course_plans WHERE id = ? AND professor_id = ? AND institution_id = ?',
+                    [$existingPlanId, (int)$user['id'], (int)$user['institution_id']]
+                );
+                if (!$existingPlan) {
+                    json_response(['ok' => false, 'error' => 'Plan not found for regeneration.'], 404);
+                }
+                if (!in_array((string)$existingPlan['status'], ['draft', 'returned'], true)) {
+                    json_response(['ok' => false, 'error' => 'Only draft or returned plans can be regenerated into a new version.'], 422);
+                }
+            }
             if ($classId && !professor_can_manage_class($user, $classId)) {
                 json_response(['ok' => false, 'error' => 'Select a class assigned to you by your HOD.'], 422);
             }
@@ -277,7 +324,10 @@ try {
 
             $tpl = prompt_template('course_plan');
             $system = $tpl['system_prompt'] ?? 'Return JSON course plan for Indian OBE curriculum.';
-            $userPrompt = "Subject: $subject\nCredits: $credits\nUniversity: $university\nSyllabus:\n$syllabus\n\nReturn JSON with keys: title, learning_outcomes[], units[{unit_number,title,hours,topics[],outcomes[],bloom_k_level,teaching_methods[],assessment[]}], weekly_plan[], resources[], expert_advice[], bloom_distribution{K1..K6}, ai_score.";
+            $system .= "\n" . CoursePlanTools::templatePromptHint($template);
+            $userPrompt = "Subject: $subject\nCredits: $credits\nUniversity: $university\nCurriculum template: "
+                . CoursePlanTools::templateLabel($template)
+                . "\nSyllabus:\n$syllabus\n\nReturn JSON with keys: title, learning_outcomes[], units[{unit_number,title,hours,topics[],outcomes[],bloom_k_level,teaching_methods[],assessment[]}], weekly_plan[], resources[], expert_advice[], bloom_distribution{K1..K6}, ai_score.";
 
             if ($gemini->isConfigured()) {
                 $result = $gemini->generate($system, $userPrompt);
@@ -291,55 +341,117 @@ try {
                 $result = ['ok' => true, 'json' => $plan, 'text' => json_encode($plan), 'latency_ms' => 0];
             }
 
-            log_ai('course_plan', compact('subject', 'credits', 'university'), $result);
+            log_ai('course_plan', compact('subject', 'credits', 'university', 'template'), $result);
 
-            if (empty($result['ok']) || !$plan) {
+            if (empty($result['ok']) || !$plan || !is_array($plan)) {
                 json_response(['ok' => false, 'error' => $result['error'] ?? 'AI failed'], 500);
             }
 
-            $planId = Database::insert('course_plans', [
-                'institution_id' => (int)$user['institution_id'],
-                'department_id' => $user['department_id'] ?? null,
-                'professor_id' => (int)$user['id'],
-                'subject_id' => $subjectId,
-                'class_id' => $classId,
-                'title' => $plan['title'] ?? ($subject . ' Course Plan'),
-                'subject_name' => $subject,
-                'credits' => $credits,
-                'university' => $university,
-                'syllabus_input' => $syllabus,
-                'status' => 'draft',
-                'ai_score' => $plan['ai_score'] ?? null,
-                'bloom_data' => json_encode($plan['bloom_distribution'] ?? []),
-                'weekly_plan' => json_encode($plan['weekly_plan'] ?? []),
-                'resources' => json_encode($plan['resources'] ?? []),
-                'expert_advice' => json_encode($plan['expert_advice'] ?? []),
-                'plan_data' => json_encode($plan),
-                'version' => 1,
-            ]);
+            // Ensure bloom_distribution exists for checker.
+            if (empty($plan['bloom_distribution']) || !is_array($plan['bloom_distribution'])) {
+                $tmpBal = CoursePlanTools::bloomBalance(['plan_data' => json_encode($plan)], $plan['units'] ?? []);
+                $plan['bloom_distribution'] = $tmpBal['distribution'];
+            }
+            $plan['accreditation_template'] = $template;
 
-            foreach (($plan['units'] ?? []) as $i => $u) {
-                Database::insert('plan_units', [
+            $meta = [
+                'accreditation_template' => $template,
+            ];
+
+            if ($existingPlan) {
+                $planId = (int)$existingPlan['id'];
+                $newVersion = (int)$existingPlan['version'] + 1;
+                $prevMeta = json_decode((string)($existingPlan['meta'] ?? '{}'), true) ?: [];
+                $meta = array_merge($prevMeta, $meta);
+                Database::update('course_plans', [
+                    'title' => $plan['title'] ?? ($subject . ' Course Plan'),
+                    'subject_name' => $subject,
+                    'credits' => $credits,
+                    'university' => $university,
+                    'syllabus_input' => $syllabus,
+                    'status' => 'draft',
+                    'ai_score' => $plan['ai_score'] ?? null,
+                    'bloom_data' => json_encode($plan['bloom_distribution'] ?? []),
+                    'weekly_plan' => json_encode($plan['weekly_plan'] ?? []),
+                    'resources' => json_encode($plan['resources'] ?? []),
+                    'expert_advice' => json_encode($plan['expert_advice'] ?? []),
+                    'plan_data' => json_encode($plan),
+                    'version' => $newVersion,
+                    'meta' => json_encode($meta, JSON_UNESCAPED_UNICODE),
+                    'subject_id' => $subjectId ?: $existingPlan['subject_id'],
+                    'class_id' => $classId ?: $existingPlan['class_id'],
+                ], 'id = :id AND professor_id = :pid', [
+                    'id' => $planId,
+                    'pid' => (int)$user['id'],
+                ]);
+                Database::query('DELETE FROM plan_units WHERE plan_id = ?', [$planId]);
+                foreach (($plan['units'] ?? []) as $i => $u) {
+                    Database::insert('plan_units', [
+                        'plan_id' => $planId,
+                        'unit_number' => (int)($u['unit_number'] ?? ($i + 1)),
+                        'title' => (string)($u['title'] ?? 'Unit'),
+                        'hours' => $u['hours'] ?? 0,
+                        'topics' => json_encode($u['topics'] ?? []),
+                        'outcomes' => json_encode($u['outcomes'] ?? []),
+                        'bloom_k_level' => $u['bloom_k_level'] ?? null,
+                        'teaching_methods' => json_encode($u['teaching_methods'] ?? []),
+                        'assessment' => json_encode($u['assessment'] ?? []),
+                        'sort_order' => $i,
+                    ]);
+                }
+                Database::insert('course_plan_versions', [
                     'plan_id' => $planId,
-                    'unit_number' => (int)($u['unit_number'] ?? ($i + 1)),
-                    'title' => (string)($u['title'] ?? 'Unit'),
-                    'hours' => $u['hours'] ?? 0,
-                    'topics' => json_encode($u['topics'] ?? []),
-                    'outcomes' => json_encode($u['outcomes'] ?? []),
-                    'bloom_k_level' => $u['bloom_k_level'] ?? null,
-                    'teaching_methods' => json_encode($u['teaching_methods'] ?? []),
-                    'assessment' => json_encode($u['assessment'] ?? []),
-                    'sort_order' => $i,
+                    'version' => $newVersion,
+                    'snapshot' => json_encode($plan),
+                    'change_note' => 'Regenerated with AI · template ' . CoursePlanTools::templateLabel($template),
+                    'created_by' => (int)$user['id'],
+                ]);
+            } else {
+                $planId = Database::insert('course_plans', [
+                    'institution_id' => (int)$user['institution_id'],
+                    'department_id' => $user['department_id'] ?? null,
+                    'professor_id' => (int)$user['id'],
+                    'subject_id' => $subjectId,
+                    'class_id' => $classId,
+                    'title' => $plan['title'] ?? ($subject . ' Course Plan'),
+                    'subject_name' => $subject,
+                    'credits' => $credits,
+                    'university' => $university,
+                    'syllabus_input' => $syllabus,
+                    'status' => 'draft',
+                    'ai_score' => $plan['ai_score'] ?? null,
+                    'bloom_data' => json_encode($plan['bloom_distribution'] ?? []),
+                    'weekly_plan' => json_encode($plan['weekly_plan'] ?? []),
+                    'resources' => json_encode($plan['resources'] ?? []),
+                    'expert_advice' => json_encode($plan['expert_advice'] ?? []),
+                    'plan_data' => json_encode($plan),
+                    'version' => 1,
+                    'meta' => json_encode($meta, JSON_UNESCAPED_UNICODE),
+                ]);
+
+                foreach (($plan['units'] ?? []) as $i => $u) {
+                    Database::insert('plan_units', [
+                        'plan_id' => $planId,
+                        'unit_number' => (int)($u['unit_number'] ?? ($i + 1)),
+                        'title' => (string)($u['title'] ?? 'Unit'),
+                        'hours' => $u['hours'] ?? 0,
+                        'topics' => json_encode($u['topics'] ?? []),
+                        'outcomes' => json_encode($u['outcomes'] ?? []),
+                        'bloom_k_level' => $u['bloom_k_level'] ?? null,
+                        'teaching_methods' => json_encode($u['teaching_methods'] ?? []),
+                        'assessment' => json_encode($u['assessment'] ?? []),
+                        'sort_order' => $i,
+                    ]);
+                }
+
+                Database::insert('course_plan_versions', [
+                    'plan_id' => $planId,
+                    'version' => 1,
+                    'snapshot' => json_encode($plan),
+                    'change_note' => 'Initial AI generation · template ' . CoursePlanTools::templateLabel($template),
+                    'created_by' => (int)$user['id'],
                 ]);
             }
-
-            Database::insert('course_plan_versions', [
-                'plan_id' => $planId,
-                'version' => 1,
-                'snapshot' => json_encode($plan),
-                'change_note' => 'Initial AI generation',
-                'created_by' => (int)$user['id'],
-            ]);
 
             json_response([
                 'ok' => true,
@@ -442,6 +554,12 @@ try {
         }
         if (!$data) json_response(['ok'=>false,'error'=>$result['error'] ?? 'No data'], 500);
         $newVersion = (int)$plan['version'] + 1;
+        $meta = json_decode((string)($plan['meta'] ?? '{}'), true) ?: [];
+        if (!empty($data['accreditation_template'])) {
+            $meta['accreditation_template'] = CoursePlanTools::normalizeTemplate($data['accreditation_template']);
+        } elseif (!empty($meta['accreditation_template'])) {
+            $data['accreditation_template'] = $meta['accreditation_template'];
+        }
         Database::update('course_plans', [
             'plan_data' => json_encode($data),
             'bloom_data' => json_encode($data['bloom_distribution'] ?? json_decode($plan['bloom_data'] ?: '{}', true)),
@@ -450,6 +568,7 @@ try {
             'weekly_plan' => json_encode($data['weekly_plan'] ?? []),
             'version' => $newVersion,
             'ai_score' => $data['ai_score'] ?? $plan['ai_score'],
+            'meta' => json_encode($meta, JSON_UNESCAPED_UNICODE),
         ], 'id = :id', ['id'=>$planId]);
         Database::insert('course_plan_versions', [
             'plan_id' => $planId,
@@ -458,6 +577,27 @@ try {
             'change_note' => $instruction,
             'created_by' => (int)$user['id'],
         ]);
+        // Refresh plan_units when improve returns units
+        if (!empty($data['units']) && is_array($data['units'])) {
+            Database::query('DELETE FROM plan_units WHERE plan_id = ?', [$planId]);
+            foreach ($data['units'] as $i => $u) {
+                if (!is_array($u)) {
+                    continue;
+                }
+                Database::insert('plan_units', [
+                    'plan_id' => $planId,
+                    'unit_number' => (int)($u['unit_number'] ?? ($i + 1)),
+                    'title' => (string)($u['title'] ?? 'Unit'),
+                    'hours' => $u['hours'] ?? 0,
+                    'topics' => json_encode($u['topics'] ?? []),
+                    'outcomes' => json_encode($u['outcomes'] ?? []),
+                    'bloom_k_level' => $u['bloom_k_level'] ?? null,
+                    'teaching_methods' => json_encode($u['teaching_methods'] ?? []),
+                    'assessment' => json_encode($u['assessment'] ?? []),
+                    'sort_order' => $i,
+                ]);
+            }
+        }
         log_ai('improve', ['plan_id'=>$planId,'instruction'=>$instruction], $result, 'course_plan', $planId);
         json_response(['ok'=>true,'data'=>$data,'redirect'=>base_url('/professor/plan-view.php?id='.$planId)]);
     }
