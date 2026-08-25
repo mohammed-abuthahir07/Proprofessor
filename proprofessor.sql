@@ -677,6 +677,8 @@ CREATE TABLE `marks_formulas` (
   `id` int(10) UNSIGNED NOT NULL,
   `institution_id` int(10) UNSIGNED NOT NULL,
   `department_id` int(10) UNSIGNED DEFAULT NULL,
+  `subject_type` varchar(20) DEFAULT NULL COMMENT 'theory|lab|NULL=all types',
+  `subject_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'NULL=department/type default; set=subject override',
   `name` varchar(120) NOT NULL,
   `pattern` varchar(80) DEFAULT NULL COMMENT 'Anna, Madurai, CBCS, etc.',
   `plain_english` text NOT NULL,
