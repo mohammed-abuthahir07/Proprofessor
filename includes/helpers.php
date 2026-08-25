@@ -495,7 +495,7 @@ function assignments_visible_to_student(array $user): array
         return [];
     }
     return Database::fetchAll(
-        'SELECT a.*, s.status AS sub_status, s.grade, s.feedback
+        'SELECT a.*, s.status AS sub_status, s.grade, s.feedback, s.content_text AS sub_content
          FROM assignments a
          LEFT JOIN assignment_submissions s ON s.assignment_id = a.id AND s.student_id = ?
          WHERE a.status = "published"

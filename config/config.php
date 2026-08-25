@@ -53,6 +53,10 @@ return [
         'enabled' => false,
         'provider' => getenv('NARRATION_PROVIDER') ?: '', // e.g. google_tts, elevenlabs
     ],
+    'ai_content_detection' => [
+        'enabled' => false,
+        'provider' => getenv('AI_CONTENT_DETECTION_PROVIDER') ?: '',
+    ],
 
 ];
 

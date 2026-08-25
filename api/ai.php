@@ -966,60 +966,158 @@ try {
 
     if ($module === 'assignment') {
         Auth::requireRole('professor', 'admin');
+        AssignmentTools::ensureSchema();
         $type = (string)post('assignment_type', 'essay');
         $subject = (string)post('subject', '');
         $context = (string)post('context', '');
         $classId = (int)post('class_id', 0);
         $subjectId = (int)post('subject_id', 0) ?: null;
         $deadline = post('deadline') ?: null;
-        if ($classId < 1 || !professor_can_manage_class($user, $classId)) {
+        $templateId = (int)post('template_id', 0);
+        // Bulk: optional extra class ids (same subject). Primary class_id still required for backward compatibility.
+        $bulkRaw = post('bulk_class_ids');
+        $bulkIds = [];
+        if (is_array($bulkRaw)) {
+            foreach ($bulkRaw as $cid) {
+                $cid = (int)$cid;
+                if ($cid > 0) {
+                    $bulkIds[] = $cid;
+                }
+            }
+        }
+        if ($classId > 0) {
+            $bulkIds[] = $classId;
+        }
+        $bulkIds = array_values(array_unique($bulkIds));
+        if ($bulkIds === []) {
             json_response(['ok' => false, 'error' => 'Select a class (year and section). Only those students will see and submit this assignment.'], 422);
         }
-        if ($subjectId && !professor_can_manage_subject($user, $subjectId, $classId)) {
-            json_response(['ok' => false, 'error' => 'You are not assigned to this course for the selected class.'], 422);
+        foreach ($bulkIds as $cid) {
+            if (!professor_can_manage_class($user, $cid)) {
+                json_response(['ok' => false, 'error' => 'You cannot create assignments for one of the selected classes.'], 422);
+            }
+            if ($subjectId && !professor_can_manage_subject($user, $subjectId, $cid)) {
+                json_response(['ok' => false, 'error' => 'You are not assigned to this course for one of the selected classes.'], 422);
+            }
         }
-        $tpl = prompt_template('assignment_gen');
-        if ($gemini->isConfigured()) {
-            $result = $gemini->generate(
-                $tpl['system_prompt'] ?? 'Assignment JSON.',
-                "Type:$type Subject:$subject\nContext:\n$context\nReturn {title,description,instructions[],rubric[{criterion,weight,levels}],max_marks}"
-            );
-            $data = $result['json'] ?? [];
-        } else {
+        // Use primary class for generation context (first in list / posted class_id).
+        $classId = $classId > 0 ? $classId : $bulkIds[0];
+
+        $data = null;
+        $result = ['ok' => true, 'json' => null, 'latency_ms' => 0];
+
+        if ($templateId > 0) {
+            $tplRow = AssignmentTools::getTemplate($user, $templateId);
+            if (!$tplRow) {
+                json_response(['ok' => false, 'error' => 'Template not found.'], 404);
+            }
             $data = [
-                'title' => ucwords(str_replace('_',' ', $type)) . ' Assignment · ' . $subject,
-                'description' => "Complete a $type based on the course outcomes. Demonstrate Bloom K3-K5 skills.",
-                'instructions' => ['Read the brief carefully','Cite academic sources','Submit before deadline'],
-                'rubric' => [
-                    ['criterion'=>'Content quality','weight'=>40,'levels'=>'Excellent/Good/Fair'],
-                    ['criterion'=>'Analysis','weight'=>30,'levels'=>'Excellent/Good/Fair'],
-                    ['criterion'=>'Structure & referencing','weight'=>30,'levels'=>'Excellent/Good/Fair'],
-                ],
-                'max_marks' => 25,
-                'demo' => true,
+                'title' => (string)$tplRow['title'],
+                'description' => (string)($tplRow['description'] ?? ''),
+                'instructions' => json_decode((string)($tplRow['instructions'] ?? '[]'), true) ?: [],
+                'rubric' => json_decode((string)($tplRow['rubric'] ?? '[]'), true) ?: [],
+                'max_marks' => (float)($tplRow['max_marks'] ?? 25),
+                'from_template' => true,
             ];
-            $result = ['ok'=>true,'json'=>$data,'latency_ms'=>0];
+            if ($context === '' && !empty($tplRow['context_text'])) {
+                $context = (string)$tplRow['context_text'];
+            }
+            $type = (string)($tplRow['assignment_type'] ?: $type);
+            $result = ['ok' => true, 'json' => $data, 'latency_ms' => 0, 'demo' => false];
+        } else {
+            $plan = null;
+            if ($subjectId) {
+                $plan = Database::fetch(
+                    'SELECT * FROM course_plans WHERE professor_id = ? AND institution_id = ? AND subject_id = ? ORDER BY id DESC LIMIT 1',
+                    [(int)$user['id'], (int)$user['institution_id'], $subjectId]
+                );
+            }
+            $closHint = AssignmentTools::closForSubject($user, (int)($subjectId ?? 0));
+            $cloText = $closHint ? ('Available CLOs: ' . implode(', ', $closHint)) : 'Use CLO1, CLO2, … when appropriate.';
+            $tpl = prompt_template('assignment_gen');
+            if ($gemini->isConfigured()) {
+                $result = $gemini->generate(
+                    $tpl['system_prompt'] ?? 'Assignment JSON.',
+                    "Type:$type Subject:$subject\nContext:\n$context\n{$cloText}\n"
+                    . "Return {title,description,instructions[],rubric[{criterion,description,marks,clo,bloom,levels}],max_marks}. "
+                    . "Rubric marks must sum exactly to max_marks. bloom like K2/K3. clo like CLO1."
+                );
+                $data = $result['json'] ?? [];
+            } else {
+                $data = [
+                    'title' => ucwords(str_replace('_', ' ', $type)) . ' Assignment · ' . $subject,
+                    'description' => "Complete a $type based on the course outcomes. Demonstrate Bloom K3-K5 skills.",
+                    'instructions' => ['Read the brief carefully', 'Cite academic sources', 'Submit before deadline'],
+                    'rubric' => [
+                        ['criterion' => 'Concept understanding', 'description' => 'Definitions and core ideas', 'marks' => 8, 'clo' => $closHint[0] ?? 'CLO1', 'bloom' => 'K2', 'levels' => 'Excellent/Good/Fair'],
+                        ['criterion' => 'Technical accuracy', 'description' => 'Correct methods and syntax', 'marks' => 7, 'clo' => $closHint[1] ?? 'CLO2', 'bloom' => 'K3', 'levels' => 'Excellent/Good/Fair'],
+                        ['criterion' => 'Analysis', 'description' => 'Reasoning and evaluation', 'marks' => 6, 'clo' => $closHint[2] ?? 'CLO3', 'bloom' => 'K4', 'levels' => 'Excellent/Good/Fair'],
+                        ['criterion' => 'Presentation', 'description' => 'Clarity and structure', 'marks' => 4, 'clo' => $closHint[0] ?? 'CLO1', 'bloom' => 'K2', 'levels' => 'Excellent/Good/Fair'],
+                    ],
+                    'max_marks' => 25,
+                    'demo' => true,
+                ];
+                $result = ['ok' => true, 'json' => $data, 'latency_ms' => 0];
+            }
+            $maxMarks = (float)($data['max_marks'] ?? 25);
+            $data['rubric'] = AssignmentTools::enrichRubricFromPlan($data['rubric'] ?? [], $plan, $maxMarks);
+            // Preserve legacy weight-only rubrics by normalizing; if total still off, leave as-is for professor edit.
+            $check = AssignmentTools::validateRubricTotal($data['rubric'], $maxMarks);
+            if (!$check['ok'] && !empty($data['rubric'])) {
+                // Soft-fix: scale marks to max_marks so published assignments stay usable.
+                $sum = AssignmentTools::rubricMarksTotal($data['rubric']);
+                if ($sum > 0) {
+                    $scaled = [];
+                    $alloc = 0.0;
+                    $last = count($data['rubric']) - 1;
+                    foreach ($data['rubric'] as $i => $r) {
+                        if ($i === $last) {
+                            $r['marks'] = round(max(0, $maxMarks - $alloc), 2);
+                        } else {
+                            $r['marks'] = round(((float)$r['marks'] / $sum) * $maxMarks, 2);
+                            $alloc += $r['marks'];
+                        }
+                        $scaled[] = $r;
+                    }
+                    $data['rubric'] = $scaled;
+                }
+            }
         }
-        $id = Database::insert('assignments', [
-            'institution_id' => (int)$user['institution_id'],
-            'professor_id' => (int)$user['id'],
-            'subject_id' => $subjectId,
-            'class_id' => $classId,
-            'title' => (string)($data['title'] ?? 'Assignment'),
-            'assignment_type' => $type,
-            'description' => (string)($data['description'] ?? ''),
-            'rubric' => json_encode($data['rubric'] ?? []),
-            'max_marks' => $data['max_marks'] ?? 25,
-            'deadline' => $deadline,
-            'instructions' => json_encode($data['instructions'] ?? []),
-            'ai_generated' => 1,
-            'status' => 'published',
+
+        $createdIds = [];
+        foreach ($bulkIds as $cid) {
+            $id = Database::insert('assignments', [
+                'institution_id' => (int)$user['institution_id'],
+                'professor_id' => (int)$user['id'],
+                'subject_id' => $subjectId,
+                'class_id' => $cid,
+                'title' => (string)($data['title'] ?? 'Assignment'),
+                'assignment_type' => $type,
+                'description' => (string)($data['description'] ?? ''),
+                'rubric' => json_encode($data['rubric'] ?? [], JSON_UNESCAPED_UNICODE),
+                'max_marks' => $data['max_marks'] ?? 25,
+                'deadline' => $deadline,
+                'instructions' => json_encode($data['instructions'] ?? [], JSON_UNESCAPED_UNICODE),
+                'ai_generated' => empty($data['from_template']) ? 1 : 0,
+                'status' => 'published',
+                'meta' => json_encode([
+                    'bulk_group' => count($bulkIds) > 1 ? md5(json_encode($bulkIds) . microtime(true)) : null,
+                    'from_template_id' => $templateId > 0 ? $templateId : null,
+                    'context' => $context,
+                ], JSON_UNESCAPED_UNICODE),
+            ]);
+            $createdIds[] = (int)$id;
+            if ($subjectId) {
+                enroll_class_students_in_subject((int)$user['institution_id'], $cid, $subjectId);
+            }
+            log_ai('assignment', compact('type', 'subject') + ['class_id' => $cid], $result, 'assignment', (int)$id);
+        }
+        $redirectId = $createdIds[0] ?? 0;
+        json_response([
+            'ok' => true,
+            'data' => $data + ['created_ids' => $createdIds],
+            'redirect' => base_url('/professor/assignments.php' . ($redirectId ? ('?id=' . $redirectId) : '')),
         ]);
-        if ($subjectId) {
-            enroll_class_students_in_subject((int)$user['institution_id'], $classId, $subjectId);
-        }
-        log_ai('assignment', compact('type','subject'), $result, 'assignment', $id);
-        json_response(['ok'=>true,'data'=>$data,'redirect'=>base_url('/professor/assignments.php')]);
     }
 
     if ($module === 'formula') {
