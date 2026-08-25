@@ -722,7 +722,7 @@ final class AssignmentTools
         $asnCode = null;
         $asnMax = 5.0;
         foreach ($components as $c) {
-            if (stripos($c['code'] . $c['label'], 'assign') !== false) {
+            if (\App\Models\MarksFormula::isAssignmentComponent($c['code'], $c['label'])) {
                 $asnCode = $c['code'];
                 $asnMax = (float)$c['max'];
                 break;

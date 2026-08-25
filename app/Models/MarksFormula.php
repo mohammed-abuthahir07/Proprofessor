@@ -453,6 +453,144 @@ final class MarksFormula extends Model
         return str_contains($hay, 'attendance') || $code === 'att' || str_starts_with(strtolower($code), 'att_');
     }
 
+    public static function isAssignmentComponent(string $code, string $label = ''): bool
+    {
+        return stripos($code . $label, 'assign') !== false;
+    }
+
+    /**
+     * Absolute/relative thresholds for "significant CIA drop" warnings (not blocking).
+     * Absolute: drop of this many marks or more. Relative: drop of this fraction of the prior score.
+     */
+    public const CIA_DROP_ABSOLUTE = 15.0;
+    public const CIA_DROP_RELATIVE = 0.40;
+
+    /**
+     * Finalized assignment marks scaled to the formula assignment component max.
+     * Missing / unfinalized → key absent (do not invent 0).
+     *
+     * @return array<string,float> register_no => scaled mark
+     */
+    public static function assignmentMarksForClassSubject(
+        int $institutionId,
+        int $classId,
+        int $subjectId,
+        float $componentMax
+    ): array {
+        if ($classId < 1 || $subjectId < 1 || $componentMax <= 0) {
+            return [];
+        }
+        // Latest finalized grade per student for this class+subject (across assignments).
+        $rows = Database::fetchAll(
+            'SELECT u.register_no, s.grade, a.max_marks, s.graded_at, s.id
+             FROM assignment_submissions s
+             JOIN assignments a ON a.id = s.assignment_id
+             JOIN users u ON u.id = s.student_id
+             WHERE a.institution_id = ?
+               AND a.class_id = ?
+               AND a.subject_id = ?
+               AND s.grade IS NOT NULL
+               AND s.status = "graded"
+               AND u.register_no IS NOT NULL
+               AND u.register_no <> ""
+             ORDER BY s.graded_at DESC, s.id DESC',
+            [$institutionId, $classId, $subjectId]
+        );
+        $out = [];
+        foreach ($rows as $r) {
+            $reg = trim((string)$r['register_no']);
+            if ($reg === '' || isset($out[$reg])) {
+                continue; // keep latest only
+            }
+            $asgMax = max(0.01, (float)($r['max_marks'] ?? 25));
+            $scaled = round(((float)$r['grade'] / $asgMax) * $componentMax, 2);
+            $out[$reg] = max(0.0, min($componentMax, $scaled));
+        }
+        return $out;
+    }
+
+    /**
+     * Significant CIA drop warning when both values exist.
+     *
+     * @return array{flag:bool,message:string}
+     */
+    public static function ciaDropWarning(float $previous, float $current): array
+    {
+        if ($previous <= 0) {
+            return ['flag' => false, 'message' => ''];
+        }
+        $drop = $previous - $current;
+        if ($drop < self::CIA_DROP_ABSOLUTE && $drop < ($previous * self::CIA_DROP_RELATIVE)) {
+            return ['flag' => false, 'message' => ''];
+        }
+        return [
+            'flag' => true,
+            'message' => 'Significant drop from previous CIA (' . rtrim(rtrim(number_format($previous, 2, '.', ''), '0'), '.')
+                . ' → ' . rtrim(rtrim(number_format($current, 2, '.', ''), '0'), '.') . ')',
+        ];
+    }
+
+    /**
+     * Aggregate distribution for one class+subject (authorized callers only).
+     *
+     * @return array{students:int,average:?float,highest:?float,lowest:?float,median:?float,pass:int,fail:int}
+     */
+    public static function distributionForClassSubject(
+        int $institutionId,
+        int $classId,
+        int $subjectId,
+        string $academicYear,
+        float $totalMax
+    ): array {
+        $params = [$institutionId, $classId, $subjectId];
+        $sql = 'SELECT computed_total FROM internal_marks
+                WHERE institution_id=? AND class_id=? AND subject_id=?
+                  AND computed_total IS NOT NULL';
+        if ($academicYear !== '') {
+            $sql .= ' AND (academic_year = ? OR academic_year = "")';
+            $params[] = $academicYear;
+        }
+        $rows = Database::fetchAll($sql, $params);
+        $vals = [];
+        foreach ($rows as $r) {
+            $vals[] = (float)$r['computed_total'];
+        }
+        $n = count($vals);
+        if ($n === 0) {
+            return [
+                'students' => 0,
+                'average' => null,
+                'highest' => null,
+                'lowest' => null,
+                'median' => null,
+                'pass' => 0,
+                'fail' => 0,
+            ];
+        }
+        sort($vals);
+        $pass = 0;
+        $fail = 0;
+        $threshold = $totalMax > 0 ? ($totalMax * 0.5) : 0; // D boundary ~50% of max
+        foreach ($vals as $v) {
+            if ($v >= $threshold) {
+                $pass++;
+            } else {
+                $fail++;
+            }
+        }
+        $mid = intdiv($n, 2);
+        $median = ($n % 2 === 1) ? $vals[$mid] : round(($vals[$mid - 1] + $vals[$mid]) / 2, 2);
+        return [
+            'students' => $n,
+            'average' => round(array_sum($vals) / $n, 2),
+            'highest' => max($vals),
+            'lowest' => min($vals),
+            'median' => $median,
+            'pass' => $pass,
+            'fail' => $fail,
+        ];
+    }
+
     /**
      * Ensure internal_marks supports academic-year isolation without duplicates.
      */
