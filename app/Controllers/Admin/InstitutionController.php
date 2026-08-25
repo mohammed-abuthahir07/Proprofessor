@@ -42,6 +42,19 @@ final class InstitutionController extends Controller
         $inst = Institution::find((int)$user['institution_id']);
 
         if ($this->post('action') === 'save_inst') {
+            $existing = json_decode((string)($inst['settings'] ?? '{}'), true) ?: [];
+            $existing['attendance_min'] = (float)$this->post('attendance_min', 75);
+            foreach (['brand_primary', 'brand_secondary', 'brand_accent'] as $key) {
+                $raw = trim((string)$this->post($key, ''));
+                if ($raw === '') {
+                    continue;
+                }
+                $hex = ltrim($raw, '#');
+                if (preg_match('/^[0-9A-Fa-f]{6}$/', $hex)) {
+                    $existing[$key] = strtoupper($hex);
+                }
+            }
+            $logo = trim((string)$this->post('logo_url', ''));
             Institution::updateById((int)$user['institution_id'], [
                 'name' => $this->post('name'),
                 'affiliation_university' => $this->post('affiliation_university'),
@@ -50,7 +63,8 @@ final class InstitutionController extends Controller
                 'current_semester' => $this->post('current_semester'),
                 'city' => $this->post('city'),
                 'state' => $this->post('state'),
-                'settings' => json_encode(['attendance_min' => (float)$this->post('attendance_min', 75)]),
+                'logo_url' => $logo !== '' ? $logo : null,
+                'settings' => json_encode($existing, JSON_UNESCAPED_UNICODE),
             ]);
             $this->flash('success', 'Institution updated.');
         }

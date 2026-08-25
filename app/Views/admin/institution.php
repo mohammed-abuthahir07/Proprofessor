@@ -13,6 +13,12 @@
         <div><label>NAAC grade</label><input name="naac_grade" value="<?= e((string)$inst['naac_grade']) ?>"></div>
         <div><label>Attendance min %</label><input name="attendance_min" value="<?= e((string)($settings['attendance_min'] ?? 75)) ?>"></div>
       </div>
+      <div class="form-row"><label>Logo URL</label><input name="logo_url" value="<?= e((string)($inst['logo_url'] ?? '')) ?>" placeholder="https://…/logo.png"></div>
+      <div class="form-row two">
+        <div><label>Brand primary (#hex)</label><input name="brand_primary" value="<?= e((string)($settings['brand_primary'] ?? '1E3A8A')) ?>" placeholder="1E3A8A"></div>
+        <div><label>Brand secondary (#hex)</label><input name="brand_secondary" value="<?= e((string)($settings['brand_secondary'] ?? '0F172A')) ?>" placeholder="0F172A"></div>
+      </div>
+      <div class="form-row"><label>Brand accent (#hex)</label><input name="brand_accent" value="<?= e((string)($settings['brand_accent'] ?? 'D97706')) ?>" placeholder="D97706"></div>
       <div class="form-row two">
         <div><label>Academic year</label><input name="academic_year" value="<?= e((string)$inst['academic_year']) ?>"></div>
         <div><label>Semester</label><input name="current_semester" value="<?= e((string)$inst['current_semester']) ?>"></div>

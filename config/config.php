@@ -43,6 +43,16 @@ return [
     'upload_max_mb'=> 10,
     'attendance_min_pct' => 75,
 
+    // Optional integrations (disabled until real credentials/providers are set).
+    'google_slides' => [
+        'enabled' => false,
+        'client_id' => getenv('GOOGLE_SLIDES_CLIENT_ID') ?: '',
+        'client_secret' => getenv('GOOGLE_SLIDES_CLIENT_SECRET') ?: '',
+    ],
+    'narration' => [
+        'enabled' => false,
+        'provider' => getenv('NARRATION_PROVIDER') ?: '', // e.g. google_tts, elevenlabs
+    ],
 
 ];
 

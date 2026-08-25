@@ -938,6 +938,14 @@ try {
         }
 
         $subjectId = $plan ? ((int)($plan['subject_id'] ?? 0) ?: null) : null;
+        $branding = PresentationTools::brandingForUser($user);
+        $pptMeta = [
+            'subject' => $subjectName,
+            'unit' => $unit,
+            'plan_id' => $planId,
+            'branding' => $branding,
+            'speaker_notes' => true,
+        ];
         $pptId = Database::insert('presentations', [
             'plan_id' => $planId,
             'professor_id' => (int)$user['id'],
@@ -946,6 +954,7 @@ try {
             'slide_count' => count($slides),
             'slides' => json_encode($slides, JSON_UNESCAPED_UNICODE),
             'status' => 'ready',
+            'meta' => json_encode($pptMeta, JSON_UNESCAPED_UNICODE),
         ]);
         log_ai('ppt', [
             'title' => $title,

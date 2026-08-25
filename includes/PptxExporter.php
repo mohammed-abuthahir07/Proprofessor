@@ -9,49 +9,92 @@ final class PptxExporter
     private const W = 12192000;
     private const H = 6858000;
 
+    /** @var array{name:string,primary:string,secondary:string,accent:string}|null */
+    private static ?array $brand = null;
+
     /**
      * @param list<array<string,mixed>> $slides
+     * @param array{name?:string,primary?:string,secondary?:string,accent?:string}|null $branding
      */
-    public static function saveToFile(string $path, string $title, array $slides): void
+    public static function saveToFile(string $path, string $title, array $slides, ?array $branding = null): void
     {
-        $slides = array_values($slides);
-        if ($slides === []) {
-            $slides = [[
-                'number' => 1,
-                'title' => $title !== '' ? $title : 'Presentation',
-                'bullets' => ['No slide content yet.'],
-                'speaker_notes' => '',
-                'unit_tag' => '',
-            ]];
-        }
-
-        $count = count($slides);
-        $files = [
-            '[Content_Types].xml' => self::contentTypes($count),
-            '_rels/.rels' => self::packageRels(),
-            'docProps/core.xml' => self::core($title),
-            'docProps/app.xml' => self::app($count),
-            'ppt/theme/theme1.xml' => self::theme(),
-            'ppt/slideMasters/slideMaster1.xml' => self::slideMaster(),
-            'ppt/slideMasters/_rels/slideMaster1.xml.rels' => self::slideMasterRels(),
-            'ppt/slideLayouts/slideLayout1.xml' => self::slideLayout(),
-            'ppt/slideLayouts/_rels/slideLayout1.xml.rels' => self::slideLayoutRels(),
-            'ppt/notesMasters/notesMaster1.xml' => self::notesMaster(),
-            'ppt/notesMasters/_rels/notesMaster1.xml.rels' => self::notesMasterRels(),
-            'ppt/presentation.xml' => self::presentation($count),
-            'ppt/_rels/presentation.xml.rels' => self::presentationRels($count),
+        self::$brand = [
+            'name' => trim((string)($branding['name'] ?? '')) !== '' ? (string)$branding['name'] : 'ProProfessor AI',
+            'primary' => self::hex((string)($branding['primary'] ?? '1E3A8A')),
+            'secondary' => self::hex((string)($branding['secondary'] ?? '0F172A')),
+            'accent' => self::hex((string)($branding['accent'] ?? 'D97706')),
         ];
-        foreach ($slides as $i => $slide) {
-            $n = $i + 1;
-            $files['ppt/slides/slide' . $n . '.xml'] = self::slideXml($slide, $n, $count, $title);
-            $files['ppt/slides/_rels/slide' . $n . '.xml.rels'] = self::slideRels($n);
-            $files['ppt/notesSlides/notesSlide' . $n . '.xml'] = self::notesSlideXml($slide, $n);
-            $files['ppt/notesSlides/_rels/notesSlide' . $n . '.xml.rels'] = self::notesSlideRels($n);
-        }
+        try {
+            $slides = array_values($slides);
+            if ($slides === []) {
+                $slides = [[
+                    'number' => 1,
+                    'title' => $title !== '' ? $title : 'Presentation',
+                    'bullets' => ['No slide content yet.'],
+                    'speaker_notes' => '',
+                    'unit_tag' => '',
+                ]];
+            }
 
-        if (file_put_contents($path, self::buildZip($files)) === false) {
-            throw new RuntimeException('Could not write the PPTX file.');
+            $count = count($slides);
+            $files = [
+                '[Content_Types].xml' => self::contentTypes($count),
+                '_rels/.rels' => self::packageRels(),
+                'docProps/core.xml' => self::core($title),
+                'docProps/app.xml' => self::app($count),
+                'ppt/theme/theme1.xml' => self::theme(),
+                'ppt/slideMasters/slideMaster1.xml' => self::slideMaster(),
+                'ppt/slideMasters/_rels/slideMaster1.xml.rels' => self::slideMasterRels(),
+                'ppt/slideLayouts/slideLayout1.xml' => self::slideLayout(),
+                'ppt/slideLayouts/_rels/slideLayout1.xml.rels' => self::slideLayoutRels(),
+                'ppt/notesMasters/notesMaster1.xml' => self::notesMaster(),
+                'ppt/notesMasters/_rels/notesMaster1.xml.rels' => self::notesMasterRels(),
+                'ppt/presentation.xml' => self::presentation($count),
+                'ppt/_rels/presentation.xml.rels' => self::presentationRels($count),
+            ];
+            foreach ($slides as $i => $slide) {
+                $n = $i + 1;
+                $files['ppt/slides/slide' . $n . '.xml'] = self::slideXml($slide, $n, $count, $title);
+                $files['ppt/slides/_rels/slide' . $n . '.xml.rels'] = self::slideRels($n);
+                $files['ppt/notesSlides/notesSlide' . $n . '.xml'] = self::notesSlideXml($slide, $n);
+                $files['ppt/notesSlides/_rels/notesSlide' . $n . '.xml.rels'] = self::notesSlideRels($n);
+            }
+
+            if (file_put_contents($path, self::buildZip($files)) === false) {
+                throw new RuntimeException('Could not write the PPTX file.');
+            }
+        } finally {
+            self::$brand = null;
         }
+    }
+
+    private static function hex(string $hex): string
+    {
+        $hex = ltrim(trim($hex), '#');
+        if (!preg_match('/^[0-9A-Fa-f]{6}$/', $hex)) {
+            return '1E3A8A';
+        }
+        return strtoupper($hex);
+    }
+
+    private static function primary(): string
+    {
+        return self::$brand['primary'] ?? '1E3A8A';
+    }
+
+    private static function secondary(): string
+    {
+        return self::$brand['secondary'] ?? '0F172A';
+    }
+
+    private static function accent(): string
+    {
+        return self::$brand['accent'] ?? 'D97706';
+    }
+
+    private static function brandName(): string
+    {
+        return self::$brand['name'] ?? 'ProProfessor AI';
     }
 
     /**
@@ -209,12 +252,13 @@ final class PptxExporter
     /** @param list<string> $bullets */
     private static function layoutTitle(int &$id, string $title, string $tag, array $bullets, string $deck, int $number, int $total): string
     {
-        $xml = self::rect($id, 0, 0, self::W, self::H, '0F172A');
-        $xml .= self::rect($id, 0, 0, 5600000, self::H, '1E3A8A');
-        $xml .= self::rect($id, 5600000, 0, 80000, self::H, 'D97706');
+        $xml = self::rect($id, 0, 0, self::W, self::H, self::secondary());
+        $xml .= self::rect($id, 0, 0, 5600000, self::H, self::primary());
+        $xml .= self::rect($id, 5600000, 0, 80000, self::H, self::accent());
         $xml .= self::ellipse($id, 9800000, -900000, 3400000, 3400000, 'FFFFFF', 8000);
-        $xml .= self::ellipse($id, 10800000, 4800000, 2200000, 2200000, '1E3A8A', 40000);
-        $xml .= self::text($id, 480000, 1600000, 4700000, 400000, self::p('PROPROFESSOR AI', 1400, 'FBBF24', true, ['track' => 400, 'font' => 'Calibri']), 't');
+        $xml .= self::ellipse($id, 10800000, 4800000, 2200000, 2200000, self::primary(), 40000);
+        $brandLabel = mb_strtoupper(mb_substr(self::brandName(), 0, 40));
+        $xml .= self::text($id, 480000, 1600000, 4700000, 400000, self::p($brandLabel, 1400, 'FBBF24', true, ['track' => 400, 'font' => 'Calibri']), 't');
         $xml .= self::rect($id, 480000, 2100000, 900000, 50000, 'FBBF24');
         $titleSz = mb_strlen($title) > 48 ? 2800 : (mb_strlen($title) > 28 ? 3400 : 4000);
         $xml .= self::text($id, 480000, 2300000, 4800000, 2200000, self::p($title, $titleSz, 'FFFFFF', true, ['line' => 110000, 'font' => 'Calibri Light']), 't');
@@ -251,7 +295,7 @@ final class PptxExporter
                     'after' => 900,
                     'line' => 125000,
                     'bullet' => true,
-                    'buColor' => '1E3A8A',
+                    'buColor' => self::primary(),
                 ]);
             }
         }
@@ -273,7 +317,7 @@ final class PptxExporter
                     'after' => 700,
                     'line' => 120000,
                     'bullet' => true,
-                    'buColor' => '1E3A8A',
+                    'buColor' => self::primary(),
                 ]);
             }
             $xml .= self::roundRect($id, $x[$i], 1680000, 5340000, 4500000, 'FFFFFF', 8000, true);
@@ -302,9 +346,9 @@ final class PptxExporter
             $x = $areaX + $c * ($cw + $gap);
             $y = $areaY + $r * ($ch + $gap);
             $xml .= self::roundRect($id, $x, $y, $cw, $ch, 'FFFFFF', 9000, true);
-            $xml .= self::rect($id, $x, $y, 70000, $ch, 'D97706');
+            $xml .= self::rect($id, $x, $y, 70000, $ch, self::accent());
             $num = str_pad((string)($i + 1), 2, '0', STR_PAD_LEFT);
-            $xml .= self::text($id, $x + 220000, $y + 180000, $cw - 400000, 400000, self::p($num, 1400, 'D97706', true, ['track' => 200]), 't');
+            $xml .= self::text($id, $x + 220000, $y + 180000, $cw - 400000, 400000, self::p($num, 1400, self::accent(), true, ['track' => 200]), 't');
             $xml .= self::text(
                 $id,
                 $x + 220000,
@@ -321,9 +365,9 @@ final class PptxExporter
     /** @param list<string> $bullets */
     private static function layoutClose(int &$id, string $title, string $tag, array $bullets, string $deck, int $number, int $total): string
     {
-        $xml = self::rect($id, 0, 0, self::W, self::H, '0F172A');
-        $xml .= self::rect($id, 0, 0, self::W, 90000, 'D97706');
-        $xml .= self::ellipse($id, -800000, 4200000, 2800000, 2800000, '1E3A8A', 50000);
+        $xml = self::rect($id, 0, 0, self::W, self::H, self::secondary());
+        $xml .= self::rect($id, 0, 0, self::W, 90000, self::accent());
+        $xml .= self::ellipse($id, -800000, 4200000, 2800000, 2800000, self::primary(), 50000);
         $xml .= self::text($id, 900000, 1600000, 10400000, 400000, self::p($tag !== '' ? mb_strtoupper($tag) : 'WRAP-UP', 1400, 'FBBF24', true, ['align' => 'ctr', 'track' => 400]), 't');
         $xml .= self::text($id, 900000, 2100000, 10400000, 1400000, self::p($title, mb_strlen($title) > 40 ? 3200 : 4000, 'FFFFFF', true, ['align' => 'ctr', 'line' => 110000, 'font' => 'Calibri Light']), 'ctr');
         $paras = '';
@@ -333,16 +377,16 @@ final class PptxExporter
         if ($paras !== '') {
             $xml .= self::text($id, 1800000, 3700000, 8600000, 2000000, $paras, 't');
         }
-        $xml .= self::text($id, 900000, 6000000, 10400000, 400000, self::p(($deck !== '' ? $deck . '  ·  ' : '') . 'ProProfessor AI', 1300, '94A3B8', false, ['align' => 'ctr']), 't');
+        $xml .= self::text($id, 900000, 6000000, 10400000, 400000, self::p(($deck !== '' ? $deck . '  ·  ' : '') . self::brandName(), 1300, '94A3B8', false, ['align' => 'ctr']), 't');
         return $xml;
     }
 
     private static function chrome(int &$id, string $title, string $tag, string $deck, int $number, int $total): string
     {
         $xml = self::rect($id, 0, 0, self::W, self::H, 'F1F5F9');
-        $xml .= self::rect($id, 0, 0, 120000, self::H, '1E3A8A');
-        $xml .= self::rect($id, 0, 0, self::W, 1480000, '1E3A8A');
-        $xml .= self::rect($id, 0, 1480000, self::W, 50000, 'D97706');
+        $xml .= self::rect($id, 0, 0, 120000, self::H, self::primary());
+        $xml .= self::rect($id, 0, 0, self::W, 1480000, self::primary());
+        $xml .= self::rect($id, 0, 1480000, self::W, 50000, self::accent());
         $titleSz = mb_strlen($title) > 62 ? 2200 : (mb_strlen($title) > 42 ? 2600 : 2800);
         $xml .= self::text($id, 420000, 280000, 9000000, 900000, self::p($title, $titleSz, 'FFFFFF', true, ['line' => 108000, 'font' => 'Calibri Light']), 'ctr');
         if ($tag !== '') {
@@ -350,9 +394,9 @@ final class PptxExporter
             $xml .= self::text($id, 9600000, 500000, 2100000, 420000, self::p($tag, 1200, 'FDE68A', true, ['align' => 'ctr']), 'ctr');
         }
         $xml .= self::rect($id, 0, 6520000, self::W, 338000, 'E2E8F0');
-        $left = $deck !== '' ? $deck : 'ProProfessor AI';
+        $left = $deck !== '' ? $deck : self::brandName();
         $xml .= self::text($id, 400000, 6560000, 7000000, 280000, self::p($left, 1100, '64748B'), 'ctr');
-        $xml .= self::text($id, 7400000, 6560000, 4300000, 280000, self::p('ProProfessor AI   ·   ' . self::pageLabel($number, $total), 1100, '64748B', false, ['align' => 'r']), 'ctr');
+        $xml .= self::text($id, 7400000, 6560000, 4300000, 280000, self::p(self::brandName() . '   ·   ' . self::pageLabel($number, $total), 1100, '64748B', false, ['align' => 'r']), 'ctr');
         return $xml;
     }
 
@@ -414,7 +458,7 @@ final class PptxExporter
         $line = (int)($opt['line'] ?? 0);
         $track = (int)($opt['track'] ?? 0);
         $bullet = !empty($opt['bullet']);
-        $buColor = (string)($opt['buColor'] ?? '1E3A8A');
+        $buColor = (string)($opt['buColor'] ?? self::primary());
         $spc = '';
         if ($line) {
             $spc .= '<a:lnSpc><a:spcPct val="' . $line . '"/></a:lnSpc>';
@@ -482,8 +526,8 @@ final class PptxExporter
             . ' xmlns:dcmitype="http://purl.org/dc/dcmitype/"'
             . ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
             . '<dc:title>' . $t . '</dc:title>'
-            . '<dc:creator>ProProfessor AI</dc:creator>'
-            . '<cp:lastModifiedBy>ProProfessor AI</cp:lastModifiedBy>'
+            . '<dc:creator>' . self::xml(self::brandName()) . '</dc:creator>'
+            . '<cp:lastModifiedBy>' . self::xml(self::brandName()) . '</cp:lastModifiedBy>'
             . '<dcterms:created xsi:type="dcterms:W3CDTF">' . $now . '</dcterms:created>'
             . '<dcterms:modified xsi:type="dcterms:W3CDTF">' . $now . '</dcterms:modified>'
             . '</cp:coreProperties>';
@@ -498,7 +542,7 @@ final class PptxExporter
         return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"'
             . ' xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
-            . '<Application>ProProfessor AI</Application>'
+            . '<Application>' . self::xml(self::brandName()) . '</Application>'
             . '<PresentationFormat>Widescreen</PresentationFormat>'
             . '<Slides>' . $count . '</Slides>'
             . '<Notes>' . $count . '</Notes>'
@@ -675,13 +719,13 @@ final class PptxExporter
         return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="ProProfessor Lecture">'
             . '<a:themeElements>'
-            . '<a:clrScheme name="ProProfessor">'
-            . '<a:dk1><a:srgbClr val="0F172A"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1>'
-            . '<a:dk2><a:srgbClr val="1E3A8A"/></a:dk2><a:lt2><a:srgbClr val="F1F5F9"/></a:lt2>'
-            . '<a:accent1><a:srgbClr val="1E3A8A"/></a:accent1><a:accent2><a:srgbClr val="D97706"/></a:accent2>'
+            . '<a:clrScheme name="Institution">'
+            . '<a:dk1><a:srgbClr val="' . self::secondary() . '"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1>'
+            . '<a:dk2><a:srgbClr val="' . self::primary() . '"/></a:dk2><a:lt2><a:srgbClr val="F1F5F9"/></a:lt2>'
+            . '<a:accent1><a:srgbClr val="' . self::primary() . '"/></a:accent1><a:accent2><a:srgbClr val="' . self::accent() . '"/></a:accent2>'
             . '<a:accent3><a:srgbClr val="0EA5E9"/></a:accent3><a:accent4><a:srgbClr val="059669"/></a:accent4>'
             . '<a:accent5><a:srgbClr val="7C3AED"/></a:accent5><a:accent6><a:srgbClr val="E11D48"/></a:accent6>'
-            . '<a:hlink><a:srgbClr val="1D4ED8"/></a:hlink><a:folHlink><a:srgbClr val="1E3A8A"/></a:folHlink>'
+            . '<a:hlink><a:srgbClr val="1D4ED8"/></a:hlink><a:folHlink><a:srgbClr val="' . self::primary() . '"/></a:folHlink>'
             . '</a:clrScheme>'
             . '<a:fontScheme name="ProProfessor">'
             . '<a:majorFont><a:latin typeface="Calibri Light"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>'

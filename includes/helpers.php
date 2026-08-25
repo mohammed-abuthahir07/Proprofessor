@@ -1073,9 +1073,18 @@ function presentation_accessible(array $user, array $ppt): bool
         return $owner !== null && (int)$owner['institution_id'] === $instId;
     }
     if ($role === 'professor') {
-        return (int)$ppt['professor_id'] === $uid;
+        if ((int)$ppt['professor_id'] !== $uid) {
+            return false;
+        }
+        // Institution isolation: professor must belong to same institution as deck owner.
+        $owner = Database::fetch('SELECT institution_id FROM users WHERE id = ?', [(int)$ppt['professor_id']]);
+        return $owner !== null && (int)$owner['institution_id'] === $instId;
     }
     if ($role === 'student') {
+        $owner = Database::fetch('SELECT institution_id FROM users WHERE id = ?', [(int)$ppt['professor_id']]);
+        if (!$owner || (int)$owner['institution_id'] !== $instId) {
+            return false;
+        }
         $subjectId = (int)($ppt['subject_id'] ?? 0);
         if ($subjectId < 1 && !empty($ppt['plan_id'])) {
             $plan = Database::fetch('SELECT subject_id FROM course_plans WHERE id = ?', [(int)$ppt['plan_id']]);

@@ -20,6 +20,7 @@ if (!is_array($slides)) {
 }
 
 $title = (string)($ppt['title'] ?? 'Presentation');
+$branding = PresentationTools::brandingForPresentation($user, $ppt);
 $filename = PptxExporter::filename($title);
 $tmp = tempnam(sys_get_temp_dir(), 'ppai_ppt_');
 if ($tmp === false) {
@@ -30,7 +31,7 @@ $pptx = $tmp . '.pptx';
 @unlink($tmp);
 
 try {
-    PptxExporter::saveToFile($pptx, $title, $slides);
+    PptxExporter::saveToFile($pptx, $title, $slides, $branding);
 } catch (Throwable $e) {
     @unlink($pptx);
     flash('error', 'Could not save this PPT: ' . $e->getMessage());

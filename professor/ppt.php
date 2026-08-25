@@ -9,12 +9,14 @@ $prefillTitle = trim((string)get('title', ''));
 $prefillContext = trim((string)get('context', ''));
 $plans = Database::fetchAll('SELECT id, title, subject_name, syllabus_input FROM course_plans WHERE professor_id=? AND institution_id=?', [$user['id'], $user['institution_id']]);
 $ppts = Database::fetchAll('SELECT id, title, slide_count, status, created_at FROM presentations WHERE professor_id=? ORDER BY id DESC', [$user['id']]);
+$branding = PresentationTools::brandingForUser($user);
 $ctx = $prefillContext;
 foreach ($plans as $p) if ($planId && (int)$p['id']===$planId && $ctx === '') $ctx = (string)$p['syllabus_input'];
-render_header('PPT Generator', 'ppt', ['subtitle' => 'AI lecture decks with speaker notes']);
+render_header('PPT Generator', 'ppt', ['subtitle' => 'AI lecture decks with speaker notes · ' . $branding['name']]);
 ?>
 <div class="grid grid-2">
   <div class="panel">
+    <p class="muted" style="margin-top:0;">Decks use <strong><?= e($branding['name']) ?></strong> branding (logo/colors from your institution). Speaker notes are generated with each slide.</p>
     <form class="form-grid" method="post" action="<?= e(base_url('/api/ai?module=ppt')) ?>" data-ai-form="#out">
       <?= csrf_field() ?>
       <input type="hidden" name="module" value="ppt">
@@ -44,7 +46,8 @@ render_header('PPT Generator', 'ppt', ['subtitle' => 'AI lecture decks with spea
           <td><?= (int)$p['slide_count'] ?></td>
           <td class="ppt-row-actions">
             <a class="btn btn-sm btn-primary" href="<?= e(base_url('/professor/ppt-view.php?id='.$p['id'])) ?>">Open</a>
-            <a class="btn btn-sm btn-accent" href="<?= e(base_url('/professor/ppt-download.php?id='.$p['id'])) ?>"><?= icon('download') ?> Save</a>
+            <a class="btn btn-sm btn-accent" href="<?= e(base_url('/professor/ppt-download.php?id='.$p['id'])) ?>"><?= icon('download') ?> PPTX</a>
+            <a class="btn btn-sm" href="<?= e(base_url('/professor/ppt-pdf.php?id='.$p['id'])) ?>">PDF</a>
           </td>
         </tr>
       <?php endforeach; ?>
