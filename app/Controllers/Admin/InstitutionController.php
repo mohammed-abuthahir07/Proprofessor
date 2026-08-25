@@ -54,6 +54,15 @@ final class InstitutionController extends Controller
                     $existing[$key] = strtoupper($hex);
                 }
             }
+            $lat = trim((string)$this->post('geofence_lat', ''));
+            $lng = trim((string)$this->post('geofence_lng', ''));
+            $radius = trim((string)$this->post('geofence_radius_m', ''));
+            if ($lat !== '' && is_numeric($lat) && $lng !== '' && is_numeric($lng)) {
+                $existing['geofence_lat'] = (float)$lat;
+                $existing['geofence_lng'] = (float)$lng;
+                $existing['geofence_radius_m'] = $radius !== '' && is_numeric($radius) ? (float)$radius : 150.0;
+            }
+            $existing['geofence_required_for_qr'] = (bool)$this->post('geofence_required_for_qr');
             $logo = trim((string)$this->post('logo_url', ''));
             Institution::updateById((int)$user['institution_id'], [
                 'name' => $this->post('name'),

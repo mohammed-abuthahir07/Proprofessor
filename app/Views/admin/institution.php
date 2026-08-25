@@ -20,6 +20,14 @@
       </div>
       <div class="form-row"><label>Brand accent (#hex)</label><input name="brand_accent" value="<?= e((string)($settings['brand_accent'] ?? 'D97706')) ?>" placeholder="D97706"></div>
       <div class="form-row two">
+        <div><label>QR geofence lat</label><input name="geofence_lat" value="<?= e((string)($settings['geofence_lat'] ?? '')) ?>" placeholder="optional"></div>
+        <div><label>QR geofence lng</label><input name="geofence_lng" value="<?= e((string)($settings['geofence_lng'] ?? '')) ?>" placeholder="optional"></div>
+      </div>
+      <div class="form-row two">
+        <div><label>Geofence radius (m)</label><input name="geofence_radius_m" value="<?= e((string)($settings['geofence_radius_m'] ?? '150')) ?>"></div>
+        <div><label><input type="checkbox" name="geofence_required_for_qr" value="1" <?= !empty($settings['geofence_required_for_qr']) ? 'checked' : '' ?>> Require geofence for QR</label></div>
+      </div>
+      <div class="form-row two">
         <div><label>Academic year</label><input name="academic_year" value="<?= e((string)$inst['academic_year']) ?>"></div>
         <div><label>Semester</label><input name="current_semester" value="<?= e((string)$inst['current_semester']) ?>"></div>
       </div>

@@ -5,6 +5,7 @@ require_once __DIR__ . '/../includes/layout.php';
 Auth::requireRole('student');
 Auth::refresh();
 $user = Auth::user();
+AttendanceTools::ensureSchema();
 $classId = student_class_id($user);
 $classLabel = $classId ? class_label_by_id($classId) : '';
 if ($classId) {
@@ -16,10 +17,39 @@ $roster = Database::fetch(
 );
 $reg = trim((string)($user['register_no'] ?: ($roster['register_no'] ?? '')));
 $min = institution_attendance_min((int)$user['institution_id']);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verify_csrf();
+    if (post('action') === 'request_regularization') {
+        $proofUrl = null;
+        if (!empty($_FILES['proof']['name'])) {
+            $ext = pathinfo((string)$_FILES['proof']['name'], PATHINFO_EXTENSION);
+            $name = 'reg_' . $user['id'] . '_' . time() . '.' . preg_replace('/[^a-z0-9]/i', '', $ext);
+            $dir = dirname(__DIR__) . '/uploads/attendance';
+            if (!is_dir($dir)) {
+                mkdir($dir, 0775, true);
+            }
+            $dest = $dir . '/' . $name;
+            if (move_uploaded_file((string)$_FILES['proof']['tmp_name'], $dest)) {
+                $proofUrl = '/professor/uploads/attendance/' . $name;
+            }
+        }
+        $result = AttendanceTools::requestRegularization(
+            $user,
+            (int)post('session_id'),
+            (string)post('requested_status'),
+            (string)post('reason'),
+            $proofUrl
+        );
+        flash($result['ok'] ? 'success' : 'error', $result['ok'] ? 'Regularization request submitted.' : ($result['error'] ?? 'Failed.'));
+        redirect('/student/attendance.php');
+    }
+}
+
 $rows = [];
 if ($classId) {
     $rows = Database::fetchAll(
-        'SELECT s.name AS subject_name, r.status, sess.session_date, sess.period
+        'SELECT s.name AS subject_name, r.status, sess.session_date, sess.period, sess.id AS session_id, sess.subject_id
          FROM attendance_records r
          JOIN attendance_sessions sess ON sess.id = r.session_id
            AND sess.institution_id = ?
@@ -49,20 +79,23 @@ render_header('Attendance Tracker', 'attendance', [
   <div class="empty">No attendance marked for <?= e($classLabel) ?> yet.</div>
 <?php else: ?>
 <div class="grid grid-3">
-<?php foreach ($bySub as $name => $a): $pct = $a['total'] ? round(($a['present'] ?? 0) * 100 / $a['total'], 1) : 0; ?>
+<?php foreach ($bySub as $name => $a):
+  $pct = $a['total'] ? round(($a['present'] ?? 0) * 100 / $a['total'], 1) : 0;
+  $band = AttendanceTools::shortageBand($pct, $min);
+?>
   <div class="stat">
     <div class="label"><?= e($name) ?></div>
     <div class="value"><?= e((string)$pct) ?>%</div>
-    <div class="hint"><?= ($pct < $min) ? 'Below AICTE ' . (int)$min . '%' : 'On track' ?></div>
+    <div class="hint"><?= e($band['label']) ?></div>
   </div>
 <?php endforeach; ?>
 </div>
 <?php endif; ?>
 <div class="panel" style="margin-top:1rem">
   <h2>Your sessions</h2>
-  <p style="color:var(--muted);font-size:.88rem;margin-top:0">Only your records for <?= e($classLabel) ?>. Classmates’ attendance is not shown.</p>
+  <p style="color:var(--muted);font-size:.88rem;margin-top:0">Only your records for <?= e($classLabel) ?>. Classmates’ attendance is not shown. Use a professor QR link to check in.</p>
   <div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Period</th><th>Subject</th><th>Status</th></tr></thead>
+    <thead><tr><th>Date</th><th>Period</th><th>Subject</th><th>Status</th><th>Regularize</th></tr></thead>
     <tbody>
     <?php foreach (array_slice($rows, 0, 40) as $r): ?>
       <tr>
@@ -70,6 +103,31 @@ render_header('Attendance Tracker', 'attendance', [
         <td><?= e((string)($r['period'] ?? '')) ?></td>
         <td><?= e((string)$r['subject_name']) ?></td>
         <td><?= e($r['status']) ?></td>
+        <td>
+          <?php if (in_array((string)$r['status'], ['absent', 'late', 'excused'], true)): ?>
+          <details>
+            <summary class="muted">Request</summary>
+            <form method="post" enctype="multipart/form-data" class="form-grid" style="margin-top:.4rem;min-width:14rem">
+              <?= csrf_field() ?>
+              <input type="hidden" name="action" value="request_regularization">
+              <input type="hidden" name="session_id" value="<?= (int)$r['session_id'] ?>">
+              <div class="form-row" style="margin:0">
+                <label>Requested status</label>
+                <select name="requested_status">
+                  <option value="present">Present</option>
+                  <option value="late">Late</option>
+                  <option value="excused">Excused</option>
+                </select>
+              </div>
+              <div class="form-row" style="margin:0"><label>Reason</label><textarea name="reason" required maxlength="1000"></textarea></div>
+              <div class="form-row" style="margin:0"><label>Proof</label><input type="file" name="proof" accept=".pdf,.jpg,.jpeg,.png,.webp"></div>
+              <button class="btn btn-sm btn-primary" type="submit">Submit</button>
+            </form>
+          </details>
+          <?php else: ?>
+            —
+          <?php endif; ?>
+        </td>
       </tr>
     <?php endforeach; ?>
     </tbody>
