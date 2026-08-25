@@ -384,7 +384,7 @@ Enable Apache `mod_rewrite` and `AllowOverride All` for `.htaccess`.
 php database/reset_dev_data.php --confirm-local-reset
 
 # Full E2E academic demo dataset
-php database/seed_e2e_test_data.php --confirm-local-reset
+php database/seed_e2e_test_data.php --confirm-local-rese
 ```
 
 ---
