@@ -46,6 +46,7 @@ $router->get('/admin/notifications', [NotificationController::class, 'index']);
 
 // Role dashboards (MVC)
 $router->get('/professor/dashboard', [ProfessorDashboardController::class, 'index']);
+$router->post('/professor/dashboard/layout', [ProfessorDashboardController::class, 'saveLayout']);
 $router->get('/student/dashboard', [StudentDashboardController::class, 'index']);
 $router->get('/hod/dashboard', [HodDashboardController::class, 'index']);
 $router->get('/api/hod/students', [HodStudentsController::class, 'list']);
