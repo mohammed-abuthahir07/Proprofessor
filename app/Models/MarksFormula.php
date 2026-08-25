@@ -199,6 +199,382 @@ final class MarksFormula extends Model
         return 'Institution';
     }
 
+    /**
+     * Normalize component JSON (list or object map) to a stable list.
+     *
+     * @return list<array{code:string,label:string,max:float}>
+     */
+    public static function normalizeComponents(mixed $components): array
+    {
+        if (is_string($components)) {
+            $decoded = json_decode($components, true);
+            $components = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($components)) {
+            return [];
+        }
+
+        $out = [];
+        $isList = $components === [] || array_keys($components) === range(0, count($components) - 1);
+        if ($isList) {
+            foreach ($components as $c) {
+                if (!is_array($c) || empty($c['code'])) {
+                    continue;
+                }
+                $code = trim((string)$c['code']);
+                if ($code === '') {
+                    continue;
+                }
+                $label = trim((string)($c['label'] ?? $code));
+                $out[] = [
+                    'code' => $code,
+                    'label' => $label !== '' ? $label : $code,
+                    'max' => (float)($c['max'] ?? 0),
+                ];
+            }
+            return $out;
+        }
+
+        foreach ($components as $code => $cfg) {
+            $code = trim((string)$code);
+            if ($code === '') {
+                continue;
+            }
+            $cfg = is_array($cfg) ? $cfg : [];
+            $label = trim((string)($cfg['label'] ?? $code));
+            $out[] = [
+                'code' => $code,
+                'label' => $label !== '' ? $label : $code,
+                'max' => (float)($cfg['max'] ?? 0),
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Built-in fallback when Admin has not configured any formula yet.
+     *
+     * @return array<string,mixed>
+     */
+    public static function systemFallback(): array
+    {
+        return [
+            'id' => 0,
+            'name' => 'CBCS fallback · CIA average to 25',
+            'pattern' => 'CBCS',
+            'plain_english' => 'Average of CIA 1 and CIA 2 scaled to 25 marks.',
+            'expression' => '((cia1+cia2)/2)*(25/50)',
+            'components' => json_encode([
+                ['code' => 'cia1', 'label' => 'CIA 1', 'max' => 50],
+                ['code' => 'cia2', 'label' => 'CIA 2', 'max' => 50],
+            ]),
+            'total_max' => 25,
+            'subject_id' => null,
+            'department_id' => null,
+            'subject_type' => null,
+            'is_default' => 1,
+        ];
+    }
+
+    public static function appliedTitle(array $formula): string
+    {
+        $name = trim((string)($formula['name'] ?? ''));
+        if ($name === '') {
+            $name = 'Internal formula';
+        }
+        if (!empty($formula['subject_id'])) {
+            $subj = trim((string)($formula['subject_name'] ?? $formula['subject_code'] ?? ''));
+            return $subj !== '' ? ($subj . ' Override') : ($name . ' (Subject Override)');
+        }
+        return $name . ' (' . self::scopeLabel($formula) . ')';
+    }
+
+    /**
+     * Safe arithmetic evaluation after component substitution. No eval().
+     *
+     * @param array<string,float|int|string> $values keyed by component code
+     */
+    public static function computeTotal(string $expression, array $values, array $components = []): float
+    {
+        $expression = trim($expression);
+        if ($expression === '') {
+            throw new RuntimeException('Formula expression is empty.');
+        }
+        $list = $components !== [] ? self::normalizeComponents($components) : [];
+        $codes = [];
+        foreach ($list as $c) {
+            $codes[] = $c['code'];
+        }
+        if (!$codes) {
+            preg_match_all('/[A-Za-z_][A-Za-z0-9_]*/', $expression, $m);
+            $codes = array_values(array_unique($m[0] ?? []));
+        }
+
+        $normalized = $expression;
+        usort($codes, static fn($a, $b) => strlen((string)$b) <=> strlen((string)$a));
+        foreach ($codes as $code) {
+            $key = (string)$code;
+            $found = null;
+            foreach ($values as $vk => $vv) {
+                if (strcasecmp((string)$vk, $key) === 0) {
+                    $found = $vv;
+                    break;
+                }
+            }
+            if ($found === null || $found === '' || !is_numeric($found)) {
+                throw new RuntimeException('Missing or invalid mark for component: ' . $key);
+            }
+            $normalized = preg_replace(
+                '/\b' . preg_quote($key, '/') . '\b/i',
+                (string)(0 + (float)$found),
+                $normalized
+            ) ?? $normalized;
+        }
+
+        $normalized = trim($normalized);
+        if ($normalized === '' || !preg_match('/^[0-9+\-.*\/() \t]+$/', $normalized)) {
+            throw new RuntimeException('Could not evaluate formula expression safely.');
+        }
+        if (preg_match('/[A-Za-z_]/', $normalized)) {
+            throw new RuntimeException('Formula still contains unresolved component names.');
+        }
+
+        return round(self::evalArithmetic($normalized), 4);
+    }
+
+    /**
+     * Validate component values against configured maxima (server-side).
+     *
+     * @param list<array{code:string,label:string,max:float}> $components
+     * @param array<string,mixed> $values
+     * @return array<string,float>
+     */
+    public static function validateAndNormalizeValues(array $components, array $values): array
+    {
+        $out = [];
+        foreach ($components as $c) {
+            $code = (string)$c['code'];
+            $label = (string)($c['label'] ?: $code);
+            $max = (float)$c['max'];
+            $raw = null;
+            foreach ($values as $vk => $vv) {
+                if (strcasecmp((string)$vk, $code) === 0) {
+                    $raw = $vv;
+                    break;
+                }
+            }
+            if ($raw === null || $raw === '') {
+                throw new RuntimeException($label . ' is required.');
+            }
+            if (!is_numeric($raw)) {
+                throw new RuntimeException($label . ' must be a number.');
+            }
+            $num = (float)$raw;
+            if ($num < 0) {
+                throw new RuntimeException($label . ' cannot be negative.');
+            }
+            if ($max > 0 && $num > $max + 1e-9) {
+                throw new RuntimeException($label . ' cannot exceed ' . rtrim(rtrim(number_format($max, 2, '.', ''), '0'), '.') . '.');
+            }
+            $out[$code] = $num;
+        }
+        return $out;
+    }
+
+    public static function gradeLetter(float $total, float $totalMax): string
+    {
+        $max = $totalMax > 0 ? $totalMax : 25.0;
+        $pct = ($total / $max) * 100.0;
+        if ($pct >= 90) {
+            return 'O';
+        }
+        if ($pct >= 80) {
+            return 'A';
+        }
+        if ($pct >= 70) {
+            return 'B';
+        }
+        if ($pct >= 60) {
+            return 'C';
+        }
+        if ($pct >= 50) {
+            return 'D';
+        }
+        return 'E';
+    }
+
+    /**
+     * Attendance % per register_no for class+subject (present+late), same as Attendance module.
+     *
+     * @return array<string,float>
+     */
+    public static function attendancePercentages(int $classId, int $subjectId): array
+    {
+        if ($classId < 1 || $subjectId < 1) {
+            return [];
+        }
+        $rows = Database::fetchAll(
+            'SELECT r.register_no, r.status
+             FROM attendance_records r
+             JOIN attendance_sessions s ON s.id = r.session_id
+             WHERE s.class_id = ? AND s.subject_id = ?',
+            [$classId, $subjectId]
+        );
+        $agg = [];
+        foreach ($rows as $r) {
+            $reg = (string)$r['register_no'];
+            $agg[$reg]['total'] = ($agg[$reg]['total'] ?? 0) + 1;
+            if (in_array($r['status'], ['present', 'late'], true)) {
+                $agg[$reg]['present'] = ($agg[$reg]['present'] ?? 0) + 1;
+            }
+        }
+        $out = [];
+        foreach ($agg as $reg => $a) {
+            $out[$reg] = !empty($a['total'])
+                ? round(($a['present'] ?? 0) * 100 / $a['total'], 1)
+                : 0.0;
+        }
+        return $out;
+    }
+
+    /** Scale attendance percentage into the formula component max (e.g. 80% of 5 = 4). */
+    public static function attendanceMarkFromPercent(float $percent, float $componentMax): float
+    {
+        if ($componentMax <= 0) {
+            return 0.0;
+        }
+        $pct = max(0.0, min(100.0, $percent));
+        return round(($pct / 100.0) * $componentMax, 2);
+    }
+
+    public static function isAttendanceComponent(string $code, string $label = ''): bool
+    {
+        $hay = strtolower($code . ' ' . $label);
+        return str_contains($hay, 'attendance') || $code === 'att' || str_starts_with(strtolower($code), 'att_');
+    }
+
+    /**
+     * Ensure internal_marks supports academic-year isolation without duplicates.
+     */
+    public static function ensureInternalMarksSchema(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        $cols = [];
+        foreach (Database::fetchAll('SHOW COLUMNS FROM internal_marks') as $c) {
+            $cols[$c['Field']] = true;
+        }
+        if (!isset($cols['academic_year'])) {
+            Database::query(
+                "ALTER TABLE internal_marks
+                 ADD COLUMN academic_year VARCHAR(20) NOT NULL DEFAULT ''
+                 COMMENT 'Institution academic year snapshot' AFTER class_id"
+            );
+        }
+        $indexes = Database::fetchAll('SHOW INDEX FROM internal_marks WHERE Key_name = ?', ['uq_marks']);
+        $hasYear = false;
+        foreach ($indexes as $idx) {
+            if (($idx['Column_name'] ?? '') === 'academic_year') {
+                $hasYear = true;
+                break;
+            }
+        }
+        if (!$hasYear) {
+            try {
+                Database::query('ALTER TABLE internal_marks DROP INDEX uq_marks');
+            } catch (\Throwable $e) {
+                // Index may already have been replaced.
+            }
+            Database::query(
+                'ALTER TABLE internal_marks
+                 ADD UNIQUE KEY uq_marks (subject_id, class_id, register_no, academic_year)'
+            );
+        }
+    }
+
+    /** Recursive-descent arithmetic parser for + - * / ( ) decimals. */
+    private static function evalArithmetic(string $expr): float
+    {
+        $expr = preg_replace('/\s+/', '', $expr) ?? '';
+        if ($expr === '') {
+            throw new RuntimeException('Empty arithmetic expression.');
+        }
+        $i = 0;
+        $len = strlen($expr);
+
+        $parseExpr = null;
+        $parseTerm = null;
+        $parseFactor = null;
+
+        $parseFactor = static function () use (&$parseExpr, &$i, $expr, $len, &$parseFactor): float {
+            if ($i >= $len) {
+                throw new RuntimeException('Unexpected end of expression.');
+            }
+            $ch = $expr[$i];
+            if ($ch === '+') {
+                $i++;
+                return $parseFactor();
+            }
+            if ($ch === '-') {
+                $i++;
+                return -$parseFactor();
+            }
+            if ($ch === '(') {
+                $i++;
+                $v = $parseExpr();
+                if ($i >= $len || $expr[$i] !== ')') {
+                    throw new RuntimeException('Unbalanced parentheses in formula.');
+                }
+                $i++;
+                return $v;
+            }
+            $start = $i;
+            while ($i < $len && (ctype_digit($expr[$i]) || $expr[$i] === '.')) {
+                $i++;
+            }
+            if ($start === $i) {
+                throw new RuntimeException('Invalid number in formula.');
+            }
+            return (float)substr($expr, $start, $i - $start);
+        };
+
+        $parseTerm = static function () use (&$parseFactor, &$i, $expr, $len): float {
+            $v = $parseFactor();
+            while ($i < $len && ($expr[$i] === '*' || $expr[$i] === '/')) {
+                $op = $expr[$i++];
+                $r = $parseFactor();
+                if ($op === '*') {
+                    $v *= $r;
+                } else {
+                    if (abs($r) < 1e-12) {
+                        throw new RuntimeException('Division by zero in formula.');
+                    }
+                    $v /= $r;
+                }
+            }
+            return $v;
+        };
+
+        $parseExpr = static function () use (&$parseTerm, &$i, $expr, $len): float {
+            $v = $parseTerm();
+            while ($i < $len && ($expr[$i] === '+' || $expr[$i] === '-')) {
+                $op = $expr[$i++];
+                $r = $parseTerm();
+                $v = $op === '+' ? $v + $r : $v - $r;
+            }
+            return $v;
+        };
+
+        $result = $parseExpr();
+        if ($i !== $len) {
+            throw new RuntimeException('Trailing characters in formula.');
+        }
+        return $result;
+    }
+
     public static function validateExpression(string $expression, array $components): void
     {
         $expression = trim($expression);
@@ -206,9 +582,17 @@ final class MarksFormula extends Model
             throw new RuntimeException('Expression is required.');
         }
 
+        // Reject clearly unsafe tokens early.
+        if (preg_match('/\b(eval|exec|system|shell_exec|passthru|proc_open|popen|assert|create_function|include|require|\\$)\b/i', $expression)) {
+            throw new RuntimeException('Expression contains forbidden tokens.');
+        }
+        if (preg_match('/[^A-Za-z0-9_+\-.*\/() \t]/', $expression)) {
+            throw new RuntimeException('Expression contains unsupported characters. Use component codes and + - * / ( ) only.');
+        }
+
         $codes = [];
         // Support both [{code,max}] and {"CIA1":{"max":30}} shapes.
-        $isList = array_keys($components) === range(0, count($components) - 1);
+        $isList = $components === [] || array_keys($components) === range(0, count($components) - 1);
         if ($isList) {
             foreach ($components as $c) {
                 if (is_array($c) && !empty($c['code'])) {
@@ -220,18 +604,61 @@ final class MarksFormula extends Model
                 $codes[] = (string)$code;
             }
         }
-        $codes = array_values(array_unique(array_filter($codes, static fn($c) => $c !== '')));
-        if (!$codes) {
-            throw new RuntimeException('Component JSON must include at least one component code.');
+        $codes = array_values(array_unique(array_filter(array_map('trim', $codes), static fn($c) => $c !== '')));
+
+        // Identifiers used in the expression (e.g. cia1, CIA2, assignment).
+        preg_match_all('/[A-Za-z_][A-Za-z0-9_]*/', $expression, $m);
+        $used = array_values(array_unique($m[0] ?? []));
+
+        if (!$codes && !$used) {
+            throw new RuntimeException('Expression must use at least one component code (example: CIA1, cia2).');
         }
 
-        $normalized = $expression;
+        // If Component JSON is empty, allow codes declared by the expression itself
+        // so formulas like ((cia1+cia2)/2)*(15/50) still validate.
+        if (!$codes) {
+            $codes = $used;
+        }
+
+        // Every identifier in the expression must be a known component (case-insensitive).
+        $codeMap = [];
         foreach ($codes as $code) {
-            $normalized = preg_replace('/\b' . preg_quote($code, '/') . '\b/i', '1', $normalized) ?? $normalized;
+            $codeMap[strtolower($code)] = $code;
         }
-        if (!preg_match('/^[0-9+\-.*\/() \t]+$/', $normalized)) {
-            throw new RuntimeException('Expression contains unsupported tokens. Use component codes and + - * / ( ) only.');
+        $missing = [];
+        foreach ($used as $token) {
+            if (!isset($codeMap[strtolower($token)])) {
+                $missing[] = $token;
+            }
         }
+        if ($missing) {
+            throw new RuntimeException(
+                'Expression uses unknown component(s): ' . implode(', ', $missing)
+                . '. Add them to Component JSON or use only defined component codes.'
+            );
+        }
+
+        // Replace longest codes first (case-insensitive) so nested names don't leave letters behind.
+        $normalized = $expression;
+        $replaceCodes = $codes;
+        usort($replaceCodes, static fn($a, $b) => strlen((string)$b) <=> strlen((string)$a));
+        foreach ($replaceCodes as $code) {
+            $normalized = preg_replace('/\b' . preg_quote((string)$code, '/') . '\b/i', '1', $normalized) ?? $normalized;
+        }
+        // Also replace any remaining used tokens (casing variants).
+        foreach ($used as $token) {
+            $normalized = preg_replace('/\b' . preg_quote($token, '/') . '\b/i', '1', $normalized) ?? $normalized;
+        }
+
+        $normalized = trim($normalized);
+        // Allow integers/decimals and + - * / ( ) whitespace only.
+        if ($normalized === '' || !preg_match('/^[0-9+\-.*\/() \t]+$/', $normalized)) {
+            throw new RuntimeException('Expression contains unsupported tokens. Use component codes and + - * / ( ) only. Example: ((cia1+cia2)/2)*(15/50)');
+        }
+        if (preg_match('/[A-Za-z_]/', $normalized)) {
+            throw new RuntimeException('Expression still contains letters after parsing component codes.');
+        }
+
         // Balanced parentheses check
         $depth = 0;
         foreach (str_split($expression) as $ch) {

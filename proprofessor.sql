@@ -628,6 +628,7 @@ CREATE TABLE `internal_marks` (
   `professor_id` int(10) UNSIGNED NOT NULL,
   `subject_id` int(10) UNSIGNED NOT NULL,
   `class_id` int(10) UNSIGNED NOT NULL,
+  `academic_year` varchar(20) NOT NULL DEFAULT '' COMMENT 'Institution academic year snapshot',
   `formula_id` int(10) UNSIGNED DEFAULT NULL,
   `student_id` int(10) UNSIGNED DEFAULT NULL,
   `register_no` varchar(60) NOT NULL,
@@ -1118,7 +1119,7 @@ ALTER TABLE `institution_features`
 --
 ALTER TABLE `internal_marks`
   ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `uq_marks` (`subject_id`,`class_id`,`register_no`);
+  ADD UNIQUE KEY `uq_marks` (`subject_id`,`class_id`,`register_no`,`academic_year`);
 
 --
 -- Indexes for table `lesson_plans`
