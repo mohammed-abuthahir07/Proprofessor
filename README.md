@@ -486,6 +486,302 @@ Seed also creates ECE, EEE, IT, MECH HODs/professors/students — see script out
 
 ---
 
+# Professor Module — Today's Enhancements
+
+Documentation for Professor-module features implemented and exercised on **2026-08-25**. Existing core workflows remain; the items below are additive extensions.
+
+**Scope:** Professor module only.  
+**No changes were made to other modules as part of this documentation update.**
+
+---
+
+## Professor Dashboard
+
+### Existing (unchanged)
+
+- Active Plans
+- Draft Plans
+- Submitted Plans
+- Recent Course Plans
+- Quick Actions
+
+### New
+
+| Feature | Description |
+|---------|-------------|
+| **Today at a Glance** | Today's Classes, Pending Grading, Low Attendance |
+| **Weekly AI Digest** | Summarized weekly academic/AI activity for the signed-in professor |
+| **OBE Compliance** | CLO Attainment and PLO Attainment indicators |
+| **Cross-Module Risk Detection** | Risk signals spanning Attendance, Internal Marks, and Assignments |
+| **Customizable Dashboard Widgets** | Drag-and-drop layout with Save Layout persistence |
+| **HOD Benchmarking** | Professor metrics compared with department average |
+
+Tenant and role isolation remain enforced: each professor only sees data for their institution and authorized courses/classes.
+
+---
+
+## New Course Plan
+
+**Route:** `/professor/generate-plan` (and related plan views)
+
+### Existing (unchanged)
+
+- Manual syllabus text entry and AI course-plan generation from typed syllabus text
+- Draft → Submitted → Approved / Returned (rejected) HOD workflow
+- HOD comments / feedback on plans
+
+### New
+
+- Syllabus **PDF** upload
+- Syllabus **DOCX** upload
+- Automatic text extraction from uploaded files
+- Extracted syllabus text is editable before generation
+- AI course-plan generation from uploaded syllabus content
+- University / accreditation template support (e.g. **NAAC**, **NBA**, **AICTE**)
+- Bloom's taxonomy balance checking
+- Versioning when a syllabus/plan is regenerated
+- Version comparison
+- Co-faculty comments
+- NAAC/NBA-oriented export
+
+---
+
+## My Plans
+
+**Route:** `/professor/plans`, `/professor/plan-view`
+
+### Existing (unchanged)
+
+- List and open the professor's own course plans
+- Submit drafts for HOD review and view approval status
+
+### New
+
+- Status filtering: Draft, Submitted, Approved, Rejected / returned
+- Subject filtering
+- Semester filtering
+- Version comparison
+- Shareable read-only links
+- Bulk export of approved plans for accreditation documentation
+
+---
+
+## Lesson Planner
+
+**Route:** `/professor/lessons`
+
+### Existing (unchanged)
+
+- Select Plan → Generate Lesson Plans flow
+
+### New
+
+- Calendar scheduling
+- `.ics` calendar export
+- AI teaching methodology suggestions based on Bloom level
+- Generate Question Bank items from a lesson/session
+- Generate PPT from a lesson/session
+- Planned vs Actual tracking
+- Completed status
+- Delayed status
+- Suggested learning resources
+
+---
+
+## Question Bank Generator
+
+**Route:** `/professor/questions` (and related paper tools)
+
+### Existing (unchanged)
+
+- Question generation and saving to the professor's personal question bank
+
+### New
+
+- Duplicate / similar-question detection
+- Duplicate warning before saving
+- Bloom tagging
+- CLO tagging
+- Unit tagging
+- Marks tagging
+- Balanced question-paper generation
+- Answer key generation
+- Marking scheme generation
+- Randomized Set A / Set B / Set C
+- Post-exam item analysis when real student attempts/results are available
+
+---
+
+## PPT Generator
+
+**Route:** `/professor/ppt`, `/professor/ppt-view`, `/professor/ppt-download`
+
+### Existing (unchanged)
+
+- AI PPT generation from course/plan context
+
+### New
+
+- Institution branding (logo/colors where configured on the institution)
+- Speaker notes
+- PPTX export
+- PDF / handout export where supported
+- Shareable presentation option where supported
+- Slide-level regeneration
+- AI narration **where configured** (disabled until a narration provider is set)
+- Student handout generation
+
+---
+
+## Assignments
+
+**Route:** `/professor/assignments`
+
+### Existing (unchanged)
+
+- Assignment creation, publishing, submission viewing, and rubric usage
+
+### New
+
+- AI-generated rubric
+- CLO mapping
+- Bloom-level mapping
+- Student submission portal (existing student assignments surface)
+- AI first-pass grading with **professor override**
+- Plagiarism / similarity detection where configured
+- AI-content detection where configured (off until a provider is set)
+- Class performance analytics
+- Commonly missed rubric criteria
+- Reusable assignment templates
+- Bulk assignment creation across sections
+- Deadline reminders
+- Extension request workflow (student request → professor approve/reject)
+- Marks hand-off to Internal Marks
+
+---
+
+## Attendance
+
+**Route:** `/professor/attendance`
+
+### Existing (unchanged)
+
+- Manual attendance marking by class + subject
+- Save attendance sessions and percentages used elsewhere (e.g. Internal Marks)
+
+### New
+
+- QR attendance and QR session creation
+- QR-based student check-in with expiry / TTL
+- Automated attendance shortage alerts
+- Predictive attendance risk
+- CSV / Excel import and export (with import validation)
+- Student attendance regularization requests
+- Professor approve / reject regularization workflow
+- Attendance heatmap
+- Semester / class / subject attendance trends
+
+---
+
+## Internal Marks
+
+**Route:** `/professor/marks`
+
+### Existing workflow (unchanged)
+
+```
+Professor → Select Class → Select Subject → Load Students
+  → Enter CIA (and related components) → Calculate → Save → Student View
+```
+
+- College Admin Formula Configurator remains the source of formula definitions
+- Formula priority: subject-specific override → department + subject type → department default → system default
+- Class / section / subject isolation
+
+### New
+
+- Automatic formula resolution for the selected class/subject (professor does not pick a formula manually)
+- Subject-specific and department + subject-type formula support via Admin configurator
+- Automatic **Attendance** mark pull-through from the Attendance module
+- Automatic **Assignment** mark pull-through from finalized assignment grades (missing data shown as unavailable — not silently forced to zero unless already required by save validation)
+- CIA1 / CIA2 remain professor-entered
+- Automatic final internal calculation using the resolved Admin formula
+- **What-If simulator** (preview only; does not write to the database)
+- Anomaly detection: out-of-range validation (blocking) and sudden CIA drop warning (non-blocking)
+- Distribution / moderation view with section-level aggregate statistics
+- Formatted mark statement / PDF export
+
+---
+
+## Notifications
+
+**Route:** `/professor/notifications`
+
+### Existing feed (unchanged)
+
+- Filters: **All**, **Approvals**, **System**, **AI**
+- Mark all as read
+- Per-item read / unread
+
+### New
+
+| Feature | Description |
+|---------|-------------|
+| **Priority** | High, Medium, Low / informational indicators |
+| **Optional priority filter** | High / Medium / Low without removing existing type filters |
+| **Actionable notifications** | Safe actions such as Grade Now, View Plan, Update Marks, View Attendance, Approve Now (where role-appropriate) |
+| **Daily / Weekly digest** | Summaries built from the signed-in user's own notifications |
+| **Delivery channels** | Architecture for In-App, Email, WhatsApp, SMS |
+| **Granular preferences** | Per-category channel toggles and digest mode in Professor → Settings |
+| **Delivery status** | Per-notification channel status (e.g. Delivered, Not configured, Disabled, Failed) |
+
+**WhatsApp / SMS:** Documented as **configurable**. When provider credentials are not set in server config, the UI reports **Not configured** and does **not** pretend messages were sent. API keys must never appear in the frontend.
+
+Action links are resolved on the server for the authenticated professor (institution + record authorization). Client-supplied record IDs are not trusted.
+
+---
+
+## Security / isolation (Professor enhancements)
+
+Today's Professor-module work preserves:
+
+- Institution / tenant isolation (`institution_id`)
+- Department isolation where applicable
+- Professor authorization via assigned class/subject only
+- Student / class / subject access restrictions
+- HOD ↔ Professor role boundaries on plan approval actions
+- Secure actionable notification access
+- Secure course-plan, marks, attendance, and assignment access
+
+Do not place API keys or provider secrets in client-visible pages; configure providers via server environment / `config` only.
+
+---
+
+## Testing summary (Professor module)
+
+Manual / smoke coverage for today's Professor work included:
+
+- Existing dashboard behavior and new dashboard widgets
+- Course Plan generation / syllabus upload path
+- My Plans (filters, versions, share/export where used)
+- Lesson Planner extensions
+- Question Bank extensions
+- PPT Generator extensions
+- Assignments (including templates, extensions, push to marks where used)
+- Attendance (manual + QR / tools where used)
+- Internal Marks (formula, pull-through, What-If, anomalies, distribution, statement)
+- Notifications (filters, priority, actions, digest, channel status)
+- Student visibility of saved marks / assignments / attendance where applicable
+- Professor-to-professor isolation and institution / tenant isolation checks
+
+---
+
+**Scope:** Professor module only.
+
+**No changes were made to other modules as part of this documentation update.**
+
+---
+
 ## Key files for developers
 
 | Concern | File |
