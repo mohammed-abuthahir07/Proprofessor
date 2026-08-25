@@ -82,7 +82,6 @@ render_header('Generate Course Plan', 'generate', ['subtitle' => 'Paste syllabus
       <li>Weekly plan & resources</li>
       <li>Expert advice for NAAC/NBA</li>
     </ul>
-    <div class="alert alert-info" style="margin-top:1rem">Works without an API key in demo mode. Add Gemini key in <code>config/config.php</code> for live generation.</div>
   </div>
 </div>
 <div id="aiOut" style="margin-top:1rem"></div>

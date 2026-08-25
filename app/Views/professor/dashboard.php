@@ -73,6 +73,7 @@ $submitted = (int)(($byStatus['submitted'] ?? 0) + ($byStatus['under_review'] ??
 $insights = $insights ?? [];
 $today = $insights['today'] ?? ['classes' => [], 'pending_grading' => 0, 'low_attendance' => 0];
 $digest = $insights['digest'] ?? ['lines' => [], 'source' => 'stats'];
+$week = $insights['week'] ?? [];
 $obe = $insights['obe'] ?? [];
 $atRisk = $insights['at_risk'] ?? [];
 $bench = $insights['benchmark'] ?? [];
@@ -130,14 +131,51 @@ ob_start();
     <h2><span class="dash-drag" title="Drag to reorder" aria-hidden="true">⋮⋮</span> Weekly AI Digest</h2>
     <span class="chip"><?= e(($digest['source'] ?? 'stats') === 'gemini' ? 'AI summary' : 'From your data') ?></span>
   </div>
-  <?php if (empty($digest['lines'])): ?>
-    <div class="empty">No activity recorded this week yet.</div>
-  <?php else: ?>
-    <ul style="margin:0;padding-left:1.1rem;line-height:1.6">
-      <?php foreach ($digest['lines'] as $line): ?>
-        <li><?= e((string)$line) ?></li>
+  <?php
+    $weekRows = [
+      ['metric' => 'Class sessions conducted', 'count' => (int)($week['classes_conducted'] ?? 0), 'note' => 'Attendance sessions this week'],
+      ['metric' => 'Assignments graded', 'count' => (int)($week['assignments_graded'] ?? 0), 'note' => 'Submissions graded this week'],
+      ['metric' => 'Assignments created', 'count' => (int)($week['assignments_created'] ?? 0), 'note' => 'New assignments this week'],
+      ['metric' => 'Internal marks updated', 'count' => (int)($week['marks_updated'] ?? 0), 'note' => 'Mark records saved / updated'],
+      ['metric' => 'Students at attendance risk', 'count' => (int)($week['low_attendance'] ?? 0), 'note' => 'Below attendance threshold'],
+      ['metric' => 'Pending grading', 'count' => (int)($week['pending_grading'] ?? 0), 'note' => 'Submissions awaiting grade'],
+      ['metric' => 'Course plans updated', 'count' => (int)($week['plans_updated'] ?? 0), 'note' => 'Plans touched this week'],
+    ];
+    $weekRange = '';
+    if (!empty($week['week_start']) && !empty($week['week_end'])) {
+      $weekRange = (string)$week['week_start'] . ' → ' . (string)$week['week_end'];
+    }
+  ?>
+  <?php if ($weekRange !== ''): ?>
+    <p style="margin:0 0 .75rem;font-size:.85rem;color:var(--muted)">Week: <?= e($weekRange) ?></p>
+  <?php endif; ?>
+  <div class="table-wrap"><table>
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th style="text-align:right">Count</th>
+        <th>Detail</th>
+      </tr>
+    </thead>
+    <tbody>
+      <?php foreach ($weekRows as $wr): ?>
+        <tr>
+          <td><strong><?= e($wr['metric']) ?></strong></td>
+          <td style="text-align:right"><strong><?= (int)$wr['count'] ?></strong></td>
+          <td style="color:var(--muted);font-size:.9rem"><?= e($wr['note']) ?></td>
+        </tr>
       <?php endforeach; ?>
-    </ul>
+    </tbody>
+  </table></div>
+  <?php if (!empty($digest['lines']) && ($digest['source'] ?? '') === 'gemini'): ?>
+    <div style="margin-top:.85rem;font-size:.9rem;color:var(--muted)">
+      <strong style="color:inherit">AI summary</strong>
+      <ul style="margin:.4rem 0 0;padding-left:1.1rem;line-height:1.55">
+        <?php foreach ($digest['lines'] as $line): ?>
+          <li><?= e((string)$line) ?></li>
+        <?php endforeach; ?>
+      </ul>
+    </div>
   <?php endif; ?>
 </div>
 <?php
