@@ -134,6 +134,82 @@ function question_bank_is_usable(array $questions, string $type, int $count): bo
     return $placeholderHits === 0;
 }
 
+/**
+ * @param list<mixed> $raw
+ * @return list<array{number:int,title:string,bullets:list<string>,speaker_notes:string,unit_tag:string}>
+ */
+function normalize_generated_slides(array $raw, int $unit): array
+{
+    $unitTag = 'Unit ' . max(1, $unit);
+    $out = [];
+    foreach ($raw as $i => $slide) {
+        if (!is_array($slide)) {
+            continue;
+        }
+        $title = trim((string)($slide['title'] ?? ''));
+        $bulletsRaw = $slide['bullets'] ?? ($slide['points'] ?? []);
+        $bullets = [];
+        if (is_array($bulletsRaw)) {
+            foreach ($bulletsRaw as $b) {
+                $text = trim(is_string($b) ? $b : (string)json_encode($b));
+                if ($text !== '') {
+                    $bullets[] = $text;
+                }
+            }
+        } elseif (is_string($bulletsRaw) && trim($bulletsRaw) !== '') {
+            $bullets[] = trim($bulletsRaw);
+        }
+        if ($title === '' && !$bullets) {
+            continue;
+        }
+        if ($title === '') {
+            $title = 'Slide ' . (count($out) + 1);
+        }
+        $notes = trim((string)($slide['speaker_notes'] ?? $slide['notes'] ?? ''));
+        $out[] = [
+            'number' => (int)($slide['number'] ?? (count($out) + 1)),
+            'title' => $title,
+            'bullets' => $bullets ?: ['Key discussion point for ' . $unitTag],
+            'speaker_notes' => $notes !== '' ? $notes : ('Teaching notes for ' . $title),
+            'unit_tag' => $unitTag,
+        ];
+    }
+    foreach ($out as $idx => &$slide) {
+        $slide['number'] = $idx + 1;
+        $slide['unit_tag'] = $unitTag;
+    }
+    unset($slide);
+    return $out;
+}
+
+/**
+ * @param list<array<string,mixed>> $slides
+ */
+function ppt_slides_are_usable(array $slides): bool
+{
+    if (count($slides) < 6) {
+        return false;
+    }
+    $bad = 0;
+    foreach ($slides as $slide) {
+        $title = strtolower((string)($slide['title'] ?? ''));
+        $bullets = $slide['bullets'] ?? [];
+        $joined = strtolower(implode(' ', array_map(static fn($b) => is_string($b) ? $b : json_encode($b), (array)$bullets)));
+        $notes = strtolower((string)($slide['speaker_notes'] ?? ''));
+        if (
+            preg_match('/^topic slide\s*\d*$/', $title)
+            || str_contains($joined, 'point a')
+            || str_contains($joined, 'point b')
+            || str_contains($notes, 'talking points for slide')
+            || $title === ''
+            || count((array)$bullets) < 2
+        ) {
+            $bad++;
+        }
+    }
+    return $bad === 0;
+}
+
 function render_plan_html(array $plan, int $planId = 0): string
 {
     ob_start();
@@ -589,47 +665,135 @@ try {
     if ($module === 'ppt') {
         Auth::requireRole('professor', 'admin');
         $title = trim((string)post('title', 'Lecture Presentation'));
-        $context = (string)post('context', '');
+        $context = trim((string)post('context', ''));
         $planId = (int)post('plan_id', 0) ?: null;
-        $tpl = prompt_template('ppt_gen');
-        if ($gemini->isConfigured()) {
-            $result = $gemini->generate(
-                $tpl['system_prompt'] ?? 'PPT JSON slides.',
-                "Title: $title\nContext:\n$context\nReturn {slides:[{number,title,bullets[],speaker_notes,unit_tag}]}"
-            );
-            $slides = $result['json']['slides'] ?? [];
-        } else {
-            $slides = [];
-            for ($i=1;$i<=12;$i++) {
-                $slides[] = [
-                    'number'=>$i,
-                    'title'=>$i===1 ? $title : "Topic slide $i",
-                    'bullets'=>["Point A$i","Point B$i","Point C$i"],
-                    'speaker_notes'=>"Talking points for slide $i",
-                    'unit_tag'=>'Unit '.ceil($i/3),
-                ];
-            }
-            $result = ['ok'=>true,'json'=>['slides'=>$slides],'latency_ms'=>0];
-        }
-        $subjectId = null;
+        $plan = null;
+        $subjectName = '';
+        $unitTopics = [];
+        $parsed = Gemini::parsePresentationSubjectUnit($title, $context);
+        $unit = (int)$parsed['unit'];
+        $subjectName = (string)$parsed['subject'];
+
         if ($planId) {
-            $linkedPlan = load_plan_for_user($planId, $user);
-            if (!$linkedPlan) {
-                json_response(['ok'=>false,'error'=>'Plan not found'], 404);
+            $plan = load_plan_for_user($planId, $user);
+            if (!$plan) {
+                json_response(['ok' => false, 'error' => 'Plan not found'], 404);
             }
-            $subjectId = (int)($linkedPlan['subject_id'] ?? 0) ?: null;
+            $planSubject = trim((string)($plan['subject_name'] ?? ''));
+            if ($planSubject !== '') {
+                $subjectName = $planSubject;
+            } elseif ($subjectName === '' || strcasecmp($subjectName, 'Course') === 0) {
+                $subjectName = trim((string)($plan['title'] ?? 'Course'));
+            }
+            if ($context === '') {
+                $context = trim((string)($plan['syllabus_input'] ?? ''));
+            }
+            // Re-parse unit from title+context after filling context.
+            $parsed = Gemini::parsePresentationSubjectUnit($title, $context);
+            $unit = (int)$parsed['unit'];
+            if ($planSubject === '' && trim((string)$parsed['subject']) !== '' && strcasecmp((string)$parsed['subject'], 'Course') !== 0) {
+                $subjectName = (string)$parsed['subject'];
+            }
+
+            $planData = json_decode((string)($plan['plan_data'] ?? ''), true) ?: [];
+            foreach (($planData['units'] ?? []) as $u) {
+                if ((int)($u['unit_number'] ?? 0) !== $unit) {
+                    continue;
+                }
+                if (!empty($u['title'])) {
+                    $unitTopics[] = (string)$u['title'];
+                }
+                foreach ((array)($u['topics'] ?? []) as $t) {
+                    if (is_string($t) && trim($t) !== '') {
+                        $unitTopics[] = trim($t);
+                    }
+                }
+            }
+            $dbUnits = Database::fetchAll(
+                'SELECT title, topics FROM plan_units WHERE plan_id = ? AND unit_number = ?',
+                [$planId, $unit]
+            );
+            foreach ($dbUnits as $u) {
+                if (!empty($u['title'])) {
+                    $unitTopics[] = (string)$u['title'];
+                }
+                $topicsJson = json_decode((string)($u['topics'] ?? ''), true);
+                if (is_array($topicsJson)) {
+                    foreach ($topicsJson as $t) {
+                        if (is_string($t) && trim($t) !== '') {
+                            $unitTopics[] = trim($t);
+                        }
+                    }
+                }
+            }
         }
+
+        if ($subjectName === '') {
+            $subjectName = 'Course';
+        }
+
+        $unitTopicText = $unitTopics
+            ? ("Unit {$unit} topics:\n- " . implode("\n- ", array_values(array_unique($unitTopics))))
+            : "Infer Unit {$unit} topics strictly from the syllabus/context.";
+
+        $tpl = prompt_template('ppt_gen');
+        $system = $tpl['system_prompt']
+            ?? 'You are an expert university lecturer. Create professional academic PowerPoint slide outlines. Return ONLY valid JSON.';
+
+        $userPrompt = "Create a professional academic lecture presentation.\n"
+            . "Presentation title: {$title}\n"
+            . "Course/Subject: {$subjectName}\n"
+            . "Unit: {$unit} (ALL slides must be for this unit only)\n"
+            . "{$unitTopicText}\n\n"
+            . "Syllabus / context:\n" . ($context !== '' ? $context : '(Use the course and unit topics above.)') . "\n\n"
+            . "Requirements:\n"
+            . "- Produce 10 to 14 slides.\n"
+            . "- Slide 1 must be a title/intro slide.\n"
+            . "- Include learning outcomes, topic explanation slides, examples, summary, and a short check-your-understanding slide.\n"
+            . "- Every bullet must be meaningful academic content about {$subjectName} Unit {$unit}.\n"
+            . "- Do NOT use placeholders like \"Topic slide\", \"Point A1\", \"Point B2\", \"Talking points for slide\".\n"
+            . "- unit_tag must be exactly \"Unit {$unit}\" for every slide.\n"
+            . "- speaker_notes must be useful teaching notes.\n\n"
+            . "Return JSON only: {\"slides\":[{\"number\":1,\"title\":\"\",\"bullets\":[\"\",\"\"],\"speaker_notes\":\"\",\"unit_tag\":\"Unit {$unit}\"}]}";
+
+        $slides = [];
+        $result = ['ok' => true, 'json' => null, 'latency_ms' => 0, 'demo' => false];
+
+        if ($gemini->isConfigured()) {
+            $result = $gemini->generate($system, $userPrompt);
+            $rawSlides = is_array($result['json']['slides'] ?? null) ? $result['json']['slides'] : [];
+            $slides = normalize_generated_slides($rawSlides, $unit);
+            if (!ppt_slides_are_usable($slides)) {
+                $slides = Gemini::demoPresentation($title, $subjectName, $unit, $context, $unitTopics, 12);
+                $result['demo'] = true;
+                $result['fallback'] = 'ai_unusable';
+            }
+        } else {
+            $slides = Gemini::demoPresentation($title, $subjectName, $unit, $context, $unitTopics, 12);
+            $result = [
+                'ok' => true,
+                'json' => ['slides' => $slides],
+                'latency_ms' => 0,
+                'demo' => true,
+            ];
+        }
+
+        $subjectId = $plan ? ((int)($plan['subject_id'] ?? 0) ?: null) : null;
         $pptId = Database::insert('presentations', [
             'plan_id' => $planId,
             'professor_id' => (int)$user['id'],
             'subject_id' => $subjectId,
             'title' => $title,
             'slide_count' => count($slides),
-            'slides' => json_encode($slides),
+            'slides' => json_encode($slides, JSON_UNESCAPED_UNICODE),
             'status' => 'ready',
         ]);
-        log_ai('ppt', compact('title'), $result, 'presentation', $pptId);
-        json_response(['ok'=>true,'data'=>['id'=>$pptId,'slides'=>$slides],'redirect'=>base_url('/professor/ppt-view.php?id='.$pptId)]);
+        log_ai('ppt', [
+            'title' => $title,
+            'subject' => $subjectName,
+            'unit' => $unit,
+        ], $result, 'presentation', $pptId);
+        json_response(['ok' => true, 'data' => ['id' => $pptId, 'slides' => $slides], 'redirect' => base_url('/professor/ppt-view.php?id=' . $pptId)]);
     }
 
     if ($module === 'assignment') {

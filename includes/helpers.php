@@ -80,7 +80,11 @@ function redirect(string $path): void
     exit;
 }
 
-function e(?string $value): string
+/**
+ * HTML-escape a scalar value for safe output.
+ * Accepts string/int/float/null because DB drivers often return numeric columns as int/float.
+ */
+function e(string|int|float|null $value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }

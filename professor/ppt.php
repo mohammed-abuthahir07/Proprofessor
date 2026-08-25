@@ -5,7 +5,7 @@ require_once __DIR__ . '/../includes/layout.php';
 Auth::requireRole('professor', 'admin');
 $user = Auth::user();
 $planId = (int)get('plan_id');
-$plans = Database::fetchAll('SELECT id, title, syllabus_input FROM course_plans WHERE professor_id=?', [$user['id']]);
+$plans = Database::fetchAll('SELECT id, title, subject_name, syllabus_input FROM course_plans WHERE professor_id=?', [$user['id']]);
 $ppts = Database::fetchAll('SELECT id, title, slide_count, status, created_at FROM presentations WHERE professor_id=? ORDER BY id DESC', [$user['id']]);
 $ctx = '';
 foreach ($plans as $p) if ($planId && (int)$p['id']===$planId) $ctx = (string)$p['syllabus_input'];
@@ -16,13 +16,13 @@ render_header('PPT Generator', 'ppt', ['subtitle' => 'AI lecture decks with spea
     <form class="form-grid" method="post" action="<?= e(base_url('/api/ai?module=ppt')) ?>" data-ai-form="#out">
       <?= csrf_field() ?>
       <input type="hidden" name="module" value="ppt">
-      <div class="form-row"><label>Title</label><input name="title" required placeholder="DBMS · Unit 1 Introduction"></div>
+      <div class="form-row"><label>Title</label><input name="title" required placeholder="Programming in C · Unit 1"></div>
       <div class="form-row">
         <label>From plan</label>
         <select name="plan_id">
           <option value="">-</option>
           <?php foreach ($plans as $p): ?>
-            <option value="<?= (int)$p['id'] ?>" <?= $planId===(int)$p['id']?'selected':'' ?>><?= e($p['title']) ?></option>
+            <option value="<?= (int)$p['id'] ?>" <?= $planId===(int)$p['id']?'selected':'' ?>><?= e(trim((string)(($p['subject_name'] ?? '') !== '' ? ($p['subject_name'] . ' · ' . $p['title']) : $p['title']))) ?></option>
           <?php endforeach; ?>
         </select>
       </div>
