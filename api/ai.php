@@ -772,6 +772,8 @@ try {
         }
 
         $bankTitle = strtoupper($type) . " · {$subjectName} · Unit {$unit} · {$klevel}";
+        $existingQs = QuestionBankTools::professorQuestions($user);
+        $questions = QuestionBankTools::enrichGeneratedQuestions($questions, $plan, $unit, $klevel, $existingQs);
         $bankId = Database::insert('question_banks', [
             'plan_id' => $planId,
             'professor_id' => (int)$user['id'],
@@ -784,8 +786,17 @@ try {
                 'subject' => $subjectName,
             ], JSON_UNESCAPED_UNICODE),
         ]);
+        QuestionBankTools::ensureSchema();
         foreach ($questions as $q) {
-            Database::insert('questions', [
+            $meta = [
+                'subject' => $subjectName,
+                'clo_code' => $q['clo_code'] ?? null,
+            ];
+            if (!empty($q['similarity'])) {
+                $meta['similarity'] = $q['similarity'];
+                $meta['duplicate_reviewed'] = false;
+            }
+            $insert = [
                 'bank_id' => $bankId,
                 'unit_number' => $q['unit_number'] ?? $unit,
                 'question_type' => in_array($type, ['mcq', 'short', 'long', 'essay', 'case'], true) ? $type : 'mcq',
@@ -796,7 +807,15 @@ try {
                 'options' => isset($q['options']) ? json_encode($q['options'], JSON_UNESCAPED_UNICODE) : null,
                 'correct_answer' => $q['correct_answer'] ?? null,
                 'explanation' => $q['explanation'] ?? null,
-            ]);
+                'meta' => json_encode($meta, JSON_UNESCAPED_UNICODE),
+            ];
+            if (!empty($q['clo_code'])) {
+                $insert['clo_code'] = (string)$q['clo_code'];
+            }
+            if (!empty($q['marking_scheme'])) {
+                $insert['marking_scheme'] = (string)$q['marking_scheme'];
+            }
+            Database::insert('questions', $insert);
         }
         log_ai('questions', compact('type', 'unit', 'klevel', 'count') + ['subject' => $subjectName], $result, 'question_bank', $bankId);
         json_response(['ok' => true, 'data' => ['bank_id' => $bankId, 'questions' => $questions], 'redirect' => base_url('/professor/questions.php?bank_id=' . $bankId)]);
