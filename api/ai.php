@@ -32,6 +32,108 @@ function load_plan_for_user(int $planId, array $user): ?array
     return $plan;
 }
 
+/**
+ * @param list<mixed> $raw
+ * @return list<array<string,mixed>>
+ */
+function normalize_generated_questions(array $raw, string $type, string $klevel, int $unit, int $count): array
+{
+    $out = [];
+    foreach ($raw as $q) {
+        if (!is_array($q)) {
+            continue;
+        }
+        $stem = trim((string)($q['stem'] ?? $q['question'] ?? ''));
+        if ($stem === '') {
+            continue;
+        }
+        $item = [
+            'stem' => $stem,
+            'bloom_k_level' => strtoupper((string)($q['bloom_k_level'] ?? $klevel)),
+            'unit_number' => (int)($q['unit_number'] ?? $unit),
+            'marks' => (float)($q['marks'] ?? ($type === 'mcq' ? 1 : ($type === 'short' ? 5 : 10))),
+            'difficulty' => (string)($q['difficulty'] ?? 'medium'),
+            'correct_answer' => $q['correct_answer'] ?? ($q['answer'] ?? null),
+            'explanation' => $q['explanation'] ?? null,
+            'question_type' => $type,
+        ];
+        if ($type === 'mcq') {
+            $options = $q['options'] ?? null;
+            $normalized = [];
+            if (is_array($options)) {
+                $isList = array_keys($options) === range(0, count($options) - 1);
+                if ($isList) {
+                    $labels = ['A', 'B', 'C', 'D'];
+                    foreach (array_slice(array_values($options), 0, 4) as $i => $opt) {
+                        $normalized[$labels[$i]] = is_string($opt) ? trim($opt) : trim((string)json_encode($opt));
+                    }
+                } else {
+                    foreach (['A', 'B', 'C', 'D'] as $label) {
+                        foreach ($options as $k => $v) {
+                            if (strtoupper((string)$k) === $label || str_starts_with(strtoupper((string)$k), $label)) {
+                                $normalized[$label] = is_string($v) ? trim($v) : trim((string)json_encode($v));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (count($normalized) === 4) {
+                $item['options'] = $normalized;
+                $ans = strtoupper(trim((string)($item['correct_answer'] ?? '')));
+                if (!isset($normalized[$ans])) {
+                    // If model returned option text, map it back to a key.
+                    foreach ($normalized as $k => $v) {
+                        if (strcasecmp($v, (string)$item['correct_answer']) === 0) {
+                            $ans = $k;
+                            break;
+                        }
+                    }
+                }
+                if (!isset($normalized[$ans])) {
+                    $ans = 'A';
+                }
+                $item['correct_answer'] = $ans;
+            }
+        }
+        $out[] = $item;
+        if (count($out) >= $count) {
+            break;
+        }
+    }
+    return $out;
+}
+
+/**
+ * @param list<array<string,mixed>> $questions
+ */
+function question_bank_is_usable(array $questions, string $type, int $count): bool
+{
+    if (count($questions) < max(1, (int)ceil($count * 0.6))) {
+        return false;
+    }
+    $placeholderHits = 0;
+    foreach ($questions as $q) {
+        $stem = strtolower((string)($q['stem'] ?? ''));
+        if ($stem === '' || str_contains($stem, 'explain / choose concept') || str_contains($stem, 'choose concept')) {
+            $placeholderHits++;
+            continue;
+        }
+        if ($type === 'mcq') {
+            $opts = $q['options'] ?? null;
+            if (!is_array($opts) || count($opts) < 4) {
+                $placeholderHits++;
+                continue;
+            }
+            $joined = strtolower(implode(' ', array_map(static fn($v) => is_string($v) ? $v : json_encode($v), $opts)));
+            if (str_contains($joined, 'option a') && str_contains($joined, 'option b')) {
+                $placeholderHits++;
+            }
+        }
+    }
+    return $placeholderHits === 0;
+}
+
 function render_plan_html(array $plan, int $planId = 0): string
 {
     ob_start();
@@ -327,63 +429,161 @@ try {
 
     if ($module === 'questions') {
         Auth::requireRole('professor', 'admin');
-        $type = (string)post('question_type', 'mcq');
-        $unit = (string)post('unit', '1');
-        $klevel = (string)post('klevel', 'K2');
+        $type = strtolower(trim((string)post('question_type', 'mcq')));
+        if (!in_array($type, ['mcq', 'short', 'long', 'essay', 'case'], true)) {
+            $type = 'mcq';
+        }
+        $unit = max(1, min(20, (int)post('unit', 1)));
+        $klevel = strtoupper(trim((string)post('klevel', 'K2')));
+        if (!preg_match('/^K[1-6]$/', $klevel)) {
+            $klevel = 'K2';
+        }
         $count = max(1, min(20, (int)post('count', 5)));
-        $context = (string)post('context', '');
+        $context = trim((string)post('context', ''));
         $planId = (int)post('plan_id', 0) ?: null;
-        if ($planId && !load_plan_for_user($planId, $user)) {
-            json_response(['ok' => false, 'error' => 'Course plan not found.'], 404);
-        }
-        $tpl = prompt_template('question_bank');
-        if ($gemini->isConfigured()) {
-            $result = $gemini->generate(
-                $tpl['system_prompt'] ?? 'Generate questions JSON.',
-                "Type:$type Unit:$unit K-level:$klevel Count:$count\nContext:\n$context\nReturn {questions:[{stem,options?,correct_answer,explanation,marks,difficulty,bloom_k_level,unit_number}]}"
-            );
-            $questions = $result['json']['questions'] ?? [];
-        } else {
-            $questions = [];
-            for ($i=1;$i<=$count;$i++) {
-                $q = [
-                    'stem' => strtoupper($type) . " Q$i ($klevel): Explain / choose concept $i from unit $unit.",
-                    'bloom_k_level' => $klevel,
-                    'unit_number' => (int)$unit,
-                    'marks' => $type === 'mcq' ? 1 : ($type === 'short' ? 5 : 10),
-                    'difficulty' => 'medium',
-                    'correct_answer' => $type === 'mcq' ? 'A' : 'Model answer outline-',
-                    'explanation' => 'Aligned to Bloom ' . $klevel,
-                ];
-                if ($type === 'mcq') {
-                    $q['options'] = ['A'=>'Option A','B'=>'Option B','C'=>'Option C','D'=>'Option D'];
-                }
-                $questions[] = $q;
+        $plan = null;
+        $subjectName = '';
+        $unitTopics = [];
+
+        if ($planId) {
+            $plan = load_plan_for_user($planId, $user);
+            if (!$plan) {
+                json_response(['ok' => false, 'error' => 'Course plan not found.'], 404);
             }
-            $result = ['ok'=>true,'json'=>['questions'=>$questions],'latency_ms'=>0];
+            $subjectName = trim((string)($plan['subject_name'] ?? ''));
+            if ($subjectName === '') {
+                $subjectName = trim((string)($plan['title'] ?? ''));
+            }
+            if ($context === '') {
+                $context = trim((string)($plan['syllabus_input'] ?? ''));
+            }
+            $planData = json_decode((string)($plan['plan_data'] ?? ''), true) ?: [];
+            foreach (($planData['units'] ?? []) as $u) {
+                if ((int)($u['unit_number'] ?? 0) !== $unit) {
+                    continue;
+                }
+                if (!empty($u['title'])) {
+                    $unitTopics[] = (string)$u['title'];
+                }
+                foreach ((array)($u['topics'] ?? []) as $t) {
+                    if (is_string($t) && trim($t) !== '') {
+                        $unitTopics[] = trim($t);
+                    }
+                }
+            }
+            $dbUnits = Database::fetchAll(
+                'SELECT title, topics FROM plan_units WHERE plan_id = ? AND unit_number = ?',
+                [$planId, $unit]
+            );
+            foreach ($dbUnits as $u) {
+                if (!empty($u['title'])) {
+                    $unitTopics[] = (string)$u['title'];
+                }
+                $topics = json_decode((string)($u['topics'] ?? ''), true);
+                if (is_array($topics)) {
+                    foreach ($topics as $t) {
+                        if (is_string($t) && trim($t) !== '') {
+                            $unitTopics[] = trim($t);
+                        }
+                    }
+                }
+            }
         }
+
+        if ($subjectName === '' && $context !== '') {
+            $firstLine = trim((string)(preg_split('/\r\n|\r|\n/', $context)[0] ?? ''));
+            if ($firstLine !== '' && !preg_match('/^unit\s*\d+/i', $firstLine) && strlen($firstLine) < 120) {
+                $subjectName = $firstLine;
+            }
+        }
+        if ($subjectName === '') {
+            $subjectName = 'Course';
+        }
+
+        $bloomGuide = [
+            'K1' => 'Remember/recall facts, definitions, and basic terminology',
+            'K2' => 'Understand/explain concepts in own words with examples',
+            'K3' => 'Apply concepts to solve straightforward problems',
+            'K4' => 'Analyze by comparing, organizing, or breaking into parts',
+            'K5' => 'Evaluate/justify decisions using criteria',
+            'K6' => 'Create/design or synthesize a new solution',
+        ];
+        $unitTopicText = $unitTopics
+            ? ("Unit {$unit} topics:\n- " . implode("\n- ", array_values(array_unique($unitTopics))))
+            : "Unit {$unit} topics should be inferred strictly from the syllabus/context below.";
+
+        $tpl = prompt_template('question_bank');
+        $system = $tpl['system_prompt']
+            ?? 'You are an expert university question-paper setter. Return ONLY valid JSON.';
+
+        $userPrompt = "Generate {$count} academically rigorous {$type} questions for a college/university question bank.\n"
+            . "Course/Subject: {$subjectName}\n"
+            . "Unit number: {$unit} (ONLY this unit — do not use other units)\n"
+            . "Bloom level: {$klevel} — {$bloomGuide[$klevel]}\n"
+            . "Question type: {$type}\n"
+            . "{$unitTopicText}\n\n"
+            . "Syllabus / context:\n" . ($context !== '' ? $context : '(Use the course name and unit topics above.)') . "\n\n"
+            . "Rules:\n"
+            . "- Every question MUST be about {$subjectName}, Unit {$unit} only.\n"
+            . "- Do NOT invent placeholder text like \"Explain / choose concept\", \"Option A\", \"Option B\".\n"
+            . "- Questions must be distinct and useful for exams.\n"
+            . "- For mcq: provide exactly 4 options as an object {\"A\":\"...\",\"B\":\"...\",\"C\":\"...\",\"D\":\"...\"}, meaningful distractors, and correct_answer as A/B/C/D matching one option.\n"
+            . "- For short/long/essay: provide a useful stem and a model correct_answer outline.\n"
+            . "- Set marks appropriately (mcq≈1, short≈5, long≈10).\n"
+            . "- Set bloom_k_level to {$klevel} and unit_number to {$unit}.\n\n"
+            . "Return JSON only: {\"questions\":[{\"stem\":\"\",\"options\":{\"A\":\"\",\"B\":\"\",\"C\":\"\",\"D\":\"\"},\"correct_answer\":\"A\",\"explanation\":\"\",\"marks\":1,\"difficulty\":\"medium\",\"bloom_k_level\":\"{$klevel}\",\"unit_number\":{$unit}}]}";
+
+        $questions = [];
+        $result = ['ok' => true, 'json' => null, 'latency_ms' => 0, 'demo' => false];
+
+        if ($gemini->isConfigured()) {
+            $result = $gemini->generate($system, $userPrompt);
+            $rawQuestions = is_array($result['json']['questions'] ?? null) ? $result['json']['questions'] : [];
+            $questions = normalize_generated_questions($rawQuestions, $type, $klevel, $unit, $count);
+            if (!question_bank_is_usable($questions, $type, $count)) {
+                $questions = Gemini::demoQuestionBank($subjectName, $type, $klevel, $unit, $count, $context, $unitTopics);
+                $result['demo'] = true;
+                $result['fallback'] = 'ai_unusable';
+            }
+        } else {
+            $questions = Gemini::demoQuestionBank($subjectName, $type, $klevel, $unit, $count, $context, $unitTopics);
+            $result = [
+                'ok' => true,
+                'json' => ['questions' => $questions],
+                'latency_ms' => 0,
+                'demo' => true,
+            ];
+        }
+
+        $bankTitle = strtoupper($type) . " · {$subjectName} · Unit {$unit} · {$klevel}";
         $bankId = Database::insert('question_banks', [
             'plan_id' => $planId,
             'professor_id' => (int)$user['id'],
-            'title' => strtoupper($type) . " · Unit $unit · $klevel",
-            'config' => json_encode(compact('type','unit','klevel','count')),
+            'title' => mb_substr($bankTitle, 0, 180),
+            'config' => json_encode([
+                'type' => $type,
+                'unit' => $unit,
+                'klevel' => $klevel,
+                'count' => $count,
+                'subject' => $subjectName,
+            ], JSON_UNESCAPED_UNICODE),
         ]);
         foreach ($questions as $q) {
             Database::insert('questions', [
                 'bank_id' => $bankId,
-                'unit_number' => $q['unit_number'] ?? (int)$unit,
-                'question_type' => in_array($type, ['mcq','short','long','essay','case'], true) ? $type : 'mcq',
+                'unit_number' => $q['unit_number'] ?? $unit,
+                'question_type' => in_array($type, ['mcq', 'short', 'long', 'essay', 'case'], true) ? $type : 'mcq',
                 'bloom_k_level' => $q['bloom_k_level'] ?? $klevel,
                 'difficulty' => $q['difficulty'] ?? 'medium',
                 'marks' => $q['marks'] ?? 1,
                 'stem' => (string)($q['stem'] ?? ''),
-                'options' => isset($q['options']) ? json_encode($q['options']) : null,
+                'options' => isset($q['options']) ? json_encode($q['options'], JSON_UNESCAPED_UNICODE) : null,
                 'correct_answer' => $q['correct_answer'] ?? null,
                 'explanation' => $q['explanation'] ?? null,
             ]);
         }
-        log_ai('questions', compact('type','unit','klevel','count'), $result, 'question_bank', $bankId);
-        json_response(['ok'=>true,'data'=>['bank_id'=>$bankId,'questions'=>$questions],'redirect'=>base_url('/professor/questions.php?bank_id='.$bankId)]);
+        log_ai('questions', compact('type', 'unit', 'klevel', 'count') + ['subject' => $subjectName], $result, 'question_bank', $bankId);
+        json_response(['ok' => true, 'data' => ['bank_id' => $bankId, 'questions' => $questions], 'redirect' => base_url('/professor/questions.php?bank_id=' . $bankId)]);
     }
 
     if ($module === 'ppt') {

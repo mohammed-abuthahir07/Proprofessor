@@ -250,4 +250,353 @@ final class Gemini
             'demo' => true,
         ];
     }
+
+    /**
+     * Build academically usable demo questions from subject + unit syllabus/context.
+     * Used when Gemini is not configured, or when AI returns unusable placeholders.
+     *
+     * @param list<string> $unitTopics
+     * @return list<array<string,mixed>>
+     */
+    public static function demoQuestionBank(
+        string $subject,
+        string $type,
+        string $klevel,
+        int $unit,
+        int $count,
+        string $context = '',
+        array $unitTopics = []
+    ): array {
+        $subject = trim($subject) !== '' ? trim($subject) : 'the selected course';
+        $type = strtolower(trim($type));
+        if (!in_array($type, ['mcq', 'short', 'long', 'essay', 'case'], true)) {
+            $type = 'mcq';
+        }
+        $klevel = strtoupper(trim($klevel));
+        if (!preg_match('/^K[1-6]$/', $klevel)) {
+            $klevel = 'K1';
+        }
+        $unit = max(1, min(20, $unit));
+        $count = max(1, min(20, $count));
+
+        $topics = self::resolveQuestionTopics($subject, $unit, $context, $unitTopics);
+        $questions = [];
+        $marks = match ($type) {
+            'mcq' => 1,
+            'short' => 5,
+            'long' => 10,
+            'essay' => 15,
+            'case' => 12,
+            default => 1,
+        };
+
+        for ($i = 0; $i < $count; $i++) {
+            $topic = $topics[$i % count($topics)];
+            $nextTopic = $topics[($i + 1) % count($topics)];
+            $prevTopic = $topics[($i + count($topics) - 1) % count($topics)];
+            $altTopic = $topics[($i + 2) % count($topics)];
+
+            if ($type === 'mcq') {
+                $pack = self::demoMcqForTopic($subject, $topic, $nextTopic, $prevTopic, $altTopic, $klevel, $unit, $i);
+                $questions[] = [
+                    'stem' => $pack['stem'],
+                    'options' => $pack['options'],
+                    'correct_answer' => $pack['correct_answer'],
+                    'explanation' => $pack['explanation'],
+                    'bloom_k_level' => $klevel,
+                    'unit_number' => $unit,
+                    'marks' => $marks,
+                    'difficulty' => $i % 3 === 0 ? 'easy' : ($i % 3 === 1 ? 'medium' : 'hard'),
+                    'question_type' => 'mcq',
+                ];
+            } else {
+                $questions[] = [
+                    'stem' => self::demoOpenStem($subject, $topic, $type, $klevel, $unit, $i),
+                    'correct_answer' => self::demoModelAnswer($subject, $topic, $type, $klevel),
+                    'explanation' => "Assesses {$klevel} outcomes for {$subject}, Unit {$unit}: {$topic}.",
+                    'bloom_k_level' => $klevel,
+                    'unit_number' => $unit,
+                    'marks' => $marks,
+                    'difficulty' => $type === 'short' ? 'medium' : 'hard',
+                    'question_type' => $type,
+                ];
+            }
+        }
+
+        return $questions;
+    }
+
+    /**
+     * @param list<string> $unitTopics
+     * @return list<string>
+     */
+    private static function resolveQuestionTopics(string $subject, int $unit, string $context, array $unitTopics): array
+    {
+        $topics = [];
+        foreach ($unitTopics as $t) {
+            $t = self::cleanTopicText((string)$t);
+            if ($t !== '') {
+                $topics[] = $t;
+            }
+        }
+        foreach (self::extractTopicsFromContext($context, $unit) as $t) {
+            $topics[] = $t;
+        }
+        $topics = array_values(array_unique(array_filter($topics, static fn($t) => strlen($t) > 2)));
+        if (count($topics) >= 4) {
+            return $topics;
+        }
+        foreach (self::defaultTopicsForSubject($subject, $unit) as $t) {
+            $topics[] = self::cleanTopicText($t);
+        }
+        $topics = array_values(array_unique(array_filter($topics, static fn($t) => strlen($t) > 2)));
+        if (!$topics) {
+            $topics = [
+                "Core concepts of {$subject}",
+                "Fundamental terminology in {$subject}",
+                "Basic operations related to {$subject}",
+                "Standard applications of {$subject}",
+                "Common errors and misconceptions in {$subject}",
+            ];
+        }
+        return $topics;
+    }
+
+    private static function cleanTopicText(string $topic): string
+    {
+        $topic = str_replace(["\r", "\n", "\\n", "\\r"], ' ', $topic);
+        $topic = preg_replace('/\s+/', ' ', $topic) ?? $topic;
+        $topic = trim($topic, " \t.-•");
+        return trim($topic);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function extractTopicsFromContext(string $context, int $unit): array
+    {
+        $context = trim($context);
+        if ($context === '') {
+            return [];
+        }
+        $lines = preg_split('/\r\n|\r|\n/', $context) ?: [];
+        $topics = [];
+        $inUnit = false;
+        $capturedAnyUnitHeader = false;
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+            if (preg_match('/unit\s*(\d+)\b/i', $line, $m)) {
+                $capturedAnyUnitHeader = true;
+                $inUnit = ((int)$m[1] === $unit);
+                if (preg_match('/unit\s*\d+\s*[:\-–.]\s*(.+)$/i', $line, $tm)) {
+                    $title = trim($tm[1]);
+                    if ($inUnit && $title !== '') {
+                        $topics[] = self::cleanTopicText($title);
+                    }
+                }
+                continue;
+            }
+            if ($capturedAnyUnitHeader && !$inUnit) {
+                continue;
+            }
+            if ($capturedAnyUnitHeader && $inUnit) {
+                $clean = preg_replace('/^[\-\*\d\.\)\s]+/', '', $line) ?? $line;
+                $clean = self::cleanTopicText($clean);
+                if ($clean !== '' && !preg_match('/^(outcomes?|hours?|assessment|resources?)\b/i', $clean)) {
+                    foreach (preg_split('/[,;\/|]/', $clean) ?: [] as $part) {
+                        $part = self::cleanTopicText((string)$part);
+                        if (strlen($part) > 2) {
+                            $topics[] = $part;
+                        }
+                    }
+                }
+            }
+        }
+        if ($topics) {
+            return $topics;
+        }
+        // No unit headers: treat bullet/comma-separated fragments as topics.
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '' || preg_match('/^unit\s*\d+/i', $line)) {
+                continue;
+            }
+            $clean = preg_replace('/^[\-\*\d\.\)\s]+/', '', $line) ?? $line;
+            foreach (preg_split('/[,;]/', $clean) ?: [] as $part) {
+                $part = self::cleanTopicText((string)$part);
+                if (strlen($part) > 3 && strlen($part) < 120) {
+                    $topics[] = $part;
+                }
+            }
+        }
+        return $topics;
+    }
+
+    /**
+     * Subject-aware curriculum seeds used only when syllabus/context is thin.
+     *
+     * @return list<string>
+     */
+    private static function defaultTopicsForSubject(string $subject, int $unit): array
+    {
+        $s = strtolower($subject);
+        $bank = [];
+        if (preg_match('/\bc\b|programming in c|c programming|ansi c/', $s)) {
+            $bank = [
+                1 => ['History and features of C', 'Structure of a C program', 'Tokens and character set', 'Keywords and identifiers', 'Data types in C', 'Variables and constants', 'Operators in C', 'Operator precedence', 'Input and output with printf/scanf', 'Type conversion and type casting'],
+                2 => ['Decision making with if and else', 'Nested if statements', 'Switch-case statements', 'Looping with while and do-while', 'For loops', 'Break and continue', 'Nested loops', 'Simple pattern programs'],
+                3 => ['One-dimensional arrays', 'Two-dimensional arrays', 'Strings in C', 'String handling functions', 'Pointers basics', 'Pointer arithmetic'],
+                4 => ['User-defined functions', 'Call by value and call by reference', 'Recursion', 'Storage classes', 'Structures', 'Unions', 'File handling basics'],
+            ];
+        } elseif (preg_match('/digital\s*fundament|digital\s*logic|digital\s*electron/', $s)) {
+            $bank = [
+                1 => ['Number systems (binary, octal, decimal, hexadecimal)', 'Binary arithmetic', '1\'s and 2\'s complement', 'Boolean algebra laws', 'Logic gates (AND, OR, NOT)', 'NAND, NOR, XOR, XNOR gates', 'Truth tables', 'De Morgan\'s theorems', 'Canonical SOP and POS forms', 'Simplification using Boolean algebra'],
+                2 => ['Karnaugh maps', 'Combinational circuits', 'Half adder and full adder', 'Multiplexers and demultiplexers', 'Encoders and decoders', 'Comparators'],
+                3 => ['Sequential circuits', 'Latches and flip-flops', 'SR, JK, D and T flip-flops', 'Registers', 'Counters', 'Shift registers'],
+                4 => ['A/D and D/A conversion basics', 'Memory organization overview', 'PLD concepts', 'Timing diagrams'],
+            ];
+        } elseif (preg_match('/data\s*struct/', $s)) {
+            $bank = [
+                1 => ['Introduction to data structures', 'Arrays', 'Linked lists', 'Stacks', 'Queues', 'Time complexity basics'],
+                2 => ['Trees', 'Binary search trees', 'Heap', 'Graph representations', 'BFS and DFS'],
+            ];
+        } elseif (preg_match('/dbms|database/', $s)) {
+            $bank = [
+                1 => ['Database concepts', 'ER model', 'Relational model', 'Keys and constraints', 'SQL basics', 'Normalization overview'],
+            ];
+        } elseif (preg_match('/operating\s*system|\bos\b/', $s)) {
+            $bank = [
+                1 => ['OS functions and types', 'Process concepts', 'CPU scheduling basics', 'Process states', 'System calls overview'],
+            ];
+        }
+
+        if (isset($bank[$unit])) {
+            return $bank[$unit];
+        }
+        if ($bank) {
+            $first = $bank[array_key_first($bank)];
+            return $first;
+        }
+        return [
+            "Introduction to {$subject}",
+            "Fundamental definitions in {$subject}",
+            "Core principles of {$subject}",
+            "Standard methods used in {$subject}",
+            "Practical applications of {$subject}",
+            "Common terminology in {$subject}",
+        ];
+    }
+
+    /**
+     * @return array{stem:string,options:array<string,string>,correct_answer:string,explanation:string}
+     */
+    private static function demoMcqForTopic(
+        string $subject,
+        string $topic,
+        string $nextTopic,
+        string $prevTopic,
+        string $altTopic,
+        string $klevel,
+        int $unit,
+        int $index
+    ): array {
+        $stem = match ($klevel) {
+            'K1' => match ($index % 4) {
+                0 => "In {$subject} (Unit {$unit}), which of the following best defines \"{$topic}\"?",
+                1 => "Which statement about \"{$topic}\" in {$subject} is correct?",
+                2 => "\"{$topic}\" in {$subject} is primarily associated with which concept?",
+                default => "Which of the following is a key term related to \"{$topic}\" in Unit {$unit} of {$subject}?",
+            },
+            'K2' => match ($index % 3) {
+                0 => "Which option correctly explains the role of \"{$topic}\" in {$subject}?",
+                1 => "How is \"{$topic}\" best distinguished from \"{$nextTopic}\" in {$subject}?",
+                default => "Which interpretation of \"{$topic}\" in Unit {$unit} of {$subject} is most accurate?",
+            },
+            'K3' => match ($index % 3) {
+                0 => "A student is implementing a task involving \"{$topic}\" in {$subject}. Which approach is most appropriate?",
+                1 => "While solving a Unit {$unit} problem in {$subject}, when should \"{$topic}\" be applied?",
+                default => "Which practical use-case correctly applies \"{$topic}\" in {$subject}?",
+            },
+            'K4' => "Which analysis best compares \"{$topic}\" with \"{$nextTopic}\" for a Unit {$unit} problem in {$subject}?",
+            'K5' => "Which evaluation criterion is most suitable for judging the effectiveness of \"{$topic}\" in {$subject}?",
+            default => "Which design/decision best synthesizes \"{$topic}\" with related Unit {$unit} concepts in {$subject}?",
+        };
+
+        $correct = match ($klevel) {
+            'K1' => "It is a fundamental Unit {$unit} concept in {$subject} covering {$topic}.",
+            'K2' => "It clarifies meaning and relationships of {$topic} within {$subject}.",
+            'K3' => "Apply {$topic} step-by-step to obtain the required Unit {$unit} result in {$subject}.",
+            'K4' => "Break the problem into parts and examine how {$topic} influences the outcome versus {$nextTopic}.",
+            'K5' => "Judge {$topic} against correctness, efficiency, and learning outcomes for {$subject}.",
+            default => "Combine {$topic} with complementary Unit {$unit} ideas to form a coherent {$subject} solution.",
+        };
+
+        $wrong1 = "It is unrelated to {$subject} and belongs only to {$nextTopic}.";
+        $wrong2 = "It replaces all other Unit {$unit} topics such as {$prevTopic} and {$altTopic}.";
+        $wrong3 = "It is used only for documentation and never for solving {$subject} problems.";
+
+        $options = [
+            'A' => $correct,
+            'B' => $wrong1,
+            'C' => $wrong2,
+            'D' => $wrong3,
+        ];
+        // Rotate correct option so answers are not always A.
+        $keys = ['A', 'B', 'C', 'D'];
+        $rotate = $index % 4;
+        $values = array_values($options);
+        $rotated = [];
+        foreach ($keys as $ki => $key) {
+            $rotated[$key] = $values[($ki + $rotate) % 4];
+        }
+        $correctKey = $keys[(4 - $rotate) % 4];
+
+        return [
+            'stem' => $stem,
+            'options' => $rotated,
+            'correct_answer' => $correctKey,
+            'explanation' => "Correct option {$correctKey} aligns with {$klevel} expectation for {$topic} in {$subject} Unit {$unit}.",
+        ];
+    }
+
+    private static function demoOpenStem(
+        string $subject,
+        string $topic,
+        string $type,
+        string $klevel,
+        int $unit,
+        int $index
+    ): string {
+        if ($type === 'short') {
+            return match ($klevel) {
+                'K1' => "Define \"{$topic}\" as used in Unit {$unit} of {$subject}.",
+                'K2' => "Explain \"{$topic}\" with one suitable example from {$subject}.",
+                'K3' => "Write the steps to apply \"{$topic}\" for a basic Unit {$unit} task in {$subject}.",
+                'K4' => "Differentiate \"{$topic}\" from a closely related Unit {$unit} concept in {$subject}.",
+                'K5' => "Justify why \"{$topic}\" is important in Unit {$unit} of {$subject}.",
+                default => "Propose a short improvement related to teaching or using \"{$topic}\" in {$subject}.",
+            };
+        }
+        // long / essay / case
+        return match ($klevel) {
+            'K1' => "Describe in detail the concept of \"{$topic}\" in Unit {$unit} of {$subject}, including key terms and definitions.",
+            'K2' => "Discuss \"{$topic}\" in {$subject} with examples, and explain how it connects to other Unit {$unit} ideas.",
+            'K3' => "With a suitable problem statement, demonstrate how \"{$topic}\" is applied in Unit {$unit} of {$subject}. Show clear steps.",
+            'K4' => "Analyze the strengths and limitations of using \"{$topic}\" for Unit {$unit} problems in {$subject}.",
+            'K5' => "Critically evaluate the role of \"{$topic}\" in achieving Unit {$unit} learning outcomes for {$subject}.",
+            default => "Design a comprehensive solution approach that integrates \"{$topic}\" with other Unit {$unit} topics in {$subject}.",
+        };
+    }
+
+    private static function demoModelAnswer(string $subject, string $topic, string $type, string $klevel): string
+    {
+        $base = "A model answer should address {$topic} in {$subject} at Bloom level {$klevel}, using correct terminology and unit-relevant examples.";
+        if ($type === 'short') {
+            return $base . ' Keep the response concise (about 4–8 lines).';
+        }
+        return $base . ' Include introduction, explanation/working, and a short conclusion.';
+    }
 }

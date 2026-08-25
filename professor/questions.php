@@ -6,7 +6,7 @@ Auth::requireRole('professor', 'admin');
 $user = Auth::user();
 $bankId = (int)get('bank_id');
 $planId = (int)get('plan_id');
-$plans = Database::fetchAll('SELECT id, title, syllabus_input, plan_data FROM course_plans WHERE professor_id=?', [$user['id']]);
+$plans = Database::fetchAll('SELECT id, title, subject_name, syllabus_input, plan_data FROM course_plans WHERE professor_id=?', [$user['id']]);
 $banks = Database::fetchAll('SELECT * FROM question_banks WHERE professor_id=? ORDER BY id DESC LIMIT 20', [$user['id']]);
 $bank = $bankId ? Database::fetch('SELECT * FROM question_banks WHERE id=? AND professor_id=?', [$bankId, $user['id']]) : null;
 $questions = $bank ? Database::fetchAll('SELECT * FROM questions WHERE bank_id=?', [$bank['id']]) : [];
@@ -53,7 +53,7 @@ render_header('Question Bank Generator', 'questions', ['subtitle' => 'MCQ · Sho
         <select name="plan_id">
           <option value="">-</option>
           <?php foreach ($plans as $p): ?>
-            <option value="<?= (int)$p['id'] ?>" <?= $planId===(int)$p['id']?'selected':'' ?>><?= e($p['title']) ?></option>
+            <option value="<?= (int)$p['id'] ?>" <?= $planId===(int)$p['id']?'selected':'' ?>><?= e(trim((string)(($p['subject_name'] ?? '') !== '' ? ($p['subject_name'] . ' · ' . $p['title']) : $p['title']))) ?></option>
           <?php endforeach; ?>
         </select>
       </div>
