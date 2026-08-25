@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/Features.php';
 require_once __DIR__ . '/../includes/Icons.php';
 require_once __DIR__ . '/../includes/HodFeedback.php';
 require_once __DIR__ . '/../includes/CoursePlanTools.php';
+require_once __DIR__ . '/../includes/SimplePdf.php';
 require_once __DIR__ . '/../includes/Permissions.php';
 
 require_once __DIR__ . '/Core/Autoloader.php';

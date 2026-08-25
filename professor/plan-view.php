@@ -319,8 +319,9 @@ render_header($plan['title'], 'plans', ['subtitle' => $plan['subject_name'] . ' 
           <?php foreach ($diff['changed_outcomes'] as $c): ?><li><?= e($c) ?></li><?php endforeach; ?>
           <?php foreach ($diff['changed_bloom'] as $c): ?><li><?= e($c) ?></li><?php endforeach; ?>
           <?php foreach ($diff['changed_hours'] as $c): ?><li><?= e($c) ?></li><?php endforeach; ?>
+          <?php foreach (($diff['changed_clo_plo'] ?? []) as $c): ?><li><?= e($c) ?></li><?php endforeach; ?>
         </ul>
-        <?php if (!$diff['changed_units'] && !$diff['changed_outcomes'] && !$diff['changed_bloom'] && !$diff['changed_hours']): ?>
+        <?php if (!$diff['changed_units'] && !$diff['changed_outcomes'] && !$diff['changed_bloom'] && !$diff['changed_hours'] && empty($diff['changed_clo_plo'])): ?>
           <div class="empty">No structural field changes detected.</div>
         <?php endif; ?>
       </div>

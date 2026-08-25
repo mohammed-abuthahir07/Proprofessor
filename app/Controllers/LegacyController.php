@@ -15,7 +15,8 @@ final class LegacyController extends Controller
     {
         $this->requireRole('professor', 'admin');
         $this->serve('professor', $page, [
-            'generate-plan', 'plans', 'plan-view', 'lessons', 'questions',
+            'generate-plan', 'plans', 'plan-view', 'plan-compare', 'plan-export',
+            'lessons', 'questions',
             'ppt', 'ppt-view', 'ppt-download', 'assignments', 'attendance', 'marks', 'settings',
         ]);
     }

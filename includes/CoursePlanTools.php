@@ -290,7 +290,7 @@ final class CoursePlanTools
     /**
      * Diff two plan snapshots (from course_plan_versions.snapshot or plan_data).
      *
-     * @return array{added_topics:list<string>,removed_topics:list<string>,changed_units:list<array<string,string>>,changed_outcomes:list<string>,changed_bloom:list<string>,changed_hours:list<string>}
+     * @return array{added_topics:list<string>,removed_topics:list<string>,changed_units:list<array<string,string>>,changed_outcomes:list<string>,changed_bloom:list<string>,changed_hours:list<string>,changed_clo_plo:list<string>}
      */
     public static function diffSnapshots(array $old, array $new): array
     {
@@ -307,6 +307,30 @@ final class CoursePlanTools
         $changedOutcomes = [];
         $changedBloom = [];
         $changedHours = [];
+        $changedCloPlo = [];
+
+        $oldLo = self::normalizeList($old['learning_outcomes'] ?? []);
+        $newLo = self::normalizeList($new['learning_outcomes'] ?? []);
+        if ($oldLo !== $newLo) {
+            $loAdded = array_values(array_diff($newLo, $oldLo));
+            $loRemoved = array_values(array_diff($oldLo, $newLo));
+            foreach (array_slice($loAdded, 0, 12) as $item) {
+                $changedCloPlo[] = 'CLO/LO added: ' . $item;
+            }
+            foreach (array_slice($loRemoved, 0, 12) as $item) {
+                $changedCloPlo[] = 'CLO/LO removed: ' . $item;
+            }
+            if (!$loAdded && !$loRemoved) {
+                $changedCloPlo[] = 'Course learning outcomes reordered or updated';
+            }
+        }
+        foreach (['clo_po_mapping', 'co_po_mapping', 'plo_mapping', 'co_plo_mapping'] as $mapKey) {
+            $om = self::normalizeList($old[$mapKey] ?? []);
+            $nm = self::normalizeList($new[$mapKey] ?? []);
+            if ($om !== $nm) {
+                $changedCloPlo[] = strtoupper(str_replace('_', ' ', $mapKey)) . ' changed';
+            }
+        }
 
         $allNums = array_unique(array_merge(array_keys($oldUnits), array_keys($newUnits)));
         sort($allNums);
@@ -362,7 +386,397 @@ final class CoursePlanTools
             'changed_outcomes' => array_slice($changedOutcomes, 0, 40),
             'changed_bloom' => array_slice($changedBloom, 0, 40),
             'changed_hours' => array_slice($changedHours, 0, 40),
+            'changed_clo_plo' => array_slice($changedCloPlo, 0, 40),
         ];
+    }
+
+    /** Ensure share_token columns exist (smallest compatible extension). */
+    public static function ensureShareSchema(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        $cols = [];
+        foreach (Database::fetchAll('SHOW COLUMNS FROM course_plans') as $c) {
+            $cols[(string)$c['Field']] = true;
+        }
+        if (!isset($cols['share_token'])) {
+            Database::query(
+                "ALTER TABLE course_plans
+                 ADD COLUMN share_token VARCHAR(64) NULL DEFAULT NULL
+                 COMMENT 'Public read-only share token' AFTER meta"
+            );
+        }
+        if (!isset($cols['share_enabled'])) {
+            Database::query(
+                "ALTER TABLE course_plans
+                 ADD COLUMN share_enabled TINYINT(1) NOT NULL DEFAULT 0
+                 COMMENT '1=public read-only link active' AFTER share_token"
+            );
+        }
+        $idx = Database::fetchAll("SHOW INDEX FROM course_plans WHERE Key_name = 'uq_course_plans_share_token'");
+        if (!$idx) {
+            try {
+                Database::query('ALTER TABLE course_plans ADD UNIQUE KEY uq_course_plans_share_token (share_token)');
+            } catch (Throwable $e) {
+                // Index may already exist under another name.
+            }
+        }
+    }
+
+    /**
+     * Create/rotate a read-only share token for an approved plan owned by the user.
+     *
+     * @return array{token:string,url:string}
+     */
+    public static function enableShareLink(array $plan, array $user): array
+    {
+        self::ensureShareSchema();
+        if ((int)($plan['institution_id'] ?? 0) !== (int)($user['institution_id'] ?? 0)) {
+            throw new RuntimeException('Access denied.');
+        }
+        if ((int)($plan['professor_id'] ?? 0) !== (int)($user['id'] ?? 0)
+            && !in_array((string)($user['role'] ?? ''), ['admin', 'superadmin'], true)) {
+            throw new RuntimeException('Only the plan owner can share this plan.');
+        }
+        if ((string)($plan['status'] ?? '') !== 'approved') {
+            throw new RuntimeException('Only approved plans can be shared as a read-only link.');
+        }
+        $token = bin2hex(random_bytes(32));
+        Database::update('course_plans', [
+            'share_token' => $token,
+            'share_enabled' => 1,
+        ], 'id = :id AND institution_id = :iid AND professor_id = :pid', [
+            'id' => (int)$plan['id'],
+            'iid' => (int)$plan['institution_id'],
+            'pid' => (int)$plan['professor_id'],
+        ]);
+        return [
+            'token' => $token,
+            'url' => base_url('/share/plan.php?t=' . urlencode($token)),
+        ];
+    }
+
+    public static function disableShareLink(array $plan, array $user): void
+    {
+        self::ensureShareSchema();
+        if ((int)($plan['institution_id'] ?? 0) !== (int)($user['institution_id'] ?? 0)) {
+            throw new RuntimeException('Access denied.');
+        }
+        if ((int)($plan['professor_id'] ?? 0) !== (int)($user['id'] ?? 0)
+            && !in_array((string)($user['role'] ?? ''), ['admin', 'superadmin'], true)) {
+            throw new RuntimeException('Only the plan owner can revoke sharing.');
+        }
+        Database::update('course_plans', [
+            'share_enabled' => 0,
+            'share_token' => null,
+        ], 'id = :id AND institution_id = :iid AND professor_id = :pid', [
+            'id' => (int)$plan['id'],
+            'iid' => (int)$plan['institution_id'],
+            'pid' => (int)$plan['professor_id'],
+        ]);
+    }
+
+    /** Public read-only lookup — token + approved + enabled only. */
+    public static function findPublicSharedPlan(string $token): ?array
+    {
+        self::ensureShareSchema();
+        $token = trim($token);
+        if ($token === '' || !preg_match('/^[a-f0-9]{64}$/', $token)) {
+            return null;
+        }
+        $plan = Database::fetch(
+            'SELECT * FROM course_plans WHERE share_token = ? AND share_enabled = 1 AND status = "approved" LIMIT 1',
+            [$token]
+        );
+        return $plan ?: null;
+    }
+
+    /**
+     * Owned approved plans for bulk export (tenant-scoped).
+     *
+     * @param list<int> $planIds
+     * @return list<array<string,mixed>>
+     */
+    public static function ownedApprovedPlans(array $user, array $planIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $planIds), static fn(int $id) => $id > 0)));
+        if (!$ids) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $params = array_merge(
+            [(int)$user['id'], (int)$user['institution_id']],
+            $ids
+        );
+        return Database::fetchAll(
+            "SELECT * FROM course_plans
+             WHERE professor_id = ? AND institution_id = ? AND status = 'approved' AND id IN ($in)
+             ORDER BY subject_name ASC, id ASC",
+            $params
+        );
+    }
+
+    /**
+     * Build accreditation package as a downloadable PDF (one file, all selected plans).
+     *
+     * @param list<array<string,mixed>> $plans
+     * @return array{bytes:string,filename:string,content_type:string}
+     */
+    public static function buildAccreditationPackage(array $plans, string $format = 'naac'): array
+    {
+        $format = strtolower($format) === 'nba' ? 'nba' : 'naac';
+        if (!class_exists('SimplePdf', false)) {
+            require_once dirname(__DIR__) . '/includes/SimplePdf.php';
+        }
+        $bytes = self::buildAccreditationPdf($plans, $format);
+        return [
+            'bytes' => $bytes,
+            'filename' => 'Accreditation_Package_' . strtoupper($format) . '_' . date('Ymd_His') . '.pdf',
+            'content_type' => 'application/pdf',
+        ];
+    }
+
+    /**
+     * Styled multi-plan PDF using the same stored course-plan fields as exportHtml().
+     *
+     * @param list<array<string,mixed>> $plans
+     */
+    public static function buildAccreditationPdf(array $plans, string $format = 'naac'): string
+    {
+        if (!class_exists('SimplePdf', false)) {
+            require_once dirname(__DIR__) . '/includes/SimplePdf.php';
+        }
+        $format = strtolower($format) === 'nba' ? 'nba' : 'naac';
+        $label = strtoupper($format);
+        $pdf = new SimplePdf();
+
+        // Cover
+        $pdf->filledRect(0, 0, $pdf->pageWidth(), 118, [15, 23, 56]);
+        $pdf->setFont(11, false);
+        $pdf->textAt(42, 28, 'ProProfessor AI', [196, 181, 253]);
+        $pdf->setFont(22, true);
+        $pdf->textAt(42, 52, $label . ' Accreditation Package', [255, 255, 255]);
+        $pdf->setFont(11, false);
+        $pdf->textAt(42, 82, 'Generated ' . date('d M Y, H:i') . '  ·  ' . count($plans) . ' approved course plan(s)', [203, 213, 225]);
+        $pdf->moveTo(140);
+        $pdf->setFont(13, true);
+        $pdf->writeLine('Included course plans', [30, 41, 79]);
+        $pdf->hRule([99, 102, 241]);
+        $pdf->setFont(10, false);
+        foreach ($plans as $i => $plan) {
+            $pdf->writeLine(
+                ($i + 1) . '. ' . (string)$plan['subject_name'] . '  —  ' . (string)$plan['title'] . '  (v' . (int)$plan['version'] . ')',
+                [51, 65, 85]
+            );
+        }
+        $pdf->space(10);
+        $pdf->setFont(9, false);
+        $pdf->writeWrapped(
+            'This document is generated from approved course-plan records only. Attainment percentages and fabricated matrices are not included.',
+            0,
+            12,
+            [100, 116, 139]
+        );
+
+        foreach ($plans as $idx => $plan) {
+            $pdf->addPage();
+            self::renderPlanPdfPage($pdf, $plan, $format, $idx + 1, count($plans));
+        }
+
+        $out = $pdf->output();
+        if ($out === '' || !str_starts_with($out, '%PDF')) {
+            throw new RuntimeException('PDF generation failed.');
+        }
+        return $out;
+    }
+
+    /**
+     * @param array<string,mixed> $plan
+     */
+    private static function renderPlanPdfPage(SimplePdf $pdf, array $plan, string $format, int $index, int $total): void
+    {
+        $units = Database::fetchAll(
+            'SELECT * FROM plan_units WHERE plan_id = ? ORDER BY sort_order, unit_number',
+            [(int)$plan['id']]
+        );
+        $meta = json_decode((string)($plan['meta'] ?? '{}'), true) ?: [];
+        $template = self::templateLabel((string)($meta['accreditation_template'] ?? 'standard'));
+        $bloom = self::bloomBalance($plan, $units);
+        $planData = json_decode((string)($plan['plan_data'] ?? '{}'), true) ?: [];
+        $lo = is_array($planData['learning_outcomes'] ?? null) ? $planData['learning_outcomes'] : [];
+        $title = strtoupper($format) === 'NBA' ? 'NBA Course File' : 'NAAC Course Plan';
+
+        $pdf->filledRect(0, 0, $pdf->pageWidth(), 64, [30, 41, 79]);
+        $pdf->setFont(10, false);
+        $pdf->textAt(42, 16, $title . '  ·  Plan ' . $index . ' of ' . $total, [165, 180, 252]);
+        $pdf->setFont(16, true);
+        $pdf->textAt(42, 34, (string)$plan['subject_name'], [255, 255, 255]);
+        $pdf->moveTo(80);
+
+        $pdf->setFont(12, true);
+        $pdf->writeLine((string)$plan['title'], [15, 23, 42]);
+        $pdf->setFont(9, false);
+        $pdf->writeLine(
+            'Status: ' . (string)$plan['status'] . '   ·   Version v' . (int)$plan['version'] . '   ·   Template: ' . $template,
+            [100, 116, 139],
+            14
+        );
+        $pdf->hRule([99, 102, 241]);
+
+        $pdf->setFont(11, true);
+        $pdf->writeLine('Course information', [30, 41, 79]);
+        $infoRows = [
+            ['Title', (string)$plan['title']],
+            ['Subject', (string)$plan['subject_name']],
+            ['Credits', (string)$plan['credits']],
+            ['University', (string)($plan['university'] ?? '—')],
+            ['Semester / Year', self::planSemesterLabel($plan) ?: '—'],
+            ['Export format', strtoupper($format)],
+        ];
+        $pdf->table(['Field', 'Value'], $infoRows, [1.2, 3.2], 9);
+
+        if ($lo) {
+            $pdf->space(8);
+            $pdf->setFont(11, true);
+            $pdf->writeLine($format === 'nba' ? 'Learning outcomes / Course outcomes' : 'Learning outcomes', [30, 41, 79]);
+            $pdf->setFont(9.5, false);
+            $n = 1;
+            foreach ($lo as $item) {
+                $text = is_string($item) ? $item : (string)json_encode($item);
+                $pdf->writeWrapped($n . '. ' . $text, 0, 13, [51, 65, 85]);
+                $n++;
+            }
+        }
+
+        $pdf->space(8);
+        $pdf->setFont(11, true);
+        $pdf->writeLine('Units', [30, 41, 79]);
+        $unitRows = [];
+        foreach ($units as $u) {
+            $topics = json_decode((string)($u['topics'] ?? '[]'), true);
+            $outcomes = json_decode((string)($u['outcomes'] ?? '[]'), true);
+            $unitRows[] = [
+                (string)(int)$u['unit_number'],
+                (string)$u['title'],
+                (string)$u['hours'],
+                (string)($u['bloom_k_level'] ?? ''),
+                is_array($topics) ? implode(', ', $topics) : '',
+                is_array($outcomes) ? implode('; ', $outcomes) : '',
+            ];
+        }
+        if (!$unitRows) {
+            $pdf->setFont(9, false);
+            $pdf->writeLine('No units stored for this plan.', [148, 163, 184]);
+        } else {
+            $pdf->table(
+                ['#', 'Title', 'Hrs', 'Bloom', 'Topics', 'Outcomes'],
+                $unitRows,
+                [0.4, 1.4, 0.5, 0.6, 2.0, 2.0],
+                8
+            );
+        }
+
+        $pdf->space(10);
+        $pdf->setFont(11, true);
+        $pdf->writeLine("Bloom's distribution", [30, 41, 79]);
+        $bloomHeaders = array_keys($bloom['distribution']);
+        $bloomValues = [];
+        foreach ($bloom['distribution'] as $v) {
+            $bloomValues[] = rtrim(rtrim(number_format((float)$v, 1, '.', ''), '0'), '.') . '%';
+        }
+        $pdf->table($bloomHeaders, [$bloomValues], array_fill(0, count($bloomHeaders), 1), 9);
+
+        $pdf->space(12);
+        $pdf->filledRect(42, $pdf->y(), $pdf->contentWidth(), 36, [255, 247, 237]);
+        $pdf->strokeRect(42, $pdf->y(), $pdf->contentWidth(), 36, [253, 186, 116], 0.8);
+        $pdf->setFont(8.5, false);
+        $pdf->textAt(50, $pdf->y() + 8, 'Note: Export reflects only stored course-plan data. No fabricated attainment or CLO-PO scores.', [146, 64, 14]);
+        $pdf->textAt(50, $pdf->y() + 20, 'Institution-scoped · Approved plans only · ProProfessor AI', [146, 64, 14]);
+        $pdf->moveTo($pdf->y() + 44);
+    }
+
+    /**
+     * Build accreditation ZIP package using existing exportHtml().
+     *
+     * @param list<array<string,mixed>> $plans
+     */
+    public static function buildAccreditationZip(array $plans, string $format = 'naac'): string
+    {
+        if (!class_exists('ZipArchive')) {
+            throw new RuntimeException('ZIP export requires php_zip. Enable extension=zip in php.ini.');
+        }
+        $format = strtolower($format) === 'nba' ? 'nba' : 'naac';
+        $tmp = tempnam(sys_get_temp_dir(), 'accpkg_');
+        if ($tmp === false) {
+            throw new RuntimeException('Could not create temporary file.');
+        }
+        $zipPath = $tmp . '.zip';
+        @unlink($tmp);
+        $zip = new ZipArchive();
+        if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            throw new RuntimeException('Could not create ZIP package.');
+        }
+        $index = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Accreditation Package</title></head><body>";
+        $index .= '<h1>Accreditation Package</h1><ul>';
+        $used = [];
+        foreach ($plans as $plan) {
+            $units = Database::fetchAll(
+                'SELECT * FROM plan_units WHERE plan_id = ? ORDER BY sort_order, unit_number',
+                [(int)$plan['id']]
+            );
+            $folder = preg_replace('/[^A-Za-z0-9_\-]+/', '_', (string)$plan['subject_name']) ?: 'Plan';
+            $folder = trim($folder, '_');
+            if ($folder === '') {
+                $folder = 'Plan_' . (int)$plan['id'];
+            }
+            $base = $folder;
+            $n = 2;
+            while (isset($used[$folder])) {
+                $folder = $base . '_' . $n;
+                $n++;
+            }
+            $used[$folder] = true;
+            $html = self::exportHtml($plan, $units, $format);
+            $file = $folder . '/' . $folder . '_' . strtoupper($format) . '_v' . (int)$plan['version'] . '.html';
+            $zip->addFromString($file, $html);
+            $index .= '<li><a href="' . htmlspecialchars($file, ENT_QUOTES, 'UTF-8') . '">'
+                . htmlspecialchars((string)$plan['subject_name'], ENT_QUOTES, 'UTF-8')
+                . ' (v' . (int)$plan['version'] . ')</a></li>';
+        }
+        $index .= '</ul></body></html>';
+        $zip->addFromString('index.html', $index);
+        $zip->close();
+        $bytes = (string)file_get_contents($zipPath);
+        @unlink($zipPath);
+        if ($bytes === '') {
+            throw new RuntimeException('ZIP package was empty.');
+        }
+        return $bytes;
+    }
+
+    /** Semester/year label used by My Plans filters. */
+    public static function planSemesterLabel(array $plan): string
+    {
+        $sem = trim((string)($plan['semester'] ?? ''));
+        if ($sem !== '') {
+            return $sem;
+        }
+        $classSem = trim((string)($plan['class_semester'] ?? ''));
+        if ($classSem !== '') {
+            return $classSem;
+        }
+        $ay = trim((string)($plan['academic_year'] ?? $plan['class_ay'] ?? ''));
+        if ($ay !== '') {
+            return $ay;
+        }
+        $year = (int)($plan['class_year'] ?? 0);
+        if ($year > 0) {
+            return 'Year ' . $year;
+        }
+        return '';
     }
 
     /**
