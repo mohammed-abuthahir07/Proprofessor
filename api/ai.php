@@ -128,6 +128,20 @@ function question_bank_is_usable(array $questions, string $type, int $count): bo
             $joined = strtolower(implode(' ', array_map(static fn($v) => is_string($v) ? $v : json_encode($v), $opts)));
             if (str_contains($joined, 'option a') && str_contains($joined, 'option b')) {
                 $placeholderHits++;
+                continue;
+            }
+            // Reject circular / template-garbage answers that only restate the topic.
+            if (
+                str_contains($joined, 'fundamental unit')
+                || str_contains($joined, 'covering ')
+                || str_contains($joined, 'replaces all other')
+                || str_contains($joined, 'documentation only')
+                || str_contains($joined, 'unrelated to')
+                || str_contains($joined, 'belongs only to')
+                || (str_contains($stem, 'best defines') && str_contains($joined, 'fundamental'))
+                || (str_contains($stem, 'key term related') && preg_match('/\bis a key term\b/', $joined))
+            ) {
+                $placeholderHits++;
             }
         }
     }
@@ -762,11 +776,16 @@ try {
             . "{$unitTopicText}\n\n"
             . "Syllabus / context:\n" . ($context !== '' ? $context : '(Use the course name and unit topics above.)') . "\n\n"
             . "Rules:\n"
-            . "- Every question MUST be about {$subjectName}, Unit {$unit} only.\n"
+            . "- Every question MUST test actual subject knowledge from the Unit {$unit} topics/syllabus above.\n"
+            . "- Match Bloom {$klevel} strictly ({$bloomGuide[$klevel]}).\n"
+            . "- FORBIDDEN circular items: do NOT ask \"what is X\" / \"best defines X\" where the answer is \"X is a fundamental concept covering X\".\n"
+            . "- FORBIDDEN weak distractors such as: \"unrelated\", \"replaces all other topics\", \"documentation only\", \"belongs only to another topic\".\n"
+            . "- Correct answers must state real facts, definitions, mechanisms, or applications — not restatements of the topic title.\n"
+            . "- Distractors must be plausible misconceptions within the same subject domain.\n"
+            . "- Vary stems across the batch; avoid repeating the same sentence template.\n"
             . "- Do NOT invent placeholder text like \"Explain / choose concept\", \"Option A\", \"Option B\".\n"
-            . "- Questions must be distinct and useful for exams.\n"
-            . "- For mcq: provide exactly 4 options as an object {\"A\":\"...\",\"B\":\"...\",\"C\":\"...\",\"D\":\"...\"}, meaningful distractors, and correct_answer as A/B/C/D matching one option.\n"
-            . "- For short/long/essay: provide a useful stem and a model correct_answer outline.\n"
+            . "- For mcq: exactly 4 options as {\"A\":\"...\",\"B\":\"...\",\"C\":\"...\",\"D\":\"...\"}; correct_answer is A/B/C/D; balance correct positions when possible.\n"
+            . "- For short/long/essay: useful stem + model correct_answer outline with real content points.\n"
             . "- Set marks appropriately (mcq≈1, short≈5, long≈10).\n"
             . "- Set bloom_k_level to {$klevel} and unit_number to {$unit}.\n\n"
             . "Return JSON only: {\"questions\":[{\"stem\":\"\",\"options\":{\"A\":\"\",\"B\":\"\",\"C\":\"\",\"D\":\"\"},\"correct_answer\":\"A\",\"explanation\":\"\",\"marks\":1,\"difficulty\":\"medium\",\"bloom_k_level\":\"{$klevel}\",\"unit_number\":{$unit}}]}";

@@ -283,6 +283,24 @@ final class Gemini
         $count = max(1, min(20, $count));
 
         $topics = self::resolveQuestionTopics($subject, $unit, $context, $unitTopics);
+        // Prefer real syllabus concepts over the bare course title / unit heading as the "topic".
+        $filtered = [];
+        foreach ($topics as $t) {
+            $t = self::cleanTopicText((string)$t);
+            if ($t === '') {
+                continue;
+            }
+            if (strcasecmp($t, $subject) === 0) {
+                continue;
+            }
+            if (preg_match('/^unit\s*\d+(\s*[–\-:].*)?$/i', $t)) {
+                continue;
+            }
+            $filtered[] = $t;
+        }
+        if (count($filtered) >= 2) {
+            $topics = $filtered;
+        }
         $questions = [];
         $marks = match ($type) {
             'mcq' => 1,
@@ -300,7 +318,7 @@ final class Gemini
             $altTopic = $topics[($i + 2) % count($topics)];
 
             if ($type === 'mcq') {
-                $pack = self::demoMcqForTopic($subject, $topic, $nextTopic, $prevTopic, $altTopic, $klevel, $unit, $i);
+                $pack = self::demoMcqForTopic($subject, $topic, $nextTopic, $prevTopic, $altTopic, $klevel, $unit, $i, $context, $topics);
                 $questions[] = [
                     'stem' => $pack['stem'],
                     'options' => $pack['options'],
@@ -314,9 +332,9 @@ final class Gemini
                 ];
             } else {
                 $questions[] = [
-                    'stem' => self::demoOpenStem($subject, $topic, $type, $klevel, $unit, $i),
-                    'correct_answer' => self::demoModelAnswer($subject, $topic, $type, $klevel),
-                    'explanation' => "Assesses {$klevel} outcomes for {$subject}, Unit {$unit}: {$topic}.",
+                    'stem' => self::demoOpenStem($subject, $topic, $type, $klevel, $unit, $i, $context),
+                    'correct_answer' => self::demoModelAnswer($subject, $topic, $type, $klevel, $context),
+                    'explanation' => "Assesses {$klevel} understanding of {$topic} using Unit {$unit} syllabus concepts.",
                     'bloom_k_level' => $klevel,
                     'unit_number' => $unit,
                     'marks' => $marks,
@@ -704,6 +722,7 @@ final class Gemini
 
     /**
      * @return array{stem:string,options:array<string,string>,correct_answer:string,explanation:string}
+     * @param list<string> $allTopics
      */
     private static function demoMcqForTopic(
         string $subject,
@@ -713,64 +732,313 @@ final class Gemini
         string $altTopic,
         string $klevel,
         int $unit,
-        int $index
+        int $index,
+        string $context = '',
+        array $allTopics = []
     ): array {
-        $stem = match ($klevel) {
-            'K1' => match ($index % 4) {
-                0 => "In {$subject} (Unit {$unit}), which of the following best defines \"{$topic}\"?",
-                1 => "Which statement about \"{$topic}\" in {$subject} is correct?",
-                2 => "\"{$topic}\" in {$subject} is primarily associated with which concept?",
-                default => "Which of the following is a key term related to \"{$topic}\" in Unit {$unit} of {$subject}?",
-            },
-            'K2' => match ($index % 3) {
-                0 => "Which option correctly explains the role of \"{$topic}\" in {$subject}?",
-                1 => "How is \"{$topic}\" best distinguished from \"{$nextTopic}\" in {$subject}?",
-                default => "Which interpretation of \"{$topic}\" in Unit {$unit} of {$subject} is most accurate?",
-            },
-            'K3' => match ($index % 3) {
-                0 => "A student is implementing a task involving \"{$topic}\" in {$subject}. Which approach is most appropriate?",
-                1 => "While solving a Unit {$unit} problem in {$subject}, when should \"{$topic}\" be applied?",
-                default => "Which practical use-case correctly applies \"{$topic}\" in {$subject}?",
-            },
-            'K4' => "Which analysis best compares \"{$topic}\" with \"{$nextTopic}\" for a Unit {$unit} problem in {$subject}?",
-            'K5' => "Which evaluation criterion is most suitable for judging the effectiveness of \"{$topic}\" in {$subject}?",
-            default => "Which design/decision best synthesizes \"{$topic}\" with related Unit {$unit} concepts in {$subject}?",
-        };
-
-        $correct = match ($klevel) {
-            'K1' => "It is a fundamental Unit {$unit} concept in {$subject} covering {$topic}.",
-            'K2' => "It clarifies meaning and relationships of {$topic} within {$subject}.",
-            'K3' => "Apply {$topic} step-by-step to obtain the required Unit {$unit} result in {$subject}.",
-            'K4' => "Break the problem into parts and examine how {$topic} influences the outcome versus {$nextTopic}.",
-            'K5' => "Judge {$topic} against correctness, efficiency, and learning outcomes for {$subject}.",
-            default => "Combine {$topic} with complementary Unit {$unit} ideas to form a coherent {$subject} solution.",
-        };
-
-        $wrong1 = "It is unrelated to {$subject} and belongs only to {$nextTopic}.";
-        $wrong2 = "It replaces all other Unit {$unit} topics such as {$prevTopic} and {$altTopic}.";
-        $wrong3 = "It is used only for documentation and never for solving {$subject} problems.";
-
-        $options = [
-            'A' => $correct,
-            'B' => $wrong1,
-            'C' => $wrong2,
-            'D' => $wrong3,
-        ];
-        // Rotate correct option so answers are not always A.
-        $keys = ['A', 'B', 'C', 'D'];
-        $rotate = $index % 4;
-        $values = array_values($options);
-        $rotated = [];
-        foreach ($keys as $ki => $key) {
-            $rotated[$key] = $values[($ki + $rotate) % 4];
+        $matched = self::matchConceptMcq($topic, $subject, $context, $klevel, $index);
+        if ($matched !== null) {
+            return self::rotateMcqOptions($matched, $index);
         }
-        $correctKey = $keys[(4 - $rotate) % 4];
 
-        return [
+        // Syllabus-grounded fallback (still non-circular): use concrete peer concepts as options.
+        $peers = [];
+        foreach ($allTopics as $t) {
+            $t = self::cleanTopicText((string)$t);
+            if ($t === '' || strcasecmp($t, $topic) === 0) {
+                continue;
+            }
+            if (!preg_match('/^topic\s*\d+(\.\d+)?$/i', $t) && strlen($t) > 3) {
+                $peers[] = $t;
+            }
+        }
+        $peers = array_values(array_unique($peers));
+        while (count($peers) < 3) {
+            $peers[] = 'A concept outside the current unit syllabus';
+        }
+
+        $bloom = strtoupper($klevel);
+        if ($bloom === 'K1') {
+            $stem = match ($index % 3) {
+                0 => "Which of the following is a concrete concept studied under \"{$topic}\"?",
+                1 => "In Unit {$unit}, which term is most directly associated with \"{$topic}\"?",
+                default => "Which option correctly identifies content covered by \"{$topic}\"?",
+            };
+            $correct = $topic;
+            // Prefer a shorter, more testable label when topic is a long phrase.
+            if (strlen($topic) > 48 && preg_match('/\b([A-Za-z][A-Za-z0-9\-]{2,})\b/', $topic, $m)) {
+                $correct = $topic; // keep full topic as the identifiable content label
+            }
+            $wrong = array_slice($peers, 0, 3);
+            // Ensure distractors are not identical to correct.
+            $wrong = array_values(array_filter($wrong, static fn($w) => strcasecmp((string)$w, $correct) !== 0));
+            while (count($wrong) < 3) {
+                $wrong[] = 'An unrelated lab instrument reading';
+            }
+            $pack = [
+                'stem' => $stem,
+                'options' => [
+                    'A' => $correct,
+                    'B' => $wrong[0],
+                    'C' => $wrong[1],
+                    'D' => $wrong[2],
+                ],
+                'correct_answer' => 'A',
+                'explanation' => "\"{$correct}\" is the syllabus topic being assessed; the other options are different unit topics or unrelated items.",
+            ];
+            return self::rotateMcqOptions($pack, $index);
+        }
+
+        if ($bloom === 'K2') {
+            $stem = match ($index % 3) {
+                0 => "Which statement best shows understanding of \"{$topic}\" in Unit {$unit}?",
+                1 => "Why is \"{$topic}\" introduced before related ideas such as \"{$nextTopic}\" in this unit?",
+                default => "Which explanation of \"{$topic}\" is most consistent with the unit syllabus?",
+            };
+            $correct = "It provides essential background needed to understand later Unit {$unit} ideas such as {$nextTopic}.";
+            $wrong1 = "It is used only to rename {$nextTopic} without adding meaning.";
+            $wrong2 = "It removes the need to study {$prevTopic} and {$altTopic}.";
+            $wrong3 = "It applies only after the full course is finished, not during Unit {$unit}.";
+            $pack = [
+                'stem' => $stem,
+                'options' => [
+                    'A' => $correct,
+                    'B' => $wrong1,
+                    'C' => $wrong2,
+                    'D' => $wrong3,
+                ],
+                'correct_answer' => 'A',
+                'explanation' => "Understanding \"{$topic}\" supports progression to related Unit {$unit} concepts.",
+            ];
+            return self::rotateMcqOptions($pack, $index);
+        }
+
+        // K3+ application-style without circular definition.
+        $stem = match ($index % 3) {
+            0 => "A classroom task requires using \"{$topic}\". Which action is most appropriate?",
+            1 => "While solving a Unit {$unit} exercise involving \"{$topic}\", what should you do first?",
+            default => "Which practice best applies \"{$topic}\" to a Unit {$unit} problem?",
+        };
+        $correct = "Identify the relevant facts about {$topic}, then apply them step-by-step to the given problem.";
+        $pack = [
             'stem' => $stem,
+            'options' => [
+                'A' => $correct,
+                'B' => "Ignore {$topic} and answer using only {$nextTopic}.",
+                'C' => "Replace the problem with a definition of {$subject}.",
+                'D' => "Skip working and select any option from {$prevTopic}.",
+            ],
+            'correct_answer' => 'A',
+            'explanation' => "Application questions require using \"{$topic}\" deliberately on the problem, not avoiding it.",
+        ];
+        return self::rotateMcqOptions($pack, $index);
+    }
+
+    /**
+     * Keyword-matched concept MCQs (content-driven, not course-name hardcoding).
+     *
+     * @return array{stem:string,options:array<string,string>,correct_answer:string,explanation:string}|null
+     */
+    private static function matchConceptMcq(
+        string $topic,
+        string $subject,
+        string $context,
+        string $klevel,
+        int $index
+    ): ?array {
+        $hay = strtolower($topic . ' ' . $subject . ' ' . mb_substr($context, 0, 1200));
+        $k = strtoupper($klevel);
+        if (!in_array($k, ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'], true)) {
+            $k = 'K1';
+        }
+        $bankLevel = match ($k) {
+            'K1' => 'K1',
+            'K2' => 'K2',
+            default => 'K3',
+        };
+
+        $pool = [];
+        foreach (self::conceptMcqCatalog() as $pack) {
+            $hit = false;
+            foreach ($pack['keywords'] as $kw) {
+                if ($kw !== '' && str_contains($hay, strtolower($kw))) {
+                    $hit = true;
+                    break;
+                }
+            }
+            if (!$hit) {
+                continue;
+            }
+            $list = $pack[$bankLevel] ?? [];
+            if ($list === [] && $bankLevel !== 'K1') {
+                $list = $pack['K1'] ?? [];
+            }
+            foreach ($list as $q) {
+                if (is_array($q) && !empty($q['stem'])) {
+                    $pool[] = $q;
+                }
+            }
+        }
+        if ($pool === []) {
+            return null;
+        }
+        $q = $pool[$index % count($pool)];
+        return [
+            'stem' => (string)$q['stem'],
+            'options' => [
+                'A' => (string)$q['A'],
+                'B' => (string)$q['B'],
+                'C' => (string)$q['C'],
+                'D' => (string)$q['D'],
+            ],
+            'correct_answer' => strtoupper((string)$q['ans']),
+            'explanation' => (string)($q['why'] ?? 'Correct option matches the syllabus concept.'),
+        ];
+    }
+
+    /**
+     * Concept packs matched by topic/context keywords (works across courses dynamically).
+     *
+     * @return list<array<string,mixed>>
+     */
+    private static function conceptMcqCatalog(): array
+    {
+        return [
+            [
+                'keywords' => ['html', 'hyperlink', 'heading', 'paragraph', 'element', 'attribute', 'document structure', '<a>', 'image', 'web page'],
+                'K1' => [
+                    ['stem' => 'Which HTML element is used to create a hyperlink?', 'A' => '<img>', 'B' => '<a>', 'C' => '<p>', 'D' => '<table>', 'ans' => 'B', 'why' => 'The anchor element <a> creates hyperlinks.'],
+                    ['stem' => 'In HTML, what do attributes provide for an element?', 'A' => 'Extra information or configuration for the element', 'B' => 'A replacement for the web server', 'C' => 'Encrypted network traffic by default', 'D' => 'A database primary key', 'ans' => 'A', 'why' => 'Attributes configure elements (e.g., href, src, alt).'],
+                    ['stem' => 'Which HTML tags are typically used for section headings?', 'A' => '<h1> to <h6>', 'B' => '<http> to <https>', 'C' => '<sql> to <db>', 'D' => '<css> to <js>', 'ans' => 'A', 'why' => 'Heading levels are marked with h1–h6.'],
+                    ['stem' => 'Which tag is commonly used to display an image on a web page?', 'A' => '<a>', 'B' => '<p>', 'C' => '<img>', 'D' => '<title>', 'ans' => 'C', 'why' => '<img> embeds images.'],
+                ],
+                'K2' => [
+                    ['stem' => 'Why must a well-formed HTML document follow a clear document structure?', 'A' => 'So browsers can correctly interpret and present content', 'B' => 'So the operating system can schedule CPU processes', 'C' => 'So matrices can be inverted faster', 'D' => 'So SQL joins become unnecessary', 'ans' => 'A', 'why' => 'Structure (html/head/body and elements) helps browsers render pages correctly.'],
+                    ['stem' => 'How do HTML attributes help when inserting an image?', 'A' => 'They specify source and alternative text such as src and alt', 'B' => 'They encrypt the image using HTTPS automatically', 'C' => 'They convert the image into a primary key', 'D' => 'They replace the need for a domain name', 'ans' => 'A', 'why' => 'src points to the file; alt describes it for accessibility.'],
+                ],
+                'K3' => [
+                    ['stem' => 'You need a clickable logo that opens the home page. Which approach is appropriate?', 'A' => 'Wrap an <img> inside an <a href="..."> element', 'B' => 'Use only a <p> tag with no link', 'C' => 'Store the logo as a foreign key', 'D' => 'Replace HTML with a determinant calculation', 'ans' => 'A', 'why' => 'Combine <a> and <img> for a linked logo.'],
+                ],
+            ],
+            [
+                'keywords' => ['http', 'https', 'protocol', 'url', 'domain', 'browser', 'web server', 'client-server', 'client server', 'www', 'internet', 'request', 'response'],
+                'K1' => [
+                    ['stem' => 'Which component typically receives an HTTP request from a browser and returns the requested resource?', 'A' => 'Web server', 'B' => 'HTML heading tag', 'C' => 'CSS color value', 'D' => 'Keyboard interrupt', 'ans' => 'A', 'why' => 'Web servers handle HTTP requests and responses.'],
+                    ['stem' => 'What does URL stand for in web technologies?', 'A' => 'Uniform Resource Locator', 'B' => 'Universal Routing Logic', 'C' => 'User Record Lock', 'D' => 'Unary Relational Link', 'ans' => 'A', 'why' => 'URL means Uniform Resource Locator.'],
+                    ['stem' => 'In a client-server web model, which role does the web browser usually play?', 'A' => 'Client', 'B' => 'Database engine', 'C' => 'DNS root authority only', 'D' => 'Compiler', 'ans' => 'A', 'why' => 'Browsers act as clients requesting resources.'],
+                    ['stem' => 'Which protocol is the encrypted variant commonly used for secure web communication?', 'A' => 'FTP', 'B' => 'HTTP', 'C' => 'HTTPS', 'D' => 'SMTP only', 'ans' => 'C', 'why' => 'HTTPS adds TLS/SSL encryption over HTTP.'],
+                ],
+                'K2' => [
+                    ['stem' => 'Why is HTTPS preferred over HTTP when transmitting login credentials?', 'A' => 'HTTPS provides encrypted communication between client and server', 'B' => 'HTTPS removes the need for a web server', 'C' => 'HTTPS converts HTML into CSS', 'D' => 'HTTPS prevents all browser errors', 'ans' => 'A', 'why' => 'Encryption protects credentials in transit.'],
+                    ['stem' => 'How does client-server architecture help web applications?', 'A' => 'Clients request services; servers process requests and return responses', 'B' => 'Every browser becomes a relational database', 'C' => 'HTML tags replace network protocols', 'D' => 'Domain names are no longer required', 'ans' => 'A', 'why' => 'It separates requestors (clients) from providers (servers).'],
+                ],
+                'K3' => [
+                    ['stem' => 'A user enters a domain name in the browser address bar. What happens next at a high level?', 'A' => 'The name is resolved and an HTTP/HTTPS request is sent to the appropriate server', 'B' => 'The browser invents an HTML primary key', 'C' => 'The OS deletes the CSS file', 'D' => 'The matrix inverse is computed first', 'ans' => 'A', 'why' => 'DNS resolution + HTTP(S) request is the normal flow.'],
+                ],
+            ],
+            [
+                'keywords' => ['matrix', 'matrices', 'determinant', 'inverse', 'rank', 'calculus', 'limit', 'continuity', 'derivative', 'differentiation', 'partial derivative'],
+                'K1' => [
+                    ['stem' => 'For a square matrix A, when does A⁻¹ exist?', 'A' => 'When det(A) ≠ 0', 'B' => 'When det(A) = 0', 'C' => 'Only when A has no elements', 'D' => 'Only when A is a row vector', 'ans' => 'A', 'why' => 'A square matrix is invertible iff its determinant is non-zero.'],
+                    ['stem' => 'What does the rank of a matrix represent?', 'A' => 'The maximum number of linearly independent rows or columns', 'B' => 'The number of HTML attributes', 'C' => 'The HTTP status code', 'D' => 'The primary key count in SQL', 'ans' => 'A', 'why' => 'Rank measures linear independence.'],
+                    ['stem' => 'The derivative of a function measures which idea?', 'A' => 'Instantaneous rate of change', 'B' => 'Database cardinality', 'C' => 'Browser cache size', 'D' => 'Process priority', 'ans' => 'A', 'why' => 'Differentiation gives instantaneous rate of change.'],
+                    ['stem' => 'A limit of f(x) as x approaches a describes:', 'A' => 'The value f approaches near a (if it exists)', 'B' => 'The foreign key of a table', 'C' => 'The HTTPS certificate vendor', 'D' => 'The CSS selector list', 'ans' => 'A', 'why' => 'Limits describe approaching behavior.'],
+                ],
+                'K2' => [
+                    ['stem' => 'Why is the determinant important when checking whether a square matrix has an inverse?', 'A' => 'A non-zero determinant indicates the matrix is invertible', 'B' => 'A determinant always encrypts the matrix', 'C' => 'A determinant converts the matrix into HTML', 'D' => 'A determinant is used only for sorting arrays', 'ans' => 'A', 'why' => 'Invertibility of a square matrix is equivalent to det ≠ 0.'],
+                    ['stem' => 'How are continuity and limits related for a function at a point a?', 'A' => 'f is continuous at a if the limit exists and equals f(a)', 'B' => 'Continuity means the determinant is zero', 'C' => 'Limits replace partial derivatives permanently', 'D' => 'Continuity is defined only for databases', 'ans' => 'A', 'why' => 'Continuity requires limit = function value at the point.'],
+                    ['stem' => 'What does a partial derivative represent for a multivariable function?', 'A' => 'The rate of change with respect to one variable while others are held fixed', 'B' => 'The HTTP status of a request', 'C' => 'The primary key of a relation', 'D' => 'The number of HTML headings', 'ans' => 'A', 'why' => 'Partial derivatives isolate change in one independent variable.'],
+                    ['stem' => 'Why is matrix rank useful when studying linear systems?', 'A' => 'It indicates the number of independent equations/variables relationships', 'B' => 'It encrypts the coefficient matrix', 'C' => 'It renames the matrix as a web server', 'D' => 'It deletes dependent HTML tags', 'ans' => 'A', 'why' => 'Rank reflects independent row/column structure relevant to solvability.'],
+                    ['stem' => 'Which statement correctly describes differentiation?', 'A' => 'It finds the instantaneous rate of change of a function', 'B' => 'It stores records in a relational table', 'C' => 'It styles hyperlinks in a browser', 'D' => 'It schedules CPU processes', 'ans' => 'A', 'why' => 'Differentiation measures instantaneous rate of change.'],
+                ],
+                'K3' => [
+                    ['stem' => 'To decide if a 2×2 matrix [[a,b],[c,d]] is invertible, which computation should you perform first?', 'A' => 'Compute ad − bc and check whether it is non-zero', 'B' => 'Convert the matrix into an <img> tag', 'C' => 'Create a primary key for each entry', 'D' => 'Send an HTTP POST to the determinant', 'ans' => 'A', 'why' => 'For 2×2 matrices, det = ad − bc.'],
+                ],
+            ],
+            [
+                'keywords' => ['database', 'dbms', 'sql', 'primary key', 'foreign key', 'relational', 'normalization', 'er model', 'entity', 'table', 'record', 'tuple', 'attribute'],
+                'K1' => [
+                    ['stem' => 'Which key uniquely identifies a record in a relational table?', 'A' => 'Foreign key', 'B' => 'Primary key', 'C' => 'Composite attribute only', 'D' => 'View', 'ans' => 'B', 'why' => 'Primary keys uniquely identify rows.'],
+                    ['stem' => 'A foreign key in a relational database is used to:', 'A' => 'Reference the primary key of another (or the same) table', 'B' => 'Encrypt HTTPS traffic', 'C' => 'Compute matrix rank', 'D' => 'Style HTML paragraphs', 'ans' => 'A', 'why' => 'Foreign keys enforce referential relationships.'],
+                    ['stem' => 'In the ER model, an entity typically represents:', 'A' => 'A real-world object about which data is stored', 'B' => 'An HTTP status line', 'C' => 'A CSS class name', 'D' => 'A CPU scheduling quantum', 'ans' => 'A', 'why' => 'Entities model real-world objects/concepts.'],
+                    ['stem' => 'SQL is primarily used to:', 'A' => 'Query and manage data in relational databases', 'B' => 'Render CSS animations', 'C' => 'Differentiate polynomials', 'D' => 'Schedule operating-system interrupts', 'ans' => 'A', 'why' => 'SQL is the standard language for relational data.'],
+                    ['stem' => 'Which statement about the relational model is correct?', 'A' => 'Data is organized in tables (relations) with rows and columns', 'B' => 'Data must be stored only as HTML documents', 'C' => 'Every table must avoid keys', 'D' => 'Relations are the same as HTTP cookies', 'ans' => 'A', 'why' => 'Relational model uses tabular relations.'],
+                ],
+                'K2' => [
+                    ['stem' => 'Why is normalization applied to relational schemas?', 'A' => 'To reduce redundancy and improve data integrity', 'B' => 'To convert SQL into HTML forms', 'C' => 'To increase duplicate storage intentionally', 'D' => 'To replace primary keys with images', 'ans' => 'A', 'why' => 'Normalization organizes data to reduce redundancy/anomalies.'],
+                    ['stem' => 'How does a primary key differ from a foreign key?', 'A' => 'A primary key uniquely identifies rows; a foreign key references a key elsewhere', 'B' => 'A foreign key is always unique and never references another table', 'C' => 'They are identical in every database', 'D' => 'Primary keys exist only in NoSQL browsers', 'ans' => 'A', 'why' => 'PK identifies; FK references.'],
+                ],
+                'K3' => [
+                    ['stem' => 'You must link Orders to Customers so each order belongs to one customer. Which design is appropriate?', 'A' => 'Add a customer_id foreign key in Orders referencing Customers', 'B' => 'Store the entire customer table inside every HTML <p> tag', 'C' => 'Delete all primary keys', 'D' => 'Use determinants instead of keys', 'ans' => 'A', 'why' => 'FK relationships connect related tables.'],
+                ],
+            ],
+            [
+                'keywords' => ['operating system', 'process', 'cpu scheduling', 'thread', 'memory management', 'deadlock', 'system call', 'kernel'],
+                'K1' => [
+                    ['stem' => 'Which of the following best describes a process in an operating system?', 'A' => 'A program in execution', 'B' => 'An HTML attribute', 'C' => 'A matrix determinant', 'D' => 'A CSS selector', 'ans' => 'A', 'why' => 'A process is a program in execution.'],
+                    ['stem' => 'CPU scheduling is primarily concerned with:', 'A' => 'Deciding which ready process runs next on the CPU', 'B' => 'Encrypting HTTPS certificates', 'C' => 'Normalizing SQL tables', 'D' => 'Rendering <img> tags', 'ans' => 'A', 'why' => 'Schedulers allocate CPU time among ready processes.'],
+                ],
+                'K2' => [
+                    ['stem' => 'Why do operating systems provide system calls?', 'A' => 'To let user programs request kernel services safely', 'B' => 'To replace relational databases', 'C' => 'To compute partial derivatives', 'D' => 'To style hyperlinks', 'ans' => 'A', 'why' => 'System calls are the controlled interface to kernel services.'],
+                ],
+                'K3' => [
+                    ['stem' => 'If multiple processes are ready, which OS component chooses the next process to run?', 'A' => 'CPU scheduler / dispatcher logic', 'B' => 'HTML parser', 'C' => 'SQL foreign key', 'D' => 'Matrix inverter', 'ans' => 'A', 'why' => 'Scheduling selects the next runnable process.'],
+                ],
+            ],
+            [
+                'keywords' => ['java', 'class', 'object', 'inheritance', 'polymorphism', 'oop', 'method', 'constructor'],
+                'K1' => [
+                    ['stem' => 'In Java, a class is best described as:', 'A' => 'A blueprint for creating objects', 'B' => 'An HTTP response header', 'C' => 'A database view only', 'D' => 'A CSS media query', 'ans' => 'A', 'why' => 'Classes define structure/behavior for objects.'],
+                    ['stem' => 'Inheritance in object-oriented programming allows a class to:', 'A' => 'Acquire properties/behaviors from another class', 'B' => 'Encrypt packets automatically', 'C' => 'Compute determinants', 'D' => 'Replace the web server', 'ans' => 'A', 'why' => 'Inheritance reuses and extends base-class features.'],
+                ],
+                'K2' => [
+                    ['stem' => 'Why is encapsulation useful in Java?', 'A' => 'It hides internal details and exposes a controlled interface', 'B' => 'It forces every field to be public', 'C' => 'It removes the need for methods', 'D' => 'It converts objects into HTML tables', 'ans' => 'A', 'why' => 'Encapsulation protects state and clarifies APIs.'],
+                ],
+                'K3' => [
+                    ['stem' => 'You need multiple classes to share common behavior with specific overrides. Which OOP feature fits best?', 'A' => 'Inheritance with method overriding (polymorphism)', 'B' => 'Primary keys only', 'C' => 'HTTP redirect codes', 'D' => 'Matrix transposition', 'ans' => 'A', 'why' => 'Inheritance + overriding enables polymorphic behavior.'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * @param array{stem:string,options:array<string,string>,correct_answer:string,explanation:string} $pack
+     * @return array{stem:string,options:array<string,string>,correct_answer:string,explanation:string}
+     */
+    private static function rotateMcqOptions(array $pack, int $index): array
+    {
+        $options = $pack['options'];
+        $correctKey = strtoupper((string)$pack['correct_answer']);
+        if (!isset($options[$correctKey])) {
+            $correctKey = 'A';
+        }
+        $correctText = $options[$correctKey];
+        $others = [];
+        foreach (['A', 'B', 'C', 'D'] as $k) {
+            if ($k === $correctKey) {
+                continue;
+            }
+            $others[] = $options[$k] ?? '';
+        }
+        while (count($others) < 3) {
+            $others[] = 'None of the syllabus-relevant options above';
+        }
+        $keys = ['A', 'B', 'C', 'D'];
+        $target = $keys[$index % 4];
+        $rotated = [];
+        $oi = 0;
+        foreach ($keys as $k) {
+            if ($k === $target) {
+                $rotated[$k] = $correctText;
+            } else {
+                $rotated[$k] = $others[$oi++];
+            }
+        }
+        return [
+            'stem' => (string)$pack['stem'],
             'options' => $rotated,
-            'correct_answer' => $correctKey,
-            'explanation' => "Correct option {$correctKey} aligns with {$klevel} expectation for {$topic} in {$subject} Unit {$unit}.",
+            'correct_answer' => $target,
+            'explanation' => (string)$pack['explanation'],
         ];
     }
 
@@ -780,35 +1048,43 @@ final class Gemini
         string $type,
         string $klevel,
         int $unit,
-        int $index
+        int $index,
+        string $context = ''
     ): string {
         if ($type === 'short') {
             return match ($klevel) {
-                'K1' => "Define \"{$topic}\" as used in Unit {$unit} of {$subject}.",
-                'K2' => "Explain \"{$topic}\" with one suitable example from {$subject}.",
-                'K3' => "Write the steps to apply \"{$topic}\" for a basic Unit {$unit} task in {$subject}.",
-                'K4' => "Differentiate \"{$topic}\" from a closely related Unit {$unit} concept in {$subject}.",
-                'K5' => "Justify why \"{$topic}\" is important in Unit {$unit} of {$subject}.",
-                default => "Propose a short improvement related to teaching or using \"{$topic}\" in {$subject}.",
+                'K1' => "List two precise facts a student must recall about \"{$topic}\" from Unit {$unit}.",
+                'K2' => "In your own words, explain \"{$topic}\" and give one syllabus-based example.",
+                'K3' => "Describe the steps to apply \"{$topic}\" to a basic Unit {$unit} problem.",
+                'K4' => "Compare \"{$topic}\" with a closely related Unit {$unit} concept and state one key difference.",
+                'K5' => "Justify why mastering \"{$topic}\" matters for Unit {$unit} learning outcomes.",
+                default => "Propose a short teaching activity that checks understanding of \"{$topic}\".",
             };
         }
-        // long / essay / case
         return match ($klevel) {
-            'K1' => "Describe in detail the concept of \"{$topic}\" in Unit {$unit} of {$subject}, including key terms and definitions.",
-            'K2' => "Discuss \"{$topic}\" in {$subject} with examples, and explain how it connects to other Unit {$unit} ideas.",
-            'K3' => "With a suitable problem statement, demonstrate how \"{$topic}\" is applied in Unit {$unit} of {$subject}. Show clear steps.",
-            'K4' => "Analyze the strengths and limitations of using \"{$topic}\" for Unit {$unit} problems in {$subject}.",
-            'K5' => "Critically evaluate the role of \"{$topic}\" in achieving Unit {$unit} learning outcomes for {$subject}.",
-            default => "Design a comprehensive solution approach that integrates \"{$topic}\" with other Unit {$unit} topics in {$subject}.",
+            'K1' => "Describe \"{$topic}\" using accurate terminology from the Unit {$unit} syllabus. Include definitions and key terms.",
+            'K2' => "Explain \"{$topic}\" with examples drawn from the course context, showing how the idea is understood (not merely named).",
+            'K3' => "Present a short problem that requires applying \"{$topic}\". Show clear working/steps.",
+            'K4' => "Analyze strengths and limitations of using \"{$topic}\" for Unit {$unit} problems.",
+            'K5' => "Evaluate the importance of \"{$topic}\" against Unit {$unit} outcomes, with reasoned criteria.",
+            default => "Design a solution approach that integrates \"{$topic}\" with other Unit {$unit} ideas from the syllabus.",
         };
     }
 
-    private static function demoModelAnswer(string $subject, string $topic, string $type, string $klevel): string
-    {
-        $base = "A model answer should address {$topic} in {$subject} at Bloom level {$klevel}, using correct terminology and unit-relevant examples.";
-        if ($type === 'short') {
-            return $base . ' Keep the response concise (about 4–8 lines).';
+    private static function demoModelAnswer(
+        string $subject,
+        string $topic,
+        string $type,
+        string $klevel,
+        string $context = ''
+    ): string {
+        $hint = '';
+        if (trim($context) !== '') {
+            $hint = ' Use terminology consistent with the provided syllabus excerpt.';
         }
-        return $base . ' Include introduction, explanation/working, and a short conclusion.';
+        if ($type === 'short') {
+            return "State accurate points about {$topic} at Bloom {$klevel}; avoid restating the topic name as the whole answer.{$hint}";
+        }
+        return "Introduction → explanation/working on {$topic} → short conclusion. Demonstrate {$klevel} thinking with syllabus-relevant detail.{$hint}";
     }
 }
