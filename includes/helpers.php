@@ -70,6 +70,30 @@ function base_url(string $path = ''): string
     return $base . $path;
 }
 
+/** Full http(s) URL for sharing/QR (never a bare relative path). */
+function absolute_url(string $path = ''): string
+{
+    $configured = config('base_url', 'auto');
+    if (is_string($configured) && $configured !== '' && strtolower($configured) !== 'auto'
+        && (str_starts_with($configured, 'http://') || str_starts_with($configured, 'https://'))) {
+        return rtrim($configured, '/') . '/' . ltrim($path, '/');
+    }
+
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || ((string)($_SERVER['SERVER_PORT'] ?? '') === '443')
+        || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+    $scheme = $https ? 'https' : 'http';
+    $host = trim((string)($_SERVER['HTTP_HOST'] ?? ''));
+    if ($host === '') {
+        $host = 'localhost';
+    }
+    $rel = base_url($path);
+    if ($rel === '' || $rel[0] !== '/') {
+        $rel = '/' . ltrim($rel, '/');
+    }
+    return $scheme . '://' . $host . $rel;
+}
+
 function redirect(string $path): void
 {
     if (str_starts_with($path, 'http')) {

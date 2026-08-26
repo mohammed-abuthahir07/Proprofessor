@@ -284,7 +284,7 @@ final class AttendanceTools
             'token' => $token,
             'expires_at' => $expires,
             'session_id' => $ensured['session_id'],
-            'url' => base_url('/student/attendance-qr.php?token=' . urlencode($token)),
+            'url' => absolute_url('/student/attendance-qr.php?token=' . urlencode($token)),
         ];
     }
 

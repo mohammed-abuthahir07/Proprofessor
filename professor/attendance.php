@@ -303,7 +303,7 @@ $weeklyHeat = ($classId && $subjectId && $heatSessions && $roster)
 $regRequests = ($classId && $subjectId) ? AttendanceTools::pendingRegularizations($user, $classId, $subjectId) : [];
 $qrToken = trim((string)get('qr', ''));
 $qrRow = $qrToken !== '' ? AttendanceTools::findActiveQr($qrToken) : null;
-$qrUrl = $qrRow ? base_url('/student/attendance-qr.php?token=' . urlencode($qrToken)) : '';
+$qrUrl = $qrRow ? absolute_url('/student/attendance-qr.php?token=' . urlencode($qrToken)) : '';
 $geoCfg = AttendanceTools::geofenceConfig($instId);
 
 render_header('Attendance', 'attendance', ['subtitle' => 'Class-wise · Excel import · heatmap · AICTE 75% · PDF · QR']);
@@ -389,7 +389,10 @@ render_header('Attendance', 'attendance', ['subtitle' => 'Class-wise · Excel im
           <p><strong>Active QR</strong> · expires <?= e((string)$qrRow['expires_at']) ?></p>
           <p style="word-break:break-all;font-size:.85rem"><a href="<?= e($qrUrl) ?>" target="_blank" rel="noopener"><?= e($qrUrl) ?></a></p>
           <img alt="Attendance QR" width="180" height="180" src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&amp;data=<?= e(rawurlencode($qrUrl)) ?>">
-          <p class="muted" style="font-size:.8rem;margin-bottom:0">Students open the link or scan the code while logged in.</p>
+          <p class="muted" style="font-size:.8rem;margin-bottom:0">
+            Students must be logged in first. Then open this full link (starts with <code>http://localhost/...</code>) or scan the QR.
+            Do not paste a short path like <code>professor/student/...</code> into the address bar.
+          </p>
         </div>
       <?php endif; ?>
       <form method="post" class="form-grid" style="grid-template-columns:1fr 1fr 1fr auto;gap:.6rem;align-items:end">
