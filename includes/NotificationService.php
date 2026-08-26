@@ -575,6 +575,9 @@ final class NotificationService
         if ($t === 'ai' || str_contains($t, 'ai')) {
             return 'ai';
         }
+        if ($t === 'announcement' || str_contains($t, 'message') || str_contains($t, 'student_message')) {
+            return 'system';
+        }
         return 'system';
     }
 

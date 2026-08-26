@@ -52,6 +52,86 @@ if (get('download') === 'attendance_export' && $classId && $subjectId) {
     }
 }
 
+if (get('download') === 'report_pdf') {
+    if ($classId < 1 || $subjectId < 1) {
+        flash('error', 'Select class and subject before exporting PDF.');
+        redirect('/professor/attendance.php?tab=reports');
+    }
+    if (!professor_can_manage_subject($user, $subjectId, $classId)) {
+        flash('error', 'Access denied for this class/subject.');
+        redirect('/professor/attendance.php?tab=reports');
+    }
+    try {
+        $monthStart = $month . '-01';
+        $monthEnd = date('Y-m-t', strtotime($monthStart) ?: time());
+        $rosterPdf = sync_class_roster($instId, $classId);
+        $sessionsPdf = Database::fetchAll(
+            'SELECT * FROM attendance_sessions
+             WHERE class_id=? AND subject_id=? AND session_date BETWEEN ? AND ?
+             ORDER BY session_date DESC, period DESC',
+            [$classId, $subjectId, $monthStart, $monthEnd]
+        );
+        $summaryPdf = [];
+        $heatPdf = [];
+        $rowsPdf = Database::fetchAll(
+            'SELECT r.register_no, r.status, s.id AS session_id
+             FROM attendance_records r
+             JOIN attendance_sessions s ON s.id=r.session_id
+             WHERE s.class_id=? AND s.subject_id=?',
+            [$classId, $subjectId]
+        );
+        $agg = [];
+        foreach ($rowsPdf as $r) {
+            $agg[$r['register_no']]['total'] = ($agg[$r['register_no']]['total'] ?? 0) + 1;
+            if (in_array($r['status'], ['present', 'late'], true)) {
+                $agg[$r['register_no']]['present'] = ($agg[$r['register_no']]['present'] ?? 0) + 1;
+            }
+            $heatPdf[$r['register_no']][(int)$r['session_id']] = $r['status'];
+        }
+        foreach ($agg as $reg => $a) {
+            $summaryPdf[$reg] = $a['total'] ? round(($a['present'] ?? 0) * 100 / $a['total'], 1) : 0.0;
+        }
+        $subjectNamePdf = '';
+        $subjectCodePdf = '';
+        foreach (professor_subjects($user, $classId) as $s) {
+            if ((int)$s['id'] === $subjectId) {
+                $subjectNamePdf = (string)$s['name'];
+                $subjectCodePdf = (string)($s['code'] ?? '');
+                break;
+            }
+        }
+        $classLabelPdf = '';
+        foreach (professor_manageable_classes($user) as $c) {
+            if ((int)$c['id'] === $classId) {
+                $classLabelPdf = class_batch_label($c);
+                break;
+            }
+        }
+        $pdf = AttendanceTools::buildAttendanceReportPdf(
+            $user,
+            $classId,
+            $subjectId,
+            $month,
+            $classLabelPdf,
+            $subjectNamePdf,
+            $subjectCodePdf,
+            $sessionsPdf,
+            $rosterPdf,
+            $summaryPdf,
+            $heatPdf,
+            $minPct
+        );
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $pdf['filename'] . '"');
+        header('Content-Length: ' . strlen($pdf['bytes']));
+        echo $pdf['bytes'];
+        exit;
+    } catch (Throwable $e) {
+        flash('error', 'Could not generate PDF: ' . $e->getMessage());
+        redirect('/professor/attendance.php?class_id=' . $classId . '&subject_id=' . $subjectId . '&tab=reports&month=' . urlencode($month));
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $action = post('action');
@@ -448,7 +528,7 @@ render_header('Attendance', 'attendance', ['subtitle' => 'Class-wise · Excel im
         <input type="hidden" name="tab" value="reports">
         <div class="form-row"><label>Month</label><input type="month" name="month" value="<?= e($month) ?>"></div>
         <button class="btn btn-ghost" type="submit">Refresh</button>
-        <button class="btn btn-primary" type="button" data-print>Export PDF</button>
+        <a class="btn btn-primary" href="<?= e(base_url('/professor/attendance.php?download=report_pdf&class_id=' . $classId . '&subject_id=' . $subjectId . '&month=' . urlencode($month))) ?>">Export PDF</a>
       </form>
       <?php if (!$classId || !$subjectId): ?>
         <div class="empty">Load a class and subject to see monthly / subject-wise reports.</div>

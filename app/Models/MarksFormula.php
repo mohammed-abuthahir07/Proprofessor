@@ -252,6 +252,119 @@ final class MarksFormula extends Model
     }
 
     /**
+     * Components for a formula row. If Admin saved expression but empty components[],
+     * infer codes from the expression so Internal Marks still works.
+     *
+     * @param array<string,mixed> $formula
+     * @return list<array{code:string,label:string,max:float}>
+     */
+    public static function componentsForFormula(array $formula): array
+    {
+        $comps = self::normalizeComponents($formula['components'] ?? []);
+        if ($comps !== []) {
+            return $comps;
+        }
+        return self::inferComponentsFromExpression(
+            (string)($formula['expression'] ?? ''),
+            (string)($formula['plain_english'] ?? $formula['name'] ?? '')
+        );
+    }
+
+    /**
+     * @return list<array{code:string,label:string,max:float}>
+     */
+    public static function inferComponentsFromExpression(string $expression, string $hintText = ''): array
+    {
+        $expression = trim($expression);
+        if ($expression === '') {
+            return [];
+        }
+        preg_match_all('/\b([A-Za-z_][A-Za-z0-9_]*)\b/', $expression, $m);
+        $reserved = ['and', 'or', 'not', 'max', 'min', 'abs', 'round', 'if', 'else', 'pow', 'sqrt'];
+        $codes = [];
+        foreach ($m[1] ?? [] as $code) {
+            $lower = strtolower($code);
+            if (in_array($lower, $reserved, true)) {
+                continue;
+            }
+            if (!isset($codes[$lower])) {
+                $codes[$lower] = $lower;
+            }
+        }
+        if ($codes === []) {
+            return [];
+        }
+
+        $hint = strtolower($hintText);
+        $defaults = [
+            'cia1' => ['label' => 'CIA 1', 'max' => 50.0],
+            'cia2' => ['label' => 'CIA 2', 'max' => 50.0],
+            'cia3' => ['label' => 'CIA 3', 'max' => 50.0],
+            'assignment' => ['label' => 'Assignment', 'max' => 5.0],
+            'assignments' => ['label' => 'Assignment', 'max' => 5.0],
+            'attendance' => ['label' => 'Attendance', 'max' => 5.0],
+            'lab' => ['label' => 'Lab', 'max' => 25.0],
+            'project' => ['label' => 'Project', 'max' => 25.0],
+            'viva' => ['label' => 'Viva', 'max' => 10.0],
+            'internal' => ['label' => 'Internal', 'max' => 25.0],
+        ];
+
+        // Explicit "Assignment 5" / "Attendance 5" phrasing only (avoid grabbing digits from CIA2 etc.).
+        if (preg_match('/assignment\s+(\d+(?:\.\d+)?)/i', $hintText, $hm)) {
+            $defaults['assignment']['max'] = (float)$hm[1];
+            $defaults['assignments']['max'] = (float)$hm[1];
+        }
+        if (preg_match('/attendance\s+(\d+(?:\.\d+)?)/i', $hintText, $hm)) {
+            $defaults['attendance']['max'] = (float)$hm[1];
+        }
+        // CIA maxima stay at defaults (usually /50). Do not scrape digits from "CIA1/CIA2" text.
+
+        $out = [];
+        foreach ($codes as $code) {
+            $def = $defaults[$code] ?? [
+                'label' => strtoupper($code),
+                'max' => 50.0,
+            ];
+            $out[] = [
+                'code' => $code,
+                'label' => (string)$def['label'],
+                'max' => (float)$def['max'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Soft-repair formulas that have an expression but empty components JSON.
+     */
+    public static function repairEmptyComponents(int $institutionId = 0): void
+    {
+        self::ensureSchema();
+        $sql = 'SELECT id, institution_id, expression, plain_english, name, components FROM marks_formulas';
+        $params = [];
+        if ($institutionId > 0) {
+            $sql .= ' WHERE institution_id = ?';
+            $params[] = $institutionId;
+        }
+        foreach (Database::fetchAll($sql, $params) as $row) {
+            $existing = self::normalizeComponents($row['components'] ?? []);
+            if ($existing !== []) {
+                continue;
+            }
+            $inferred = self::inferComponentsFromExpression(
+                (string)($row['expression'] ?? ''),
+                (string)($row['plain_english'] ?? $row['name'] ?? '')
+            );
+            if ($inferred === []) {
+                continue;
+            }
+            Database::update('marks_formulas', [
+                'components' => json_encode($inferred, JSON_UNESCAPED_UNICODE),
+            ], 'id = :id', ['id' => (int)$row['id']]);
+        }
+    }
+
+    /**
      * Built-in fallback when Admin has not configured any formula yet.
      *
      * @return array<string,mixed>

@@ -821,4 +821,235 @@ final class AttendanceTools
         }
         return $out;
     }
+
+    /**
+     * Professional monthly attendance report PDF for the professor's assigned class/subject.
+     *
+     * @param array<string,mixed> $user
+     * @param list<array<string,mixed>> $sessions
+     * @param list<array<string,mixed>> $roster
+     * @param array<string,float> $summary register_no => percent
+     * @param array<string,array<int,string>> $heat register_no => [session_id => status]
+     * @return array{bytes:string,filename:string}
+     */
+    public static function buildAttendanceReportPdf(
+        array $user,
+        int $classId,
+        int $subjectId,
+        string $month,
+        string $classLabel,
+        string $subjectName,
+        string $subjectCode,
+        array $sessions,
+        array $roster,
+        array $summary,
+        array $heat,
+        float $minPct
+    ): array {
+        if (!class_exists('SimplePdf', false)) {
+            require_once __DIR__ . '/SimplePdf.php';
+        }
+
+        $instId = (int)($user['institution_id'] ?? 0);
+        $inst = Database::fetch(
+            'SELECT name, address, city, state, pincode, academic_year, current_semester, affiliation_university
+             FROM institutions WHERE id = ?',
+            [$instId]
+        );
+        if (!$inst) {
+            throw new RuntimeException('Institution not found.');
+        }
+
+        $deptName = '';
+        $deptId = (int)($user['department_id'] ?? 0);
+        if ($deptId > 0) {
+            $d = Database::fetch(
+                'SELECT name FROM departments WHERE id = ? AND institution_id = ?',
+                [$deptId, $instId]
+            );
+            $deptName = trim((string)($d['name'] ?? ''));
+        }
+
+        $college = trim((string)($inst['name'] ?? ''));
+        $addrParts = array_filter([
+            trim((string)($inst['address'] ?? '')),
+            trim((string)($inst['city'] ?? '')),
+            trim((string)($inst['state'] ?? '')),
+            trim((string)($inst['pincode'] ?? '')),
+        ], static fn($v) => $v !== '');
+        $addressLine = implode(', ', $addrParts);
+        $year = trim((string)($inst['academic_year'] ?? ''));
+        $sem = trim((string)($inst['current_semester'] ?? ''));
+
+        $monthLabel = $month;
+        $ts = strtotime($month . '-01');
+        if ($ts) {
+            $monthLabel = date('F Y', $ts);
+        }
+
+        $ink = [20, 20, 20];
+        $pdf = new SimplePdf();
+
+        $pdf->setFont(15, true);
+        if ($college !== '') {
+            $pdf->writeCenteredWrapped($college, 0, 18, $ink);
+        }
+        $pdf->setFont(9, false);
+        if ($addressLine !== '') {
+            $pdf->writeCenteredWrapped($addressLine, 0, 11, $ink);
+        }
+        if (!empty($inst['affiliation_university'])) {
+            $pdf->writeCentered('Affiliated to ' . trim((string)$inst['affiliation_university']), $ink, 11);
+        }
+        if ($deptName !== '') {
+            $pdf->space(3);
+            $pdf->setFont(11, true);
+            $pdf->writeCentered(strtoupper($deptName), $ink, 13);
+        }
+        $pdf->space(3);
+        $pdf->doubleRule($ink);
+        $pdf->setFont(13, true);
+        $pdf->writeCentered('ATTENDANCE REPORT', $ink, 16);
+        $pdf->setFont(11, true);
+        $subjLine = trim($subjectCode !== '' ? ($subjectCode . ' · ' . $subjectName) : $subjectName);
+        if ($subjLine !== '') {
+            $pdf->writeCenteredWrapped($subjLine, 0, 14, $ink);
+        }
+        $pdf->setFont(10, false);
+        if ($classLabel !== '') {
+            $pdf->writeCentered($classLabel, $ink, 13);
+        }
+        $pdf->writeCentered($monthLabel, $ink, 13);
+        $pdf->thinRule($ink);
+
+        $pdf->setFont(10, false);
+        $metaLeft = [];
+        $metaRight = [];
+        if ($year !== '') {
+            $metaLeft[] = 'Academic Year: ' . $year;
+        }
+        if ($sem !== '') {
+            $metaRight[] = 'Semester: ' . $sem;
+        }
+        $metaLeft[] = 'Minimum attendance: ' . rtrim(rtrim(number_format($minPct, 1, '.', ''), '0'), '.') . '%';
+        $metaRight[] = 'Generated: ' . date('d M Y, H:i');
+        $metaLeft[] = 'Total sessions: ' . count($sessions);
+        $metaRight[] = 'Students: ' . count($roster);
+        $rows = max(count($metaLeft), count($metaRight));
+        for ($i = 0; $i < $rows; $i++) {
+            $pdf->writeTwoColumn($metaLeft[$i] ?? '', $metaRight[$i] ?? '', $ink, 13);
+        }
+        $pdf->thinRule($ink);
+
+        // Session list
+        $pdf->setFont(11, true);
+        $pdf->writeLine('1. Session summary', $ink, 15);
+        $pdf->setFont(9, false);
+        if (!$sessions) {
+            $pdf->writeLine('No sessions recorded in this month.', $ink, 12);
+        } else {
+            $headers = ['Date', 'Period', 'Topic', 'Present', 'Absent'];
+            $tableRows = [];
+            foreach ($sessions as $s) {
+                $tableRows[] = [
+                    (string)($s['session_date'] ?? ''),
+                    (string)($s['period'] ?? ''),
+                    mb_substr(trim((string)($s['topic'] ?? '')), 0, 40),
+                    (string)(int)($s['present_count'] ?? 0),
+                    (string)(int)($s['absent_count'] ?? 0),
+                ];
+            }
+            $pdf->table($headers, $tableRows, [1.3, 0.7, 2.2, 0.8, 0.8], 8.5);
+        }
+
+        $pdf->space(8);
+        $pdf->setFont(11, true);
+        $pdf->writeLine('2. Student attendance %', $ink, 15);
+        $pdf->setFont(9, false);
+        if (!$roster) {
+            $pdf->writeLine('No students in roster.', $ink, 12);
+        } else {
+            $headers = ['Register No.', 'Student Name', 'Attendance %', 'Status'];
+            $tableRows = [];
+            $below = [];
+            foreach ($roster as $st) {
+                $reg = (string)($st['register_no'] ?? '');
+                $name = (string)($st['full_name'] ?? '');
+                $pct = $summary[$reg] ?? null;
+                $pctTxt = $pct === null ? '—' : (rtrim(rtrim(number_format((float)$pct, 1, '.', ''), '0'), '.') . '%');
+                $status = '—';
+                if ($pct !== null) {
+                    if ((float)$pct < $minPct) {
+                        $status = 'Below ' . (int)$minPct . '%';
+                        $below[] = $reg . ' · ' . $name . ' (' . $pctTxt . ')';
+                    } else {
+                        $status = 'OK';
+                    }
+                }
+                $tableRows[] = [$reg, mb_substr($name, 0, 36), $pctTxt, $status];
+            }
+            $pdf->table($headers, $tableRows, [1.3, 2.4, 1.0, 1.1], 8.5);
+
+            $pdf->space(8);
+            $pdf->setFont(11, true);
+            $pdf->writeLine('3. Below ' . (int)$minPct . '% (AICTE alert)', $ink, 15);
+            $pdf->setFont(9, false);
+            if (!$below) {
+                $pdf->writeLine('No students below the minimum for this subject (all-session %).', $ink, 12);
+            } else {
+                foreach ($below as $i => $line) {
+                    $pdf->writeLine(($i + 1) . '. ' . $line, $ink, 12);
+                }
+            }
+        }
+
+        // Compact day-wise marks (limit sessions so PDF stays readable)
+        $heatSessions = array_reverse($sessions);
+        $heatSessions = array_slice($heatSessions, 0, 12);
+        if ($roster && $heatSessions) {
+            $pdf->space(8);
+            $pdf->setFont(11, true);
+            $pdf->writeLine('4. Day-wise status (P/A/L/E) — up to 12 sessions', $ink, 15);
+            $pdf->setFont(8, false);
+            $headers = ['Student'];
+            $weights = [2.4];
+            foreach ($heatSessions as $s) {
+                $d = (string)($s['session_date'] ?? '');
+                $headers[] = $d !== '' ? date('d/m', strtotime($d) ?: time()) : '?';
+                $weights[] = 0.55;
+            }
+            $headers[] = '%';
+            $weights[] = 0.7;
+            $letter = ['present' => 'P', 'absent' => 'A', 'late' => 'L', 'excused' => 'E'];
+            $tableRows = [];
+            foreach ($roster as $st) {
+                $reg = (string)($st['register_no'] ?? '');
+                $row = [mb_substr((string)($st['full_name'] ?? $reg), 0, 22)];
+                foreach ($heatSessions as $s) {
+                    $stt = $heat[$reg][(int)$s['id']] ?? '';
+                    $row[] = $letter[$stt] ?? '·';
+                }
+                $pct = $summary[$reg] ?? null;
+                $row[] = $pct === null ? '—' : ((string)(int)round((float)$pct));
+                $tableRows[] = $row;
+            }
+            $pdf->table($headers, $tableRows, $weights, 7.5);
+            $pdf->setFont(8, false);
+            $pdf->writeLine('Legend: P = Present, A = Absent, L = Late, E = Excused, · = Not marked', $ink, 11);
+        }
+
+        $pdf->space(10);
+        $pdf->thinRule($ink);
+        $pdf->setFont(8, false);
+        $pdf->writeCentered('Present and Late count toward attendance %. Generated from ProProfessor AI.', $ink, 11);
+
+        $pdf->stampPageNumbers();
+        $bytes = $pdf->output();
+
+        $safeSub = preg_replace('/[^\p{L}\p{N}._-]+/u', '_', $subjectCode !== '' ? $subjectCode : $subjectName) ?: 'Attendance';
+        $safeSub = trim($safeSub, '._-');
+        $fname = $safeSub . '_Attendance_' . preg_replace('/\D+/', '', $month) . '.pdf';
+
+        return ['bytes' => $bytes, 'filename' => $fname];
+    }
 }

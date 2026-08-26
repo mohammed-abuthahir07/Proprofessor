@@ -16,6 +16,7 @@ require_once __DIR__ . '/PresentationTools.php';
 require_once __DIR__ . '/LectureSlideBuilder.php';
 require_once __DIR__ . '/AssignmentTools.php';
 require_once __DIR__ . '/AttendanceTools.php';
+require_once __DIR__ . '/ProfessorMessageTools.php';
 require_once __DIR__ . '/NotificationService.php';
 require_once __DIR__ . '/Permissions.php';
 require_once __DIR__ . '/mvc_compat.php';

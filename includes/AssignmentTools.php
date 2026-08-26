@@ -728,7 +728,7 @@ final class AssignmentTools
         $type = \App\Models\MarksFormula::subjectTypeFromMeta($subject['meta'] ?? null);
         $formula = \App\Models\MarksFormula::resolveForContext($instId, $deptId, $subjectId, $type)
             ?: \App\Models\MarksFormula::systemFallback();
-        $components = \App\Models\MarksFormula::normalizeComponents($formula['components'] ?? []);
+        $components = \App\Models\MarksFormula::componentsForFormula($formula);
         $asnCode = null;
         $asnMax = 5.0;
         foreach ($components as $c) {

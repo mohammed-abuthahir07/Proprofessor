@@ -87,6 +87,7 @@ render_header('Notifications', 'notifications', ['subtitle' => 'Approvals, AI co
       <a class="chip" href="?type=approval">Approvals</a>
       <a class="chip" href="?type=system">System</a>
       <a class="chip" href="?type=ai">AI</a>
+      <a class="chip" href="?type=announcement">Messages</a>
     </div>
     <a class="btn btn-sm btn-ghost" href="?read=all">Mark all read</a>
   </div>

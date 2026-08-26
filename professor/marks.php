@@ -10,6 +10,7 @@ $user = Auth::user();
 $instId = (int)$user['institution_id'];
 $academicYear = institution_academic_year($instId);
 MarksFormula::ensureInternalMarksSchema();
+MarksFormula::repairEmptyComponents((int)$user['institution_id']);
 
 $classes = professor_manageable_classes($user);
 $classId = (int)(get('class_id') ?: post('class_id'));
@@ -52,7 +53,7 @@ $resolveContext = static function (int $classId, int $subjectId) use ($instId): 
         $formula['subject_name'] = (string)$subject['name'];
         $formula['subject_code'] = (string)$subject['code'];
     }
-    $components = MarksFormula::normalizeComponents($formula['components'] ?? []);
+    $components = MarksFormula::componentsForFormula($formula);
     return [$subject, $formula, $components];
 };
 
