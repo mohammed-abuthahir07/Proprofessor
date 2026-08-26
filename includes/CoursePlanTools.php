@@ -1015,10 +1015,27 @@ final class CoursePlanTools
             if ($current === null) {
                 return;
             }
-            $current['topics'] = array_values(array_unique(array_filter(
-                $current['topics'],
-                static fn($t) => is_string($t) && strlen(trim($t)) > 2
-            )));
+            $topics = [];
+            $seen = [];
+            foreach ($current['topics'] as $t) {
+                if (!is_string($t)) {
+                    continue;
+                }
+                $t = trim(preg_replace('/\s+/u', ' ', $t) ?? $t);
+                if (strlen($t) < 3 || strlen($t) > 220) {
+                    continue;
+                }
+                $key = strtolower($t);
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $topics[] = $t;
+                if (count($topics) >= 40) {
+                    break;
+                }
+            }
+            $current['topics'] = $topics;
             $units[] = $current;
             $current = null;
         };
@@ -1096,7 +1113,17 @@ final class CoursePlanTools
         }
         $byNum = [];
         foreach ($parsed as $p) {
-            $byNum[(int)$p['unit_number']] = $p;
+            $num = (int)$p['unit_number'];
+            $count = count($p['topics'] ?? []);
+            if (!isset($byNum[$num])) {
+                $byNum[$num] = $p;
+                continue;
+            }
+            // Prefer a sane topic list over a later PDF dump of the whole document.
+            $existing = count($byNum[$num]['topics'] ?? []);
+            if (($existing > 60 || $existing < 2) && $count >= 2 && $count <= 60) {
+                $byNum[$num] = $p;
+            }
         }
 
         $out = [];
@@ -1151,10 +1178,24 @@ final class CoursePlanTools
     /**
      * Soft-repair stored plan unit topics from syllabus_input when placeholders are present.
      * Does NOT change status, version, HOD comments, ownership, or create a new version.
+     * Never writes invalid JSON into CHECK(json_valid(...)) columns.
      *
-     * @return array Updated plan row (same row if nothing changed)
+     * @return array Updated plan row (same row if nothing changed / on failure)
      */
     public static function syncPlanTopicsFromSyllabus(array $planRow): array
+    {
+        try {
+            return self::syncPlanTopicsFromSyllabusInner($planRow);
+        } catch (Throwable $e) {
+            // Soft-repair must never break PPT / lesson / question flows.
+            return $planRow;
+        }
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private static function syncPlanTopicsFromSyllabusInner(array $planRow): array
     {
         $planId = (int)($planRow['id'] ?? 0);
         if ($planId < 1) {
@@ -1237,27 +1278,98 @@ final class CoursePlanTools
                 'SELECT id FROM plan_units WHERE plan_id = ? AND unit_number = ? LIMIT 1',
                 [$planId, $num]
             );
-            if ($row) {
-                Database::update('plan_units', [
-                    'topics' => json_encode(array_values($eu['topics'] ?? []), JSON_UNESCAPED_UNICODE),
-                    'title' => (string)($eu['title'] ?? ('Unit ' . $num)),
-                ], 'id = :id AND plan_id = :pid', [
-                    'id' => (int)$row['id'],
-                    'pid' => $planId,
-                ]);
+            if (!$row) {
+                continue;
             }
+            $topicsJson = self::encodeJsonColumn(self::normalizeTopicList($eu['topics'] ?? []));
+            if ($topicsJson === null) {
+                continue; // never write invalid JSON
+            }
+            $title = self::sanitizeExtractedText((string)($eu['title'] ?? ('Unit ' . $num)));
+            $title = mb_substr($title !== '' ? $title : ('Unit ' . $num), 0, 255);
+            Database::update('plan_units', [
+                'topics' => $topicsJson,
+                'title' => $title,
+            ], 'id = :id AND plan_id = :pid', [
+                'id' => (int)$row['id'],
+                'pid' => $planId,
+            ]);
         }
 
         // Keep plan_data.units topics in sync without bumping version/status.
         if ($jsonUnits !== []) {
             $data['units'] = self::enrichUnitsFromSyllabus($jsonUnits, $syllabus);
-            Database::update('course_plans', [
-                'plan_data' => json_encode($data, JSON_UNESCAPED_UNICODE),
-            ], 'id = :id', ['id' => $planId]);
-            $planRow['plan_data'] = json_encode($data, JSON_UNESCAPED_UNICODE);
+            foreach ($data['units'] as &$uu) {
+                if (is_array($uu)) {
+                    $uu['topics'] = self::normalizeTopicList($uu['topics'] ?? []);
+                }
+            }
+            unset($uu);
+            $planDataJson = self::encodeJsonColumn($data);
+            if ($planDataJson !== null) {
+                Database::update('course_plans', [
+                    'plan_data' => $planDataJson,
+                ], 'id = :id', ['id' => $planId]);
+                $planRow['plan_data'] = $planDataJson;
+            }
         }
 
         return $planRow;
+    }
+
+    /**
+     * @param mixed $topics
+     * @return list<string>
+     */
+    public static function normalizeTopicList(mixed $topics): array
+    {
+        if (is_string($topics)) {
+            $decoded = json_decode($topics, true);
+            $topics = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($topics)) {
+            return [];
+        }
+        $out = [];
+        $seen = [];
+        foreach ($topics as $t) {
+            if (!is_string($t) && !is_numeric($t)) {
+                continue;
+            }
+            $t = self::sanitizeExtractedText((string)$t);
+            $t = trim(preg_replace('/\s+/u', ' ', $t) ?? $t);
+            if (strlen($t) < 3 || strlen($t) > 220) {
+                continue;
+            }
+            if (preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
+                continue;
+            }
+            $key = strtolower($t);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = $t;
+            if (count($out) >= 40) {
+                break;
+            }
+        }
+        return $out;
+    }
+
+    /** Encode value for MySQL/MariaDB JSON CHECK columns; null if unusable. */
+    public static function encodeJsonColumn(mixed $value): ?string
+    {
+        $flags = JSON_UNESCAPED_UNICODE;
+        if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+            $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+        }
+        $json = json_encode($value, $flags);
+        if (!is_string($json) || $json === '' || $json === 'null') {
+            return null;
+        }
+        // Empty array is valid JSON and allowed.
+        return $json;
     }
 
     /**

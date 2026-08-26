@@ -213,9 +213,6 @@ final class PptxExporter
                 $short++;
             }
         }
-        if ($n >= 3 && $n <= 6 && $short >= ($n - 1)) {
-            return 'cards';
-        }
         if ($n >= 7) {
             return 'columns';
         }
@@ -229,12 +226,33 @@ final class PptxExporter
         $tag = self::unitTag($slide);
         $bullets = self::bullets($slide);
         $id = 2;
-        $kind = self::layoutKind($number, $total, $title, $bullets);
+        $layoutHint = is_array($slide) ? strtolower(trim((string)($slide['layout'] ?? ''))) : '';
+        $kind = match ($layoutHint) {
+            'title' => 'title',
+            'close', 'thank' => 'close',
+            'comparison' => 'comparison',
+            'code' => 'code',
+            'diagram' => 'diagram',
+            'objectives', 'summary', 'quiz', 'content' => 'content',
+            default => self::layoutKind($number, $total, $title, $bullets),
+        };
+        // Prefer structured layouts when data is present
+        if (is_array($slide) && !empty($slide['comparison']) && is_array($slide['comparison'])) {
+            $kind = 'comparison';
+        } elseif (is_array($slide) && !empty($slide['code']) && is_string($slide['code'])) {
+            $kind = 'code';
+        } elseif ($layoutHint === 'diagram') {
+            $kind = 'diagram';
+        }
+
         $shapes = match ($kind) {
             'title' => self::layoutTitle($id, $title, $tag, $bullets, $deckTitle, $number, $total),
             'cards' => self::layoutCards($id, $title, $tag, $bullets, $deckTitle, $number, $total),
             'columns' => self::layoutColumns($id, $title, $tag, $bullets, $deckTitle, $number, $total),
             'close' => self::layoutClose($id, $title, $tag, $bullets, $deckTitle, $number, $total),
+            'comparison' => self::layoutComparison($id, $title, $tag, $slide, $deckTitle, $number, $total),
+            'code' => self::layoutCode($id, $title, $tag, $slide, $deckTitle, $number, $total),
+            'diagram' => self::layoutDiagram($id, $title, $tag, $bullets, $deckTitle, $number, $total),
             default => self::layoutContent($id, $title, $tag, $bullets, $deckTitle, $number, $total),
         };
 
@@ -289,17 +307,160 @@ final class PptxExporter
         if ($bullets === []) {
             $paras = self::p('Key points for this topic.', 1800, '334155');
         } else {
-            $sz = count($bullets) > 6 ? 1600 : 1800;
+            $sz = count($bullets) > 6 ? 1500 : 1700;
             foreach ($bullets as $b) {
                 $paras .= self::p($b, $sz, '1E293B', false, [
-                    'after' => 900,
-                    'line' => 125000,
+                    'after' => 800,
+                    'line' => 122000,
                     'bullet' => true,
                     'buColor' => self::primary(),
                 ]);
             }
         }
         $xml .= self::text($id, 560000, 1680000, 11080000, 4600000, $paras, 't');
+        return $xml;
+    }
+
+    /** @param mixed $slide */
+    private static function layoutComparison(int &$id, string $title, string $tag, mixed $slide, string $deck, int $number, int $total): string
+    {
+        $xml = self::chrome($id, $title, $tag, $deck, $number, $total);
+        $cmp = is_array($slide) ? ($slide['comparison'] ?? null) : null;
+        $headers = is_array($cmp) ? (array)($cmp['headers'] ?? []) : [];
+        $rows = is_array($cmp) ? (array)($cmp['rows'] ?? []) : [];
+        if ($headers === [] || $rows === []) {
+            return self::layoutContent($id, $title, $tag, self::bullets($slide), $deck, $number, $total);
+        }
+        $cols = count($headers);
+        $cols = max(2, min(4, $cols));
+        $tableW = 11080000;
+        $colW = (int)($tableW / $cols);
+        $x0 = 560000;
+        $y0 = 1720000;
+        $rowH = 720000;
+        for ($c = 0; $c < $cols; $c++) {
+            $xml .= self::rect($id, $x0 + $c * $colW, $y0, $colW - 40000, $rowH - 60000, self::primary());
+            $xml .= self::text(
+                $id,
+                $x0 + $c * $colW + 120000,
+                $y0 + 160000,
+                $colW - 280000,
+                $rowH - 280000,
+                self::p((string)($headers[$c] ?? ''), 1400, 'FFFFFF', true),
+                't'
+            );
+        }
+        $y = $y0 + $rowH;
+        foreach (array_slice($rows, 0, 5) as $ri => $row) {
+            $bg = $ri % 2 === 0 ? 'FFFFFF' : 'F8FAFC';
+            $cells = is_array($row) ? array_values($row) : [$row];
+            for ($c = 0; $c < $cols; $c++) {
+                $xml .= self::rect($id, $x0 + $c * $colW, $y, $colW - 40000, $rowH - 60000, $bg);
+                $xml .= self::text(
+                    $id,
+                    $x0 + $c * $colW + 120000,
+                    $y + 160000,
+                    $colW - 280000,
+                    $rowH - 280000,
+                    self::p((string)($cells[$c] ?? ''), 1300, '1E293B', $c === 0),
+                    't'
+                );
+            }
+            $y += $rowH;
+        }
+        $notes = self::bullets($slide);
+        if ($notes) {
+            $paras = '';
+            foreach (array_slice($notes, 0, 3) as $b) {
+                $paras .= self::p($b, 1300, '334155', false, ['after' => 400, 'bullet' => true, 'buColor' => self::accent()]);
+            }
+            $xml .= self::text($id, 560000, min($y + 100000, 5600000), 11080000, 900000, $paras, 't');
+        }
+        return $xml;
+    }
+
+    /** @param mixed $slide */
+    private static function layoutCode(int &$id, string $title, string $tag, mixed $slide, string $deck, int $number, int $total): string
+    {
+        $xml = self::chrome($id, $title, $tag, $deck, $number, $total);
+        $bullets = self::bullets($slide);
+        $code = is_array($slide) ? trim((string)($slide['code'] ?? '')) : '';
+        $paras = '';
+        foreach (array_slice($bullets, 0, 4) as $b) {
+            $paras .= self::p($b, 1400, '1E293B', false, [
+                'after' => 500,
+                'line' => 118000,
+                'bullet' => true,
+                'buColor' => self::primary(),
+            ]);
+        }
+        $xml .= self::text($id, 560000, 1680000, 5200000, 4200000, $paras, 't');
+        $xml .= self::roundRect($id, 6000000, 1680000, 5600000, 4300000, '0F172A', 8000, false);
+        $codeParas = '';
+        $lines = $code !== '' ? (preg_split('/\r\n|\r|\n/', $code) ?: []) : ['// example'];
+        foreach (array_slice($lines, 0, 14) as $line) {
+            $codeParas .= self::p($line === '' ? ' ' : $line, 1200, 'E2E8F0', false, [
+                'after' => 200,
+                'line' => 110000,
+                'font' => 'Consolas',
+            ]);
+        }
+        $xml .= self::text($id, 6200000, 1860000, 5200000, 4000000, $codeParas, 't');
+        return $xml;
+    }
+
+    /** @param list<string> $bullets */
+    private static function layoutDiagram(int &$id, string $title, string $tag, array $bullets, string $deck, int $number, int $total): string
+    {
+        $xml = self::chrome($id, $title, $tag, $deck, $number, $total);
+        $steps = [];
+        foreach ($bullets as $b) {
+            $b = trim($b);
+            if ($b === '' || $b === '↓' || $b === '↑' || $b === '→') {
+                continue;
+            }
+            $b = preg_replace('/^[│├└─\s↓↑→]+/u', '', $b) ?? $b;
+            $b = trim($b);
+            if ($b !== '') {
+                $steps[] = $b;
+            }
+        }
+        $steps = array_slice($steps, 0, 6);
+        if (count($steps) < 2) {
+            return self::layoutContent($id, $title, $tag, $bullets, $deck, $number, $total);
+        }
+        $boxH = 700000;
+        $gap = 180000;
+        $totalH = count($steps) * $boxH + (count($steps) - 1) * $gap;
+        $y = (int)(1680000 + max(0, (4500000 - $totalH) / 2));
+        $x = 2800000;
+        $w = 6600000;
+        foreach ($steps as $i => $step) {
+            $xml .= self::roundRect($id, $x, $y, $w, $boxH, 'FFFFFF', 8000, true);
+            $xml .= self::rect($id, $x, $y, 90000, $boxH, self::accent());
+            $xml .= self::text(
+                $id,
+                $x + 280000,
+                $y + 180000,
+                $w - 480000,
+                $boxH - 280000,
+                self::p($step, 1600, '1E293B', true, ['align' => 'ctr']),
+                't'
+            );
+            $y += $boxH;
+            if ($i < count($steps) - 1) {
+                $xml .= self::text(
+                    $id,
+                    $x,
+                    $y,
+                    $w,
+                    $gap,
+                    self::p('v', 1600, self::primary(), true, ['align' => 'ctr']),
+                    't'
+                );
+                $y += $gap;
+            }
+        }
         return $xml;
     }
 

@@ -428,6 +428,7 @@ After `php database/seed_e2e_test_data.php --confirm-local-reset`:
 | Student — 2nd Year A | `ananya@test.com` | Register CSE24002 |
 | Student — 2nd Year B | `arjun@test.com` | Register CSE24011 |
 | Student - 2nd Year C | `mani@test.com` | Register CSE230012
+| Student - 2nd Year C | `manikam@test.com` | Register CSE230012
 
 | Student — 3nd Year A | `naveen@test.com` | Register CSE24012 |
 | Student — 3nd Year B | `madesh@test.com` | Register CSE24111 |

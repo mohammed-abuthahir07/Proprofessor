@@ -126,19 +126,47 @@ final class PresentationTools
                 return ['ok' => false, 'error' => 'AI returned unusable slide data. Original slide preserved.'];
             }
         } else {
-            $hint = $instruction !== '' ? $instruction : 'Clarify definitions with a short classroom example.';
-            $newSlide = [
-                'number' => $index + 1,
-                'title' => $title,
-                'bullets' => [
-                    'Key idea: ' . $title,
-                    'Explain with a worked example for ' . $subject,
-                    'Common misconception to address in class',
-                    'Quick check question for students',
-                ],
-                'speaker_notes' => "Teaching focus: {$title}. {$hint} Keep the pace interactive and confirm understanding before moving on.",
-                'unit_tag' => $unitTag,
-            ];
+            $hint = $instruction !== '' ? $instruction : 'Clarify with a short classroom example.';
+            $pack = LectureSlideBuilder::buildDeck(
+                (string)($ppt['title'] ?? 'Lecture'),
+                $subject,
+                $unit,
+                '',
+                [$title],
+                ['institution' => (string)(PresentationTools::brandingForUser($user)['name'] ?? '')]
+            );
+            $newSlide = null;
+            foreach ($pack as $cand) {
+                if (!is_array($cand)) {
+                    continue;
+                }
+                $ct = strtolower((string)($cand['title'] ?? ''));
+                if ($ct === strtolower($title) || str_contains($ct, strtolower($title)) || str_contains(strtolower($title), $ct)) {
+                    $newSlide = $cand;
+                    break;
+                }
+            }
+            if (!$newSlide) {
+                $newSlide = $pack[3] ?? $pack[2] ?? null;
+            }
+            if (!$newSlide) {
+                $newSlide = [
+                    'number' => $index + 1,
+                    'title' => $title,
+                    'layout' => 'content',
+                    'bullets' => [
+                        'Define "' . $title . '" using precise ' . $subject . ' terminology.',
+                        'Explain how "' . $title . '" works or is applied in Unit ' . $unit . '.',
+                        'Give one concrete classroom example for "' . $title . '".',
+                        'State one common misconception and the correct interpretation.',
+                    ],
+                    'speaker_notes' => "Teaching focus: {$title}. {$hint}",
+                    'unit_tag' => $unitTag,
+                ];
+            } else {
+                $newSlide['title'] = $title;
+                $newSlide['speaker_notes'] = trim((string)($newSlide['speaker_notes'] ?? '') . ' ' . $hint);
+            }
         }
 
         $newSlide['number'] = $index + 1;

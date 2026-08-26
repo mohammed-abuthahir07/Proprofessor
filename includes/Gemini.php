@@ -394,7 +394,8 @@ final class Gemini
      * Build a professional academic lecture deck for demo / offline mode.
      *
      * @param list<string> $unitTopics
-     * @return list<array{number:int,title:string,bullets:list<string>,speaker_notes:string,unit_tag:string}>
+     * @param array{institution?:string,department?:string,academic_year?:string,semester?:string,course_code?:string} $brand
+     * @return list<array<string,mixed>>
      */
     public static function demoPresentation(
         string $title,
@@ -402,140 +403,19 @@ final class Gemini
         int $unit,
         string $context = '',
         array $unitTopics = [],
-        int $slideCount = 12
+        int $slideCount = 12,
+        array $brand = []
     ): array {
         $subject = trim($subject) !== '' ? trim($subject) : 'Course';
         $unit = max(1, min(20, $unit));
-        $slideCount = max(8, min(16, $slideCount));
         $topics = self::resolveQuestionTopics($subject, $unit, $context, $unitTopics);
-        $unitTag = 'Unit ' . $unit;
-        $deckTitle = trim($title) !== '' ? trim($title) : "{$subject} · {$unitTag}";
-
-        $slides = [];
-        $slides[] = [
-            'number' => 1,
-            'title' => $deckTitle,
-            'bullets' => [
-                "Subject: {$subject}",
-                "Focus: {$unitTag}",
-                'Academic lecture presentation',
-                'Includes learning outcomes, concepts, examples, and summary',
-            ],
-            'speaker_notes' => "Welcome students. Introduce {$subject} {$unitTag} and outline the session goals.",
-            'unit_tag' => $unitTag,
-        ];
-        $slides[] = [
-            'number' => 2,
-            'title' => 'Learning Outcomes',
-            'bullets' => [
-                "Recall key terminology used in {$subject} {$unitTag}",
-                "Explain the core concepts covered in this unit",
-                "Apply basic techniques from {$unitTag} to simple problems",
-                'Identify common mistakes and how to avoid them',
-            ],
-            'speaker_notes' => 'State outcomes clearly so students know what success looks like by the end of the lecture.',
-            'unit_tag' => $unitTag,
-        ];
-        $overviewBullets = [];
-        foreach (array_slice($topics, 0, 6) as $i => $t) {
-            $overviewBullets[] = ($i + 1) . '. ' . $t;
+        if (!class_exists('LectureSlideBuilder', false)) {
+            require_once __DIR__ . '/LectureSlideBuilder.php';
         }
-        $slides[] = [
-            'number' => 3,
-            'title' => "{$unitTag} Overview",
-            'bullets' => $overviewBullets,
-            'speaker_notes' => "Walk through the {$unitTag} agenda. Emphasize connections between topics.",
-            'unit_tag' => $unitTag,
-        ];
-
-        $topicSlidesNeeded = max(1, $slideCount - 5); // title, outcomes, overview, summary, quiz
-        for ($i = 0; $i < $topicSlidesNeeded; $i++) {
-            $topic = $topics[$i % count($topics)];
-            $next = $topics[($i + 1) % count($topics)];
-            $slides[] = [
-                'number' => count($slides) + 1,
-                'title' => $topic,
-                'bullets' => self::demoSlideBullets($subject, $topic, $next, $unit, $i),
-                'speaker_notes' => self::demoSlideNotes($subject, $topic, $unit, $i),
-                'unit_tag' => $unitTag,
-            ];
-        }
-
-        $slides[] = [
-            'number' => count($slides) + 1,
-            'title' => "{$unitTag} Summary",
-            'bullets' => [
-                "Reviewed the main ideas of {$subject} {$unitTag}",
-                'Connected definitions, methods, and simple applications',
-                'Highlighted common errors and exam-focused points',
-                'Prepare practice problems before the next class',
-            ],
-            'speaker_notes' => 'Recap in 2–3 minutes. Ask students which concept needs more practice.',
-            'unit_tag' => $unitTag,
-        ];
-        $slides[] = [
-            'number' => count($slides) + 1,
-            'title' => 'Check Your Understanding',
-            'bullets' => [
-                "What is the most important idea from {$topics[0]}?",
-                "How is {$topics[min(1, count($topics)-1)]} used in a simple {$subject} task?",
-                "Name one common mistake students make in {$unitTag}",
-                'Write one short example or definition before leaving class',
-            ],
-            'speaker_notes' => 'Use as exit ticket or oral Q&A. Collect 2–3 responses to assess understanding.',
-            'unit_tag' => $unitTag,
-        ];
-
-        // Normalize numbering if we overshot/undershot.
-        foreach ($slides as $idx => &$slide) {
-            $slide['number'] = $idx + 1;
-        }
-        unset($slide);
-
-        return array_slice($slides, 0, $slideCount);
-    }
-
-    /**
-     * @return list<string>
-     */
-    private static function demoSlideBullets(string $subject, string $topic, string $nextTopic, int $unit, int $index): array
-    {
-        $variant = $index % 4;
-        return match ($variant) {
-            0 => [
-                "Definition: {$topic} in {$subject}",
-                'Why this concept matters in Unit ' . $unit,
-                'Key terms and related ideas students must remember',
-                "Connection to the next idea: {$nextTopic}",
-            ],
-            1 => [
-                "Core idea of {$topic}",
-                'Step-by-step explanation suitable for classroom teaching',
-                'Short example or illustration from Unit ' . $unit,
-                'Tip: avoid confusing this with similar concepts',
-            ],
-            2 => [
-                "Where {$topic} is used in {$subject}",
-                'Important rules / properties to highlight',
-                'Classroom demo or board work suggestion',
-                'Quick practice prompt for students',
-            ],
-            default => [
-                "Exam focus: common questions on {$topic}",
-                'What markers usually expect in answers',
-                'One worked-style talking point for lecture delivery',
-                'Bridge to revision and upcoming topics',
-            ],
-        };
-    }
-
-    private static function demoSlideNotes(string $subject, string $topic, int $unit, int $index): string
-    {
-        return match ($index % 3) {
-            0 => "Explain {$topic} slowly with a board example. Check prior knowledge before moving deeper into Unit {$unit} of {$subject}.",
-            1 => "Ask one student to restate {$topic} in their own words. Clarify misconceptions immediately.",
-            default => "Link {$topic} to a short class activity or quiz item. Keep examples aligned to Unit {$unit}.",
-        };
+        $slides = LectureSlideBuilder::buildDeck($title, $subject, $unit, $context, $topics, $brand);
+        // slideCount kept for API compatibility; real decks size to syllabus richness.
+        unset($slideCount);
+        return $slides;
     }
 
     /**
@@ -548,6 +428,9 @@ final class Gemini
         foreach ($unitTopics as $t) {
             $t = self::cleanTopicText((string)$t);
             if ($t === '' || preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
+                continue;
+            }
+            if (class_exists('LectureSlideBuilder', false) && LectureSlideBuilder::isUnitHeading($t)) {
                 continue;
             }
             $topics[] = $t;
@@ -563,9 +446,13 @@ final class Gemini
                 }
                 foreach ($u['topics'] as $t) {
                     $t = self::cleanTopicText((string)$t);
-                    if ($t !== '' && !preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
-                        $topics[] = $t;
+                    if ($t === '' || preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
+                        continue;
                     }
+                    if (class_exists('LectureSlideBuilder', false) && LectureSlideBuilder::isUnitHeading($t)) {
+                        continue;
+                    }
+                    $topics[] = $t;
                 }
             }
         }
@@ -621,12 +508,7 @@ final class Gemini
             if (preg_match('/unit\s*(\d+)\b/i', $line, $m)) {
                 $capturedAnyUnitHeader = true;
                 $inUnit = ((int)$m[1] === $unit);
-                if (preg_match('/unit\s*\d+\s*[:\-–.]\s*(.+)$/i', $line, $tm)) {
-                    $title = trim($tm[1]);
-                    if ($inUnit && $title !== '') {
-                        $topics[] = self::cleanTopicText($title);
-                    }
-                }
+                // Unit header title is NOT a teaching topic (e.g. "WEB FUNDAMENTALS — 12 Hours").
                 continue;
             }
             if ($capturedAnyUnitHeader && !$inUnit) {
@@ -638,9 +520,13 @@ final class Gemini
                 if ($clean !== '' && !preg_match('/^(outcomes?|hours?|assessment|resources?)\b/i', $clean)) {
                     foreach (preg_split('/[,;\/|]/', $clean) ?: [] as $part) {
                         $part = self::cleanTopicText((string)$part);
-                        if (strlen($part) > 2) {
-                            $topics[] = $part;
+                        if (strlen($part) <= 2) {
+                            continue;
                         }
+                        if (class_exists('LectureSlideBuilder', false) && LectureSlideBuilder::isUnitHeading($part)) {
+                            continue;
+                        }
+                        $topics[] = $part;
                     }
                 }
             }
@@ -695,7 +581,28 @@ final class Gemini
             ];
         } elseif (preg_match('/dbms|database/', $s)) {
             $bank = [
-                1 => ['Database concepts', 'ER model', 'Relational model', 'Keys and constraints', 'SQL basics', 'Normalization overview'],
+                1 => ['Database concepts', 'DBMS architecture overview', 'ER model', 'Relational model', 'Keys and constraints', 'SQL basics', 'Normalization overview'],
+            ];
+        } elseif (preg_match('/web\s*tech|html|www/', $s)) {
+            $bank = [
+                1 => [
+                    'Introduction to the Internet and World Wide Web',
+                    'Client-server architecture',
+                    'Web browsers and web servers',
+                    'HTTP and HTTPS protocols',
+                    'URLs and domain names',
+                    'HTML fundamentals',
+                    'Document structure',
+                    'Elements and attributes',
+                    'Headings',
+                    'Paragraphs',
+                    'Links',
+                    'Images',
+                ],
+            ];
+        } elseif (preg_match('/math|calculus|algebra|matrix/', $s)) {
+            $bank = [
+                1 => ['Matrices and types of matrices', 'Determinants', 'Inverse of a matrix', 'Rank of a matrix', 'System of linear equations overview'],
             ];
         } elseif (preg_match('/operating\s*system|\bos\b/', $s)) {
             $bank = [

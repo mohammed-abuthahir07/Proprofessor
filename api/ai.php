@@ -150,7 +150,7 @@ function question_bank_is_usable(array $questions, string $type, int $count): bo
 
 /**
  * @param list<mixed> $raw
- * @return list<array{number:int,title:string,bullets:list<string>,speaker_notes:string,unit_tag:string}>
+ * @return list<array<string,mixed>>
  */
 function normalize_generated_slides(array $raw, int $unit): array
 {
@@ -179,14 +179,34 @@ function normalize_generated_slides(array $raw, int $unit): array
         if ($title === '') {
             $title = 'Slide ' . (count($out) + 1);
         }
+        // Skip unit-heading-as-topic slides
+        if (class_exists('LectureSlideBuilder', false) && LectureSlideBuilder::isUnitHeading($title)) {
+            continue;
+        }
         $notes = trim((string)($slide['speaker_notes'] ?? $slide['notes'] ?? ''));
-        $out[] = [
+        $row = [
             'number' => (int)($slide['number'] ?? (count($out) + 1)),
             'title' => $title,
-            'bullets' => $bullets ?: ['Key discussion point for ' . $unitTag],
+            'bullets' => $bullets ?: ['Key teaching point for ' . $unitTag],
             'speaker_notes' => $notes !== '' ? $notes : ('Teaching notes for ' . $title),
             'unit_tag' => $unitTag,
+            'layout' => trim((string)($slide['layout'] ?? 'content')) ?: 'content',
         ];
+        if (!empty($slide['comparison']) && is_array($slide['comparison'])) {
+            $row['comparison'] = $slide['comparison'];
+            $row['layout'] = 'comparison';
+        }
+        if (!empty($slide['code']) && is_string($slide['code'])) {
+            $row['code'] = $slide['code'];
+            $row['layout'] = 'code';
+        }
+        if (!empty($slide['diagram']) && is_array($slide['diagram'])) {
+            $row['diagram'] = $slide['diagram'];
+            if (($row['layout'] ?? '') === 'content') {
+                $row['layout'] = 'diagram';
+            }
+        }
+        $out[] = $row;
     }
     foreach ($out as $idx => &$slide) {
         $slide['number'] = $idx + 1;
@@ -202,6 +222,9 @@ function normalize_generated_slides(array $raw, int $unit): array
 function ppt_slides_are_usable(array $slides): bool
 {
     if (count($slides) < 6) {
+        return false;
+    }
+    if (class_exists('LectureSlideBuilder', false) && LectureSlideBuilder::containsPlaceholders($slides)) {
         return false;
     }
     $bad = 0;
@@ -888,7 +911,11 @@ try {
             if (!$plan) {
                 json_response(['ok' => false, 'error' => 'Plan not found'], 404);
             }
-            $plan = CoursePlanTools::syncPlanTopicsFromSyllabus($plan);
+            try {
+                $plan = CoursePlanTools::syncPlanTopicsFromSyllabus($plan);
+            } catch (Throwable $e) {
+                // Soft-repair failure must not block PPT generation.
+            }
             $planSubject = trim((string)($plan['subject_name'] ?? ''));
             if ($planSubject !== '') {
                 $subjectName = $planSubject;
@@ -910,9 +937,6 @@ try {
                 if ((int)($u['unit_number'] ?? 0) !== $unit) {
                     continue;
                 }
-                if (!empty($u['title'])) {
-                    $unitTopics[] = (string)$u['title'];
-                }
                 foreach ((array)($u['topics'] ?? []) as $t) {
                     if (is_string($t) && trim($t) !== '' && !preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
                         $unitTopics[] = trim($t);
@@ -924,9 +948,6 @@ try {
                 [$planId, $unit]
             );
             foreach ($dbUnits as $u) {
-                if (!empty($u['title'])) {
-                    $unitTopics[] = (string)$u['title'];
-                }
                 $topicsJson = json_decode((string)($u['topics'] ?? ''), true);
                 if (is_array($topicsJson)) {
                     foreach ($topicsJson as $t) {
@@ -942,29 +963,66 @@ try {
             $subjectName = 'Course';
         }
 
+        $unitTopics = LectureSlideBuilder::filterTopics(array_values(array_unique($unitTopics)));
         $unitTopicText = $unitTopics
-            ? ("Unit {$unit} topics:\n- " . implode("\n- ", array_values(array_unique($unitTopics))))
-            : "Infer Unit {$unit} topics strictly from the syllabus/context.";
+            ? ("Unit {$unit} syllabus topics (teach these — do NOT treat unit titles/hours as topics):\n- " . implode("\n- ", $unitTopics))
+            : "Infer Unit {$unit} teaching topics strictly from the syllabus/context. Never use unit titles like \"… — 12 Hours\" as slide topics.";
+
+        $branding = PresentationTools::brandingForUser($user);
+        $deptName = '';
+        $deptId = (int)($user['department_id'] ?? 0);
+        if ($deptId > 0) {
+            $deptRow = Database::fetch(
+                'SELECT name FROM departments WHERE id = ? AND institution_id = ?',
+                [$deptId, (int)$user['institution_id']]
+            );
+            $deptName = trim((string)($deptRow['name'] ?? ''));
+        }
+        $instRow = Database::fetch(
+            'SELECT academic_year, current_semester FROM institutions WHERE id = ?',
+            [(int)$user['institution_id']]
+        );
+        $brandMeta = [
+            'institution' => (string)($branding['name'] ?? ''),
+            'department' => $deptName,
+            'academic_year' => trim((string)($instRow['academic_year'] ?? '')),
+            'semester' => trim((string)($instRow['current_semester'] ?? '')),
+            'course_code' => '',
+        ];
+        if ($plan && !empty($plan['subject_id'])) {
+            $subRow = Database::fetch(
+                'SELECT code FROM subjects WHERE id = ? AND institution_id = ?',
+                [(int)$plan['subject_id'], (int)$user['institution_id']]
+            );
+            $brandMeta['course_code'] = trim((string)($subRow['code'] ?? ''));
+        }
 
         $tpl = prompt_template('ppt_gen');
         $system = $tpl['system_prompt']
-            ?? 'You are an expert university lecturer. Create professional academic PowerPoint slide outlines. Return ONLY valid JSON.';
+            ?? 'You are an expert university lecturer preparing a professional classroom PowerPoint. Return ONLY valid JSON.';
 
-        $userPrompt = "Create a professional academic lecture presentation.\n"
+        $userPrompt = "Create a professional academic lecture presentation (real teaching content, not placeholders).\n"
+            . "Institution: {$brandMeta['institution']}\n"
+            . ($deptName !== '' ? "Department: {$deptName}\n" : '')
             . "Presentation title: {$title}\n"
             . "Course/Subject: {$subjectName}\n"
             . "Unit: {$unit} (ALL slides must be for this unit only)\n"
             . "{$unitTopicText}\n\n"
             . "Syllabus / context:\n" . ($context !== '' ? $context : '(Use the course and unit topics above.)') . "\n\n"
             . "Requirements:\n"
-            . "- Produce 10 to 14 slides.\n"
-            . "- Slide 1 must be a title/intro slide.\n"
-            . "- Include learning outcomes, topic explanation slides, examples, summary, and a short check-your-understanding slide.\n"
-            . "- Every bullet must be meaningful academic content about {$subjectName} Unit {$unit}.\n"
-            . "- Do NOT use placeholders like \"Topic slide\", \"Point A1\", \"Point B2\", \"Talking points for slide\".\n"
+            . "- Slide count should fit the syllabus (typically 12–22). Do not pad with empty slides.\n"
+            . "- Slide 1: college/institution title slide with subject + unit.\n"
+            . "- Slide 2: specific learning objectives (action verbs; no generic \"understand the concepts\").\n"
+            . "- Then teach EACH syllabus topic with real explanations, examples, comparisons, or code when useful.\n"
+            . "- NEVER create a teaching slide whose title is only a unit heading with hours (e.g. \"WEB FUNDAMENTALS AND HTML — 12 Hours\").\n"
+            . "- Do NOT invent unrelated topics outside the syllabus.\n"
+            . "- Every bullet must be actual educational content (definitions, mechanisms, examples, differences).\n"
+            . "- Forbidden placeholder phrases: \"Why this concept matters\", \"Key terms students must remember\", \"Short example or illustration\", \"Classroom demo or board work suggestion\", \"Quick practice prompt\", \"Core idea of\", \"Step-by-step explanation suitable for classroom teaching\".\n"
+            . "- Include a concrete unit summary and specific revision questions near the end; final slide Thank You.\n"
+            . "- Optional fields when useful: layout (content|comparison|code|diagram|summary|quiz|close), comparison{headers,rows}, code (string), diagram (string list).\n"
             . "- unit_tag must be exactly \"Unit {$unit}\" for every slide.\n"
             . "- speaker_notes must be useful teaching notes.\n\n"
-            . "Return JSON only: {\"slides\":[{\"number\":1,\"title\":\"\",\"bullets\":[\"\",\"\"],\"speaker_notes\":\"\",\"unit_tag\":\"Unit {$unit}\"}]}";
+            . "Return JSON only: {\"slides\":[{\"number\":1,\"title\":\"\",\"layout\":\"content\",\"bullets\":[\"\",\"\"],\"speaker_notes\":\"\",\"unit_tag\":\"Unit {$unit}\"}]}";
 
         $slides = [];
         $result = ['ok' => true, 'json' => null, 'latency_ms' => 0, 'demo' => false];
@@ -974,12 +1032,12 @@ try {
             $rawSlides = is_array($result['json']['slides'] ?? null) ? $result['json']['slides'] : [];
             $slides = normalize_generated_slides($rawSlides, $unit);
             if (!ppt_slides_are_usable($slides)) {
-                $slides = Gemini::demoPresentation($title, $subjectName, $unit, $context, $unitTopics, 12);
+                $slides = Gemini::demoPresentation($title, $subjectName, $unit, $context, $unitTopics, 12, $brandMeta);
                 $result['demo'] = true;
                 $result['fallback'] = 'ai_unusable';
             }
         } else {
-            $slides = Gemini::demoPresentation($title, $subjectName, $unit, $context, $unitTopics, 12);
+            $slides = Gemini::demoPresentation($title, $subjectName, $unit, $context, $unitTopics, 12, $brandMeta);
             $result = [
                 'ok' => true,
                 'json' => ['slides' => $slides],
@@ -989,7 +1047,6 @@ try {
         }
 
         $subjectId = $plan ? ((int)($plan['subject_id'] ?? 0) ?: null) : null;
-        $branding = PresentationTools::brandingForUser($user);
         $pptMeta = [
             'subject' => $subjectName,
             'unit' => $unit,

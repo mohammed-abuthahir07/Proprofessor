@@ -141,7 +141,7 @@ render_header($ppt['title'], 'ppt', [
       <h3 id="slideTitle"></h3>
       <span class="chip" id="unitTag"></span>
     </div>
-    <div class="slide-stage-body">
+    <div class="slide-stage-body" id="slideBody">
       <ul id="slideBullets"></ul>
     </div>
     <div class="notes" id="slideNotesWrap" style="display:none">
@@ -152,6 +152,7 @@ render_header($ppt['title'], 'ppt', [
 </div>
 <script>
 const slides = <?= json_encode($slides, JSON_UNESCAPED_UNICODE) ?>;
+const brandName = <?= json_encode($branding['name'] ?? '', JSON_UNESCAPED_UNICODE) ?>;
 function show(i){
   const s = slides[i] || {};
   document.querySelectorAll('.thumb').forEach((t,idx)=>t.classList.toggle('active', idx===i));
@@ -162,9 +163,58 @@ function show(i){
   const notesWrap = document.getElementById('slideNotesWrap');
   document.getElementById('slideNotes').textContent = s.speaker_notes || '';
   notesWrap.style.display = s.speaker_notes ? '' : 'none';
-  const ul = document.getElementById('slideBullets');
-  ul.innerHTML = '';
-  (s.bullets || []).forEach(b => { const li=document.createElement('li'); li.textContent=b; ul.appendChild(li); });
+  const body = document.getElementById('slideBody');
+  body.innerHTML = '';
+  body.className = 'slide-stage-body layout-' + (s.layout || 'content');
+
+  if (s.layout === 'comparison' && s.comparison && Array.isArray(s.comparison.headers)) {
+    const table = document.createElement('table');
+    table.className = 'slide-compare';
+    const thead = document.createElement('thead');
+    const hr = document.createElement('tr');
+    s.comparison.headers.forEach(h => { const th=document.createElement('th'); th.textContent=h; hr.appendChild(th); });
+    thead.appendChild(hr); table.appendChild(thead);
+    const tb = document.createElement('tbody');
+    (s.comparison.rows || []).forEach(row => {
+      const tr = document.createElement('tr');
+      (Array.isArray(row) ? row : [row]).forEach(cell => { const td=document.createElement('td'); td.textContent=cell; tr.appendChild(td); });
+      tb.appendChild(tr);
+    });
+    table.appendChild(tb);
+    body.appendChild(table);
+  }
+
+  if (s.layout === 'diagram') {
+    const flow = document.createElement('div');
+    flow.className = 'slide-diagram';
+    (s.bullets || []).forEach(b => {
+      const line = String(b || '').trim();
+      if (!line || line === '↓' || line === '↑' || line === '→') return;
+      const box = document.createElement('div');
+      box.className = 'slide-diagram-step';
+      box.textContent = line.replace(/^[│├└─\s↓↑→]+/, '');
+      flow.appendChild(box);
+    });
+    body.appendChild(flow);
+  } else if (s.layout !== 'comparison') {
+    const ul = document.createElement('ul');
+    ul.id = 'slideBullets';
+    (s.bullets || []).forEach(b => { const li=document.createElement('li'); li.textContent=b; ul.appendChild(li); });
+    body.appendChild(ul);
+  } else if ((s.bullets || []).length) {
+    const ul = document.createElement('ul');
+    ul.className = 'slide-compare-notes';
+    (s.bullets || []).slice(0,4).forEach(b => { const li=document.createElement('li'); li.textContent=b; ul.appendChild(li); });
+    body.appendChild(ul);
+  }
+
+  if (s.code) {
+    const pre = document.createElement('pre');
+    pre.className = 'slide-code';
+    pre.textContent = s.code;
+    body.appendChild(pre);
+  }
+
   const sel = document.getElementById('regenSlideSelect');
   if (sel) sel.value = String(i);
 }

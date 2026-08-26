@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/Database.php';
 require_once __DIR__ . '/../includes/Auth.php';
 require_once __DIR__ . '/../includes/Gemini.php';
+require_once __DIR__ . '/../includes/LectureSlideBuilder.php';
 require_once __DIR__ . '/../includes/Features.php';
 require_once __DIR__ . '/../includes/Icons.php';
 require_once __DIR__ . '/../includes/HodFeedback.php';

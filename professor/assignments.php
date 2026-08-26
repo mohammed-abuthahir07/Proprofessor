@@ -374,7 +374,7 @@ render_header('Assignment Module', 'assignments', ['subtitle' => 'AI briefs + ru
             <input type="hidden" name="request_id" value="<?= (int)$ex['id'] ?>">
             <input name="professor_note" placeholder="Note (optional)" style="min-width:8rem">
             <button class="btn btn-sm btn-primary" name="decision" value="approved" type="submit">Approve</button>
-            <button class="btn btn-sm" name="decision" value="rejected" type="submit">Reject</button>
+            <button class="btn btn-sm btn-ghost" name="decision" value="rejected" type="submit">Reject</button>
           </form>
           <?php elseif ($ex['status'] === 'approved'): ?>
             Until <?= e((string)$ex['approved_deadline']) ?>
@@ -423,7 +423,7 @@ render_header('Assignment Module', 'assignments', ['subtitle' => 'AI briefs + ru
           <form method="post" style="margin-top:.35rem"><?= csrf_field() ?>
             <input type="hidden" name="action" value="ai_grade">
             <input type="hidden" name="submission_id" value="<?= (int)$s['id'] ?>">
-            <button class="btn btn-sm" type="submit">AI first-pass</button>
+            <button class="btn btn-sm btn-ghost" type="submit">AI first-pass</button>
           </form>
         </td>
         <td>
