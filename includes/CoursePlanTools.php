@@ -974,4 +974,373 @@ final class CoursePlanTools
         sort($out);
         return $out;
     }
+
+    /**
+     * True when topics look like generic placeholders (Topic 1.1) rather than syllabus content.
+     *
+     * @param list<mixed>|mixed $topics
+     */
+    public static function topicsArePlaceholders(mixed $topics): bool
+    {
+        $list = self::normalizeListUnordered($topics);
+        if ($list === []) {
+            return true;
+        }
+        $placeholder = 0;
+        foreach ($list as $t) {
+            if (preg_match('/^topic\s*\d+(\.\d+)?$/i', $t) || preg_match('/^core\s+topic$/i', $t)) {
+                $placeholder++;
+            }
+        }
+        return $placeholder > 0 && $placeholder >= (int)ceil(count($list) * 0.5);
+    }
+
+    /**
+     * Parse syllabus text into unit blocks with real topic lists (dynamic; no subject hard-coding).
+     * Supports "Unit 1", "UNIT I", "UNIT-II", etc.
+     *
+     * @return list<array{unit_number:int,title:string,topics:list<string>}>
+     */
+    public static function parseSyllabusIntoUnits(string $syllabus): array
+    {
+        $syllabus = trim(self::sanitizeExtractedText($syllabus));
+        if ($syllabus === '') {
+            return [];
+        }
+        $lines = preg_split('/\r\n|\r|\n/', $syllabus) ?: [];
+        $units = [];
+        $current = null;
+
+        $flush = static function () use (&$units, &$current): void {
+            if ($current === null) {
+                return;
+            }
+            $current['topics'] = array_values(array_unique(array_filter(
+                $current['topics'],
+                static fn($t) => is_string($t) && strlen(trim($t)) > 2
+            )));
+            $units[] = $current;
+            $current = null;
+        };
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+
+            $header = self::matchUnitHeader($line);
+            if ($header !== null) {
+                $flush();
+                $current = [
+                    'unit_number' => $header['number'],
+                    'title' => $header['title'] !== '' ? $header['title'] : ('Unit ' . $header['number']),
+                    'topics' => [],
+                ];
+                // Unit title itself can be a useful topic seed when it is descriptive.
+                if ($header['title'] !== '' && !preg_match('/^unit\s*\d+$/i', $header['title'])) {
+                    $current['topics'][] = $header['title'];
+                }
+                continue;
+            }
+
+            if ($current === null) {
+                continue;
+            }
+
+            if (preg_match('/^(outcomes?|hours?|credits?|assessment|resources?|text\s*book|references?)\b/i', $line)) {
+                continue;
+            }
+
+            // Section header like "Matrices:" — keep label and any inline topics.
+            if (preg_match('/^([A-Za-z][A-Za-z0-9 \/\-&]{1,80}):\s*(.*)$/', $line, $sm)) {
+                $label = trim($sm[1]);
+                $rest = trim($sm[2]);
+                if ($label !== '') {
+                    $current['topics'][] = $label;
+                }
+                if ($rest !== '') {
+                    foreach (self::splitTopicFragments($rest) as $frag) {
+                        $current['topics'][] = $frag;
+                    }
+                }
+                continue;
+            }
+
+            $clean = preg_replace('/^[\-\*\x{2022}\d\.\)\s]+/u', '', $line) ?? $line;
+            $clean = trim($clean);
+            if ($clean === '') {
+                continue;
+            }
+            foreach (self::splitTopicFragments($clean) as $frag) {
+                $current['topics'][] = $frag;
+            }
+        }
+        $flush();
+
+        return $units;
+    }
+
+    /**
+     * Merge syllabus-derived topics into plan units when stored topics are placeholders/empty.
+     * Preserves hours, outcomes, bloom, methods, assessment from the existing unit rows.
+     *
+     * @param list<array<string,mixed>> $units
+     * @return list<array<string,mixed>>
+     */
+    public static function enrichUnitsFromSyllabus(array $units, string $syllabus): array
+    {
+        $parsed = self::parseSyllabusIntoUnits($syllabus);
+        if ($parsed === []) {
+            return $units;
+        }
+        $byNum = [];
+        foreach ($parsed as $p) {
+            $byNum[(int)$p['unit_number']] = $p;
+        }
+
+        $out = [];
+        foreach ($units as $i => $u) {
+            if (!is_array($u)) {
+                continue;
+            }
+            $num = (int)($u['unit_number'] ?? ($i + 1));
+            $topicsRaw = $u['topics'] ?? [];
+            if (is_string($topicsRaw)) {
+                $decoded = json_decode($topicsRaw, true);
+                $topicsRaw = is_array($decoded) ? $decoded : [];
+            }
+            $needs = self::topicsArePlaceholders($topicsRaw);
+            if ($needs && isset($byNum[$num]) && !empty($byNum[$num]['topics'])) {
+                $u['topics'] = $byNum[$num]['topics'];
+                // Prefer descriptive syllabus unit title when current title is generic.
+                $curTitle = trim((string)($u['title'] ?? ''));
+                $parsedTitle = trim((string)$byNum[$num]['title']);
+                if ($parsedTitle !== '' && (
+                    $curTitle === ''
+                    || preg_match('/^unit\s*\d+(\s*[·\-:]\s*core\s+concepts)?$/i', $curTitle)
+                )) {
+                    $u['title'] = 'Unit ' . $num . ' – ' . $parsedTitle;
+                }
+            } elseif ($needs && !isset($byNum[$num])) {
+                // No matching unit header — leave placeholders (true fallback).
+            }
+            $u['unit_number'] = $num;
+            $out[] = $u;
+        }
+
+        // If plan had no units yet, build minimal units from syllabus parse.
+        if ($out === [] && $parsed !== []) {
+            foreach ($parsed as $p) {
+                $out[] = [
+                    'unit_number' => $p['unit_number'],
+                    'title' => 'Unit ' . $p['unit_number'] . ' – ' . $p['title'],
+                    'hours' => 12,
+                    'topics' => $p['topics'],
+                    'outcomes' => [],
+                    'bloom_k_level' => 'K' . min(6, max(1, $p['unit_number'])),
+                    'teaching_methods' => ['Lecture', 'Activity'],
+                    'assessment' => ['Formative quiz'],
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Soft-repair stored plan unit topics from syllabus_input when placeholders are present.
+     * Does NOT change status, version, HOD comments, ownership, or create a new version.
+     *
+     * @return array Updated plan row (same row if nothing changed)
+     */
+    public static function syncPlanTopicsFromSyllabus(array $planRow): array
+    {
+        $planId = (int)($planRow['id'] ?? 0);
+        if ($planId < 1) {
+            return $planRow;
+        }
+        $syllabus = trim((string)($planRow['syllabus_input'] ?? ''));
+        if ($syllabus === '') {
+            return $planRow;
+        }
+
+        $dbUnits = Database::fetchAll(
+            'SELECT * FROM plan_units WHERE plan_id = ? ORDER BY sort_order, unit_number',
+            [$planId]
+        );
+        $data = json_decode((string)($planRow['plan_data'] ?? ''), true) ?: [];
+        $jsonUnits = is_array($data['units'] ?? null) ? $data['units'] : [];
+
+        $sourceUnits = $dbUnits ?: $jsonUnits;
+        if ($sourceUnits === []) {
+            return $planRow;
+        }
+
+        $needsRepair = false;
+        foreach ($sourceUnits as $u) {
+            $topics = $u['topics'] ?? [];
+            if (is_string($topics)) {
+                $topics = json_decode($topics, true) ?: [];
+            }
+            if (self::topicsArePlaceholders($topics)) {
+                $needsRepair = true;
+                break;
+            }
+        }
+        if (!$needsRepair) {
+            return $planRow;
+        }
+
+        // Normalize DB rows to array shape for enrichment.
+        $normalized = [];
+        foreach ($sourceUnits as $i => $u) {
+            if (!is_array($u)) {
+                continue;
+            }
+            $topics = $u['topics'] ?? [];
+            if (is_string($topics)) {
+                $topics = json_decode($topics, true) ?: [];
+            }
+            $normalized[] = [
+                'id' => $u['id'] ?? null,
+                'unit_number' => (int)($u['unit_number'] ?? ($i + 1)),
+                'title' => (string)($u['title'] ?? ('Unit ' . ($i + 1))),
+                'hours' => $u['hours'] ?? 0,
+                'topics' => is_array($topics) ? $topics : [],
+                'outcomes' => $u['outcomes'] ?? [],
+                'bloom_k_level' => $u['bloom_k_level'] ?? null,
+                'teaching_methods' => $u['teaching_methods'] ?? [],
+                'assessment' => $u['assessment'] ?? [],
+                'sort_order' => $u['sort_order'] ?? $i,
+            ];
+        }
+
+        $enriched = self::enrichUnitsFromSyllabus($normalized, $syllabus);
+        $changed = false;
+        foreach ($enriched as $i => $eu) {
+            $before = $normalized[$i]['topics'] ?? [];
+            $after = $eu['topics'] ?? [];
+            if ($before !== $after || (string)($normalized[$i]['title'] ?? '') !== (string)($eu['title'] ?? '')) {
+                $changed = true;
+                break;
+            }
+        }
+        if (!$changed) {
+            return $planRow;
+        }
+
+        // Update plan_units.topics (+ title if improved) only — preserve all other columns/rows.
+        foreach ($enriched as $eu) {
+            $num = (int)$eu['unit_number'];
+            $row = Database::fetch(
+                'SELECT id FROM plan_units WHERE plan_id = ? AND unit_number = ? LIMIT 1',
+                [$planId, $num]
+            );
+            if ($row) {
+                Database::update('plan_units', [
+                    'topics' => json_encode(array_values($eu['topics'] ?? []), JSON_UNESCAPED_UNICODE),
+                    'title' => (string)($eu['title'] ?? ('Unit ' . $num)),
+                ], 'id = :id AND plan_id = :pid', [
+                    'id' => (int)$row['id'],
+                    'pid' => $planId,
+                ]);
+            }
+        }
+
+        // Keep plan_data.units topics in sync without bumping version/status.
+        if ($jsonUnits !== []) {
+            $data['units'] = self::enrichUnitsFromSyllabus($jsonUnits, $syllabus);
+            Database::update('course_plans', [
+                'plan_data' => json_encode($data, JSON_UNESCAPED_UNICODE),
+            ], 'id = :id', ['id' => $planId]);
+            $planRow['plan_data'] = json_encode($data, JSON_UNESCAPED_UNICODE);
+        }
+
+        return $planRow;
+    }
+
+    /**
+     * @return array{number:int,title:string}|null
+     */
+    private static function matchUnitHeader(string $line): ?array
+    {
+        // UNIT I – Title | Unit 1: Title | UNIT-II Title
+        if (preg_match(
+            '/^\s*unit\s*(?:[-.]?\s*)?([ivxlcdm]+|\d+)\s*(?:[–—\-:.]|\s)+?\s*(.*)$/iu',
+            $line,
+            $m
+        )) {
+            $num = self::parseUnitNumberToken($m[1]);
+            if ($num < 1) {
+                return null;
+            }
+            return ['number' => $num, 'title' => trim($m[2])];
+        }
+        if (preg_match('/^\s*unit\s*(?:[-.]?\s*)?([ivxlcdm]+|\d+)\s*$/iu', $line, $m)) {
+            $num = self::parseUnitNumberToken($m[1]);
+            if ($num < 1) {
+                return null;
+            }
+            return ['number' => $num, 'title' => ''];
+        }
+        return null;
+    }
+
+    private static function parseUnitNumberToken(string $token): int
+    {
+        $token = strtoupper(trim($token));
+        if ($token !== '' && ctype_digit($token)) {
+            return max(0, (int)$token);
+        }
+        $map = [
+            'I' => 1, 'II' => 2, 'III' => 3, 'IV' => 4, 'V' => 5,
+            'VI' => 6, 'VII' => 7, 'VIII' => 8, 'IX' => 9, 'X' => 10,
+            'XI' => 11, 'XII' => 12, 'XIII' => 13, 'XIV' => 14, 'XV' => 15,
+        ];
+        return $map[$token] ?? 0;
+    }
+
+    /** @return list<string> */
+    private static function splitTopicFragments(string $text): array
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return [];
+        }
+        $parts = preg_split('/\s*[,;\/|]\s*/u', $text) ?: [];
+        $out = [];
+        foreach ($parts as $p) {
+            $p = trim((string)$p, " \t.-•");
+            $p = preg_replace('/\s+/u', ' ', $p) ?? $p;
+            if (strlen($p) > 2 && strlen($p) < 160 && !preg_match('/^topic\s*\d+(\.\d+)?$/i', $p)) {
+                $out[] = $p;
+            }
+        }
+        return $out;
+    }
+
+    /** @return list<string> */
+    private static function normalizeListUnordered(mixed $raw): array
+    {
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $raw = $decoded;
+            } else {
+                $raw = preg_split('/\s*;\s*/', $raw) ?: [];
+            }
+        }
+        if (!is_array($raw)) {
+            return [];
+        }
+        $out = [];
+        foreach ($raw as $item) {
+            $s = trim(is_string($item) ? $item : (string)$item);
+            if ($s !== '') {
+                $out[] = $s;
+            }
+        }
+        return $out;
+    }
 }

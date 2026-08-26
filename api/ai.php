@@ -347,6 +347,11 @@ try {
                 json_response(['ok' => false, 'error' => $result['error'] ?? 'AI failed'], 500);
             }
 
+            // Prefer real syllabus topics over generic placeholders (Topic 1.1).
+            if (!empty($plan['units']) && is_array($plan['units'])) {
+                $plan['units'] = CoursePlanTools::enrichUnitsFromSyllabus($plan['units'], $syllabus);
+            }
+
             // Ensure bloom_distribution exists for checker.
             if (empty($plan['bloom_distribution']) || !is_array($plan['bloom_distribution'])) {
                 $tmpBal = CoursePlanTools::bloomBalance(['plan_data' => json_encode($plan)], $plan['units'] ?? []);
@@ -607,18 +612,33 @@ try {
         $planId = (int)post('plan_id');
         $plan = load_plan_for_user($planId, $user);
         if (!$plan) json_response(['ok'=>false,'error'=>'Plan not found'], 404);
+        // Soft-repair placeholder topics from syllabus_input (no status/version change).
+        $plan = CoursePlanTools::syncPlanTopicsFromSyllabus($plan);
         $fromPlan = lesson_sessions_from_course_plan($plan);
         $tpl = prompt_template('lesson_plan');
         $sessions = [];
         $result = ['ok' => true, 'json' => ['sessions' => $fromPlan], 'latency_ms' => 0];
+        $sessionMins = lesson_default_session_minutes();
+        $requiredCount = count($fromPlan);
+        $requiredMins = 0;
+        foreach ($fromPlan as $s) {
+            $requiredMins += (int)($s['duration_mins'] ?? $sessionMins);
+        }
         if ($gemini->isConfigured()) {
             $system = trim((string)($tpl['system_prompt'] ?? 'Generate session-by-session lesson plans from the course plan.'));
-            $system .= "\nReturn ONLY JSON: {\"sessions\":[{\"session_number\":1,\"title\":\"specific topic\",\"duration_mins\":60,\"objectives\":[\"...\"],\"teaching_method\":\"one method\",\"activities\":[\"classroom activity\"],\"formative_assessment\":[\"check for understanding\"],\"engagement\":[\"student engagement strategy\"]}]}. Every session must include all of those fields. Do not return weekly_plan or empty titles.";
-            $userPrompt = "Create 50–60 minute classroom sessions from this course plan (about 2 sessions per unit, maximum 16). Use the unit titles and topics. Subject: " . (string)($plan['subject_name'] ?? '') . "\n\n" . (string)$plan['plan_data'];
+            $system .= "\nReturn ONLY JSON: {\"sessions\":[{\"session_number\":1,\"title\":\"specific topic\",\"duration_mins\":{$sessionMins},\"objectives\":[\"...\"],\"teaching_method\":\"one method\",\"activities\":[\"classroom activity\"],\"formative_assessment\":[\"check for understanding\"],\"engagement\":[\"student engagement strategy\"]}]}. Every session must include all of those fields. Do not return weekly_plan or empty titles.";
+            $userPrompt = "Create exactly {$requiredCount} classroom sessions from this course plan. "
+                . "Default session length is {$sessionMins} minutes. "
+                . "Total session minutes must equal the unit contact hours (about {$requiredMins} minutes / "
+                . round($requiredMins / 60, 1) . " hours). "
+                . "Distribute each unit's topics across enough sessions to cover that unit's hours — "
+                . "multiple sessions for the same topic when needed, with varied teaching method, activity, assessment, and engagement. "
+                . "Subject: " . (string)($plan['subject_name'] ?? '') . "\n\n" . (string)$plan['plan_data'];
             $result = $gemini->generate($system, $userPrompt);
             $sessions = extract_ai_lesson_sessions(is_array($result['json'] ?? null) ? $result['json'] : null);
         }
-        if (!lesson_sessions_are_usable($sessions)) {
+        // Fall back when AI under-fills hours or returns unusable content.
+        if (!lesson_sessions_are_usable($sessions) || !lesson_sessions_cover_plan_hours($sessions, $plan)) {
             $sessions = $fromPlan;
         }
         Database::query('DELETE FROM lesson_plans WHERE plan_id = ?', [$planId]);
@@ -630,7 +650,7 @@ try {
                 'unit_id' => $s['unit_id'] ?? null,
                 'session_number' => $n,
                 'title' => (string)($s['title'] ?? ('Session ' . $n)),
-                'duration_mins' => (int)($s['duration_mins'] ?? 60),
+                'duration_mins' => (int)($s['duration_mins'] ?? $sessionMins),
                 'objectives' => json_encode($s['objectives'] ?? []),
                 'teaching_method' => $s['teaching_method'] ?: null,
                 'activities' => json_encode($s['activities'] ?? []),
@@ -666,6 +686,8 @@ try {
             if (!$plan) {
                 json_response(['ok' => false, 'error' => 'Course plan not found.'], 404);
             }
+            // Soft-repair placeholder topics from syllabus (keeps approval/version intact).
+            $plan = CoursePlanTools::syncPlanTopicsFromSyllabus($plan);
             $subjectName = trim((string)($plan['subject_name'] ?? ''));
             if ($subjectName === '') {
                 $subjectName = trim((string)($plan['title'] ?? ''));
@@ -682,7 +704,7 @@ try {
                     $unitTopics[] = (string)$u['title'];
                 }
                 foreach ((array)($u['topics'] ?? []) as $t) {
-                    if (is_string($t) && trim($t) !== '') {
+                    if (is_string($t) && trim($t) !== '' && !preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
                         $unitTopics[] = trim($t);
                     }
                 }
@@ -698,7 +720,7 @@ try {
                 $topics = json_decode((string)($u['topics'] ?? ''), true);
                 if (is_array($topics)) {
                     foreach ($topics as $t) {
-                        if (is_string($t) && trim($t) !== '') {
+                        if (is_string($t) && trim($t) !== '' && !preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
                             $unitTopics[] = trim($t);
                         }
                     }
@@ -838,6 +860,7 @@ try {
             if (!$plan) {
                 json_response(['ok' => false, 'error' => 'Plan not found'], 404);
             }
+            $plan = CoursePlanTools::syncPlanTopicsFromSyllabus($plan);
             $planSubject = trim((string)($plan['subject_name'] ?? ''));
             if ($planSubject !== '') {
                 $subjectName = $planSubject;
@@ -863,7 +886,7 @@ try {
                     $unitTopics[] = (string)$u['title'];
                 }
                 foreach ((array)($u['topics'] ?? []) as $t) {
-                    if (is_string($t) && trim($t) !== '') {
+                    if (is_string($t) && trim($t) !== '' && !preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
                         $unitTopics[] = trim($t);
                     }
                 }
@@ -879,7 +902,7 @@ try {
                 $topicsJson = json_decode((string)($u['topics'] ?? ''), true);
                 if (is_array($topicsJson)) {
                     foreach ($topicsJson as $t) {
-                        if (is_string($t) && trim($t) !== '') {
+                        if (is_string($t) && trim($t) !== '' && !preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
                             $unitTopics[] = trim($t);
                         }
                     }

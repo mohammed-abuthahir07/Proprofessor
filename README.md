@@ -412,10 +412,30 @@ After `php database/seed_e2e_test_data.php --confirm-local-reset`:
 | Professor — Networks | `rahul.kumar@test.com` | CS303 → CSE UG Year 1 Sec A |
 | Professor — Java | `divya.kumar@test.com` | CS304 → CSE UG Year 1 Sec A |
 | Professor — SE | `karthik.kumar@test.com` | CS305 → CSE UG Year 1 Sec A |
-| Student — 1st Year A | `mohammed@test.com` | Register CSE24001 |
-| Student — 1st Year A | `ananya@test.com` | Register CSE24002 |
-| Student — 1st Year B | `arjun@test.com` | Register CSE24011 |
-| Student - 2nd Year A | `mani@test.com` | Register CSE230012
+#	Professor Name	Email	Suggested Subject
+1	Vikram Raj	|| vikram.raj@test.com	Data Structures
+2	Meena Krishnan	|| meena.krishnan@test.com	Computer Organization
+3	Suresh Babu ||	suresh.babu@test.com	Web Technologies
+4	Nithya Devi	|| nithya.devi@test.com	Artificial Intelligence
+5	Vignesh Kumar ||	vignesh.kumar@test.com	Machine Learning
+6	Harish Anand ||	harish.anand@test.com	Cloud Computing
+7	Keerthana || R	keerthana.r@test.com	Cyber Security
+
+| Student — 1st Year B | `mohammed@test.com` | Register 224026 |
+| Student — 1st Year A | `Ayyanar@test.com` | Register 224027 |
+| Student — 1st Year C | `sahana@gmail.com` | Register 224113 |
+
+| Student — 2nd Year A | `ananya@test.com` | Register CSE24002 |
+| Student — 2nd Year B | `arjun@test.com` | Register CSE24011 |
+| Student - 2nd Year C | `mani@test.com` | Register CSE230012
+
+| Student — 3nd Year A | `naveen@test.com` | Register CSE24012 |
+| Student — 3nd Year B | `madesh@test.com` | Register CSE24111 |
+| Student - 3nd Year C | `kishore@test.com` | Register CSE230112
+
+| Student — 4nd Year A | `sandhosini@test.com` | Register CSE2222 |
+| Student — 4nd Year B | `saairuba@test.com` | Register CSE1111 |
+| Student - 4nd Year C | `navya@test.com` | Register CSE2333
 
 Seed also creates ECE, EEE, IT, MECH HODs/professors/students — see script output.
 

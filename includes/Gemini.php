@@ -183,29 +183,32 @@ final class Gemini
     public static function demoCoursePlan(string $subject, string $syllabus): array
     {
         $units = [];
-        $lines = preg_split('/\r\n|\r|\n/', $syllabus) ?: [];
-        $i = 1;
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if ($line === '') continue;
-            if (preg_match('/unit\s*(\d+)\s*[:\-.]?\s*(.*)/i', $line, $m)) {
+        $parsed = CoursePlanTools::parseSyllabusIntoUnits($syllabus);
+        if ($parsed !== []) {
+            foreach ($parsed as $i => $p) {
+                $n = (int)$p['unit_number'];
+                $title = trim((string)$p['title']);
+                $topics = array_values(array_filter($p['topics'] ?? [], static fn($t) => is_string($t) && trim($t) !== ''));
+                if ($topics === []) {
+                    $topics = $title !== '' ? [$title] : ['Core concepts'];
+                }
                 $units[] = [
-                    'unit_number' => (int)$m[1],
-                    'title' => $m[2] ?: ('Unit ' . $m[1]),
+                    'unit_number' => $n,
+                    'title' => $title !== '' ? ('Unit ' . $n . ' – ' . $title) : ('Unit ' . $n),
                     'hours' => 12,
-                    'topics' => [trim($m[2])],
+                    'topics' => $topics,
                     'outcomes' => [
-                        'Explain key concepts of ' . ($m[2] ?: $subject),
-                        'Apply techniques related to ' . ($m[2] ?: $subject),
+                        'Explain key concepts of ' . ($title !== '' ? $title : $subject),
+                        'Apply techniques related to ' . ($title !== '' ? $title : $subject),
                     ],
-                    'bloom_k_level' => 'K' . min(6, $i),
+                    'bloom_k_level' => 'K' . min(6, max(1, $n)),
                     'teaching_methods' => ['Lecture', 'Discussion', 'Demo'],
                     'assessment' => ['Quiz', 'Assignment'],
                 ];
-                $i++;
             }
         }
         if (!$units) {
+            // True fallback only when syllabus has no detectable unit structure.
             for ($n = 1; $n <= 5; $n++) {
                 $units[] = [
                     'unit_number' => $n,
@@ -526,15 +529,33 @@ final class Gemini
         $topics = [];
         foreach ($unitTopics as $t) {
             $t = self::cleanTopicText((string)$t);
-            if ($t !== '') {
-                $topics[] = $t;
+            if ($t === '' || preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
+                continue;
+            }
+            $topics[] = $t;
+        }
+        // Prefer structured syllabus parse over thin/placeholder unit topics.
+        if (class_exists('CoursePlanTools', false) || is_file(__DIR__ . '/CoursePlanTools.php')) {
+            if (!class_exists('CoursePlanTools', false)) {
+                require_once __DIR__ . '/CoursePlanTools.php';
+            }
+            foreach (CoursePlanTools::parseSyllabusIntoUnits($context) as $u) {
+                if ((int)$u['unit_number'] !== $unit) {
+                    continue;
+                }
+                foreach ($u['topics'] as $t) {
+                    $t = self::cleanTopicText((string)$t);
+                    if ($t !== '' && !preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
+                        $topics[] = $t;
+                    }
+                }
             }
         }
         foreach (self::extractTopicsFromContext($context, $unit) as $t) {
             $topics[] = $t;
         }
         $topics = array_values(array_unique(array_filter($topics, static fn($t) => strlen($t) > 2)));
-        if (count($topics) >= 4) {
+        if (count($topics) >= 3) {
             return $topics;
         }
         foreach (self::defaultTopicsForSubject($subject, $unit) as $t) {

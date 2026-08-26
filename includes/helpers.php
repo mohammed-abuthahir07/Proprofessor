@@ -1288,6 +1288,134 @@ function lesson_sessions_are_usable(array $sessions): bool
     return $good >= 1 && $good * 3 >= count($sessions);
 }
 
+function lesson_default_session_minutes(): int
+{
+    $mins = (int)(config('lesson.session_minutes', 60) ?: 60);
+    return max(30, min(180, $mins));
+}
+
+/**
+ * Build classroom sessions whose durations exactly cover plan unit hours.
+ *
+ * @param list<array<string,mixed>> $units
+ * @return list<array<string,mixed>>
+ */
+function lesson_sessions_from_units_by_hours(array $units, string $subject, int $sessionMins): array
+{
+    $sessions = [];
+    $n = 0;
+    $facets = [
+        'Introduction & framing',
+        'Core explanation',
+        'Guided practice',
+        'Application',
+        'Problem solving',
+        'Consolidation & recap',
+    ];
+
+    foreach ($units as $u) {
+        if (!is_array($u)) {
+            continue;
+        }
+        $hours = (float)($u['hours'] ?? 0);
+        $topics = lesson_as_list($u['topics'] ?? []);
+        if (!$topics) {
+            $topics = [trim((string)($u['title'] ?? 'Core topic')) ?: 'Core topic'];
+        }
+        $methods = lesson_as_list($u['teaching_methods'] ?? []);
+        $outcomes = lesson_as_list($u['outcomes'] ?? []);
+        $assess = lesson_as_list($u['assessment'] ?? []);
+        $k = (string)($u['bloom_k_level'] ?? 'K2');
+        $ped = lesson_pedagogy_for_k($k);
+        $unitTitle = trim((string)($u['title'] ?? 'Unit'));
+        $unitId = isset($u['id']) ? (int)$u['id'] : null;
+
+        // Exact contact minutes for this unit (hours × 60).
+        $remainingMins = (int)round(max(0.0, $hours) * 60.0);
+        if ($remainingMins < 1) {
+            // No hours stored — keep a minimal usable session for the unit.
+            $remainingMins = $sessionMins;
+        }
+
+        $unitSessionIndex = 0;
+        while ($remainingMins > 0) {
+            $thisMins = min($sessionMins, $remainingMins);
+            // Fold tiny leftovers into the previous session so totals stay exact.
+            if ($thisMins < 30 && $unitSessionIndex > 0 && $sessions !== []) {
+                $last = count($sessions) - 1;
+                $sessions[$last]['duration_mins'] = (int)$sessions[$last]['duration_mins'] + $thisMins;
+                break;
+            }
+
+            $n++;
+            $unitSessionIndex++;
+            $topic = $topics[($unitSessionIndex - 1) % count($topics)];
+            $partsForTopic = max(1, (int)ceil(($hours * 60.0 / $sessionMins) / max(1, count($topics))));
+            $part = (int)floor(($unitSessionIndex - 1) / count($topics)) + 1;
+            $facet = $facets[($unitSessionIndex - 1) % count($facets)];
+            $title = $unitTitle . ' · ' . $topic;
+            if ($partsForTopic > 1) {
+                $title .= ' · Part ' . $part;
+            }
+
+            // Rotate pedagogy slightly so multi-session topics are not identical clones.
+            $kCycle = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'];
+            $baseK = strtoupper(trim($k));
+            $kIdx = array_search($baseK, $kCycle, true);
+            if ($kIdx === false) {
+                $kIdx = 1;
+            }
+            $sessionPed = lesson_pedagogy_for_k($kCycle[($kIdx + (($unitSessionIndex - 1) % 3)) % 6]);
+
+            $sessions[] = [
+                'session_number' => $n,
+                'unit_id' => $unitId,
+                'title' => $title,
+                'duration_mins' => $thisMins,
+                'objectives' => $outcomes
+                    ? [$outcomes[($unitSessionIndex - 1) % count($outcomes)]]
+                    : ['By the end, students can work with ' . $topic . ' in ' . $subject . ' (' . $facet . ')'],
+                'teaching_method' => $methods[($unitSessionIndex - 1) % max(1, count($methods))] ?? $sessionPed['method'],
+                'activities' => [$sessionPed['activity'] . ' — ' . $topic . ' (' . $facet . ')'],
+                'formative_assessment' => $assess
+                    ? [$assess[($unitSessionIndex - 1) % count($assess)]]
+                    : [$sessionPed['assess']],
+                'engagement' => [$sessionPed['engage']],
+            ];
+            $remainingMins -= $thisMins;
+        }
+    }
+
+    return $sessions;
+}
+
+/**
+ * True when session minutes cover the course plan unit hours (within a small tolerance).
+ */
+function lesson_sessions_cover_plan_hours(array $sessions, array $planRow, int $toleranceMins = 30): bool
+{
+    $data = json_decode((string)($planRow['plan_data'] ?? ''), true) ?: [];
+    $units = Database::fetchAll(
+        'SELECT hours FROM plan_units WHERE plan_id = ? ORDER BY sort_order, unit_number',
+        [(int)($planRow['id'] ?? 0)]
+    );
+    if (!$units && !empty($data['units']) && is_array($data['units'])) {
+        $units = $data['units'];
+    }
+    $expected = 0;
+    foreach ($units as $u) {
+        $expected += (int)round(max(0.0, (float)($u['hours'] ?? 0)) * 60.0);
+    }
+    if ($expected < 1) {
+        return $sessions !== [];
+    }
+    $actual = 0;
+    foreach ($sessions as $s) {
+        $actual += max(0, (int)($s['duration_mins'] ?? 0));
+    }
+    return abs($actual - $expected) <= $toleranceMins;
+}
+
 function lesson_sessions_from_course_plan(array $planRow): array
 {
     $data = json_decode((string)($planRow['plan_data'] ?? ''), true) ?: [];
@@ -1303,9 +1431,23 @@ function lesson_sessions_from_course_plan(array $planRow): array
         $weekly = json_decode((string)$planRow['weekly_plan'], true) ?: [];
     }
     $subject = trim((string)($planRow['subject_name'] ?? $data['subject'] ?? $data['title'] ?? 'this course'));
+    $sessionMins = lesson_default_session_minutes();
+
+    $unitHoursTotal = 0.0;
+    if (is_array($units)) {
+        foreach ($units as $u) {
+            if (is_array($u)) {
+                $unitHoursTotal += max(0.0, (float)($u['hours'] ?? 0));
+            }
+        }
+    }
 
     $sessions = [];
-    if (is_array($weekly) && count($weekly) >= 4) {
+
+    // Prefer unit-hour distribution whenever the course plan stores contact hours.
+    if ($units && $unitHoursTotal > 0) {
+        $sessions = lesson_sessions_from_units_by_hours($units, $subject, $sessionMins);
+    } elseif (is_array($weekly) && count($weekly) >= 4) {
         foreach ($weekly as $i => $w) {
             if (!is_array($w)) {
                 continue;
@@ -1322,7 +1464,7 @@ function lesson_sessions_from_course_plan(array $planRow): array
                 'session_number' => $n,
                 'unit_id' => isset($unit['id']) ? (int)$unit['id'] : null,
                 'title' => $title,
-                'duration_mins' => 60,
+                'duration_mins' => $sessionMins,
                 'objectives' => lesson_as_list($unit['outcomes'] ?? []) ?: ['Connect this week\'s topic to ' . $subject . ' course outcomes'],
                 'teaching_method' => (lesson_as_list($unit['teaching_methods'] ?? [])[0] ?? $ped['method']),
                 'activities' => [$ped['activity'] . ' — ' . $title],
@@ -1331,6 +1473,7 @@ function lesson_sessions_from_course_plan(array $planRow): array
             ];
         }
     } elseif ($units) {
+        // Fallback when units exist but hours are missing: previous topic-based heuristic.
         $per = count($units) >= 8 ? 1 : (count($units) >= 5 ? 2 : 3);
         $n = 0;
         foreach ($units as $u) {
@@ -1352,11 +1495,11 @@ function lesson_sessions_from_course_plan(array $planRow): array
                     'session_number' => $n,
                     'unit_id' => isset($u['id']) ? (int)$u['id'] : null,
                     'title' => $title,
-                    'duration_mins' => 60,
-                    'objectives' => $outcomes ? [ $outcomes[$i % count($outcomes)] ] : ['By the end, students can work with ' . $topic . ' in ' . $subject],
+                    'duration_mins' => $sessionMins,
+                    'objectives' => $outcomes ? [$outcomes[$i % count($outcomes)]] : ['By the end, students can work with ' . $topic . ' in ' . $subject],
                     'teaching_method' => $methods[$i % max(1, count($methods))] ?? $ped['method'],
                     'activities' => [$ped['activity'] . ' — ' . $topic],
-                    'formative_assessment' => $assess ? [ $assess[$i % count($assess)] ] : [$ped['assess']],
+                    'formative_assessment' => $assess ? [$assess[$i % count($assess)]] : [$ped['assess']],
                     'engagement' => [$ped['engage']],
                 ];
             }
@@ -1370,7 +1513,7 @@ function lesson_sessions_from_course_plan(array $planRow): array
                 'session_number' => $i,
                 'unit_id' => null,
                 'title' => $subject . ' · Session ' . $i,
-                'duration_mins' => 60,
+                'duration_mins' => $sessionMins,
                 'objectives' => ['Progress toward the course outcomes for ' . $subject],
                 'teaching_method' => $ped['method'],
                 'activities' => [$ped['activity']],
@@ -1380,7 +1523,10 @@ function lesson_sessions_from_course_plan(array $planRow): array
         }
     }
 
-    return array_slice($sessions, 0, 24);
+    // Safety ceiling only (supports long contact-hour courses; was incorrectly capped at 24).
+    $maxSessions = max(24, (int)ceil($unitHoursTotal * 60 / max(30, $sessionMins)) + 12, count($sessions));
+    $maxSessions = min(300, $maxSessions);
+    return array_slice($sessions, 0, $maxSessions);
 }
 
 function status_badge(string $status): string

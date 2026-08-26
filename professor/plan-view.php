@@ -11,6 +11,8 @@ if (!CoursePlanTools::canViewPlan($user, $plan)) {
     flash('error','Access denied');
     redirect(dashboard_path_for_role((string)$user['role']));
 }
+// Soft-fill real syllabus topics when stored topics are placeholders (no status/version change).
+$plan = CoursePlanTools::syncPlanTopicsFromSyllabus($plan);
 $isOwner = (int)$plan['professor_id'] === (int)$user['id']
     || in_array((string)$user['role'], ['admin', 'superadmin'], true);
 
