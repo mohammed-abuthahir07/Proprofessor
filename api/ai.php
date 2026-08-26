@@ -859,7 +859,16 @@ try {
             Database::insert('questions', $insert);
         }
         log_ai('questions', compact('type', 'unit', 'klevel', 'count') + ['subject' => $subjectName], $result, 'question_bank', $bankId);
-        json_response(['ok' => true, 'data' => ['bank_id' => $bankId, 'questions' => $questions], 'redirect' => base_url('/professor/questions.php?bank_id=' . $bankId)]);
+        // Listing-oriented response: omit answers from the client payload (still stored in DB).
+        $publicQuestions = array_map(static function (array $q): array {
+            unset($q['correct_answer'], $q['explanation']);
+            return $q;
+        }, $questions);
+        json_response([
+            'ok' => true,
+            'data' => ['bank_id' => $bankId, 'questions' => $publicQuestions],
+            'redirect' => base_url('/professor/questions.php?bank_id=' . $bankId),
+        ]);
     }
 
     if ($module === 'ppt') {

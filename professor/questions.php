@@ -17,6 +17,33 @@ $prefillTopic = trim((string)get('topic', ''));
 $prefillContext = trim((string)get('context', ''));
 $tab = (string)get('tab', '');
 
+// Download Question Bank PDF (questions + options only — answers stay in DB).
+if (get('download') === 'pdf') {
+    $dlBankId = (int)(get('bank_id') ?: 0);
+    $bankRow = QuestionBankTools::ownedBank($user, $dlBankId);
+    if (!$bankRow) {
+        flash('error', 'Question bank not found or access denied.');
+        redirect('/professor/questions.php');
+    }
+    $qs = Database::fetchAll(
+        'SELECT id, stem, options, question_type, marks, unit_number, bloom_k_level
+         FROM questions WHERE bank_id = ? ORDER BY id ASC',
+        [(int)$bankRow['id']]
+    );
+    // Explicitly do not select correct_answer / explanation for PDF rendering.
+    try {
+        $pdf = QuestionBankTools::buildQuestionBankPdf($user, $bankRow, $qs);
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $pdf['filename'] . '"');
+        header('Content-Length: ' . strlen($pdf['bytes']));
+        echo $pdf['bytes'];
+        exit;
+    } catch (Throwable $e) {
+        flash('error', 'Could not generate PDF: ' . $e->getMessage());
+        redirect('/professor/questions.php?bank_id=' . $dlBankId);
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $action = (string)post('action');
@@ -317,7 +344,10 @@ render_header('Question Bank Generator', 'questions', ['subtitle' => 'MCQ · Sho
         <tr>
           <td><?= e($b['title']) ?></td>
           <td><?= e($b['created_at']) ?></td>
-          <td><a class="btn btn-sm btn-ghost" href="?bank_id=<?= (int)$b['id'] ?>">Open</a></td>
+          <td style="white-space:nowrap">
+            <a class="btn btn-sm btn-ghost" href="?bank_id=<?= (int)$b['id'] ?>">Open</a>
+            <a class="btn btn-sm btn-primary" href="?bank_id=<?= (int)$b['id'] ?>&download=pdf">Download PDF</a>
+          </td>
         </tr>
       <?php endforeach; ?>
       </tbody>
@@ -377,7 +407,10 @@ render_header('Question Bank Generator', 'questions', ['subtitle' => 'MCQ · Sho
 <div class="panel" style="margin-top:1rem">
   <div class="panel-h">
     <h2><?= e($bank['title']) ?></h2>
-    <a class="btn btn-sm btn-ghost" href="?tab=paper">Build Question Paper</a>
+    <div style="display:flex;flex-wrap:wrap;gap:.45rem">
+      <a class="btn btn-sm btn-primary" href="?bank_id=<?= (int)$bank['id'] ?>&download=pdf">Download PDF</a>
+      <a class="btn btn-sm btn-ghost" href="?tab=paper">Build Question Paper</a>
+    </div>
   </div>
   <?php foreach ($questions as $i => $q):
     $meta = json_decode((string)($q['meta'] ?? '{}'), true) ?: [];
@@ -403,7 +436,6 @@ render_header('Question Bank Generator', 'questions', ['subtitle' => 'MCQ · Sho
       <?php if ($q['options']): $opts=json_decode($q['options'],true); ?>
         <ul><?php foreach ((array)$opts as $k=>$v): ?><li><strong><?= e((string)$k) ?>.</strong> <?= e(is_string($v)?$v:json_encode($v)) ?></li><?php endforeach; ?></ul>
       <?php endif; ?>
-      <div style="color:var(--muted);font-size:.85rem;margin-top:.35rem">Answer: <?= e((string)$q['correct_answer']) ?></div>
 
       <?php if (is_array($sim) && !$reviewed): ?>
         <div class="alert alert-warn" style="margin-top:.75rem">
@@ -426,7 +458,8 @@ render_header('Question Bank Generator', 'questions', ['subtitle' => 'MCQ · Sho
       <?php endif; ?>
 
       <details style="margin-top:.55rem">
-        <summary style="cursor:pointer">Marking scheme / CLO / Item analysis</summary>
+        <summary style="cursor:pointer">CLO / Marking scheme / Item analysis</summary>
+        <p class="muted" style="font-size:.82rem;margin:.4rem 0">Correct answers are not shown here. Use <strong>Build Question Paper → Answer key</strong> for authorized answer-key review.</p>
         <pre class="panel" style="white-space:pre-wrap;margin:.5rem 0;font-size:.85rem"><?= e($scheme) ?></pre>
         <form method="post" class="form-grid" style="max-width:280px">
           <?= csrf_field() ?>

@@ -605,4 +605,236 @@ final class QuestionBankTools
     {
         return ['K1' => 20, 'K2' => 20, 'K3' => 30, 'K4' => 20, 'K5' => 10, 'K6' => 0];
     }
+
+    /**
+     * Professional question-bank PDF (questions + options only — no answers).
+     *
+     * @param list<array<string,mixed>> $questions
+     * @return array{bytes:string,filename:string}
+     */
+    public static function buildQuestionBankPdf(array $user, array $bank, array $questions): array
+    {
+        self::ensureSchema();
+        if (!class_exists('SimplePdf', false)) {
+            require_once dirname(__DIR__) . '/includes/SimplePdf.php';
+        }
+
+        $instId = (int)($user['institution_id'] ?? 0);
+        $inst = Database::fetch(
+            'SELECT name, address, city, state, pincode, academic_year, current_semester, affiliation_university
+             FROM institutions WHERE id = ?',
+            [$instId]
+        );
+        if (!$inst) {
+            throw new RuntimeException('Institution not found.');
+        }
+
+        $deptName = '';
+        $deptId = (int)($user['department_id'] ?? 0);
+        if ($deptId > 0) {
+            $dept = Database::fetch(
+                'SELECT name FROM departments WHERE id = ? AND institution_id = ?',
+                [$deptId, $instId]
+            );
+            $deptName = trim((string)($dept['name'] ?? ''));
+        }
+
+        $cfg = json_decode((string)($bank['config'] ?? '{}'), true) ?: [];
+        $subject = trim((string)($cfg['subject'] ?? ''));
+        $unit = (int)($cfg['unit'] ?? 0);
+        $klevel = strtoupper(trim((string)($cfg['klevel'] ?? '')));
+        $type = strtoupper(trim((string)($cfg['type'] ?? 'MCQ')));
+
+        $courseCode = '';
+        $semester = trim((string)($inst['current_semester'] ?? ''));
+        $planId = (int)($bank['plan_id'] ?? 0);
+        if ($planId > 0) {
+            $plan = Database::fetch(
+                'SELECT subject_name, subject_id, title, class_id FROM course_plans
+                 WHERE id = ? AND institution_id = ?',
+                [$planId, $instId]
+            );
+            if ($plan) {
+                if ($subject === '') {
+                    $subject = trim((string)($plan['subject_name'] ?: $plan['title']));
+                }
+                if (!empty($plan['subject_id'])) {
+                    $sub = Database::fetch(
+                        'SELECT code, name, department_id FROM subjects WHERE id = ? AND institution_id = ?',
+                        [(int)$plan['subject_id'], $instId]
+                    );
+                    if ($sub) {
+                        $courseCode = trim((string)($sub['code'] ?? ''));
+                        if ($subject === '') {
+                            $subject = trim((string)($sub['name'] ?? ''));
+                        }
+                        if ($deptName === '' && !empty($sub['department_id'])) {
+                            $d = Database::fetch(
+                                'SELECT name FROM departments WHERE id = ? AND institution_id = ?',
+                                [(int)$sub['department_id'], $instId]
+                            );
+                            $deptName = trim((string)($d['name'] ?? ''));
+                        }
+                    }
+                }
+            }
+        }
+        if ($subject === '') {
+            $subject = trim((string)($bank['title'] ?? 'Question Bank'));
+        }
+        if ($unit < 1 && $questions) {
+            $unit = (int)($questions[0]['unit_number'] ?? 0);
+        }
+        if ($klevel === '' && $questions) {
+            $klevel = strtoupper(trim((string)($questions[0]['bloom_k_level'] ?? '')));
+        }
+
+        $defaultMarks = 1.0;
+        if ($questions) {
+            $defaultMarks = (float)($questions[0]['marks'] ?? 1);
+        }
+
+        $college = trim((string)($inst['name'] ?? ''));
+        $addrParts = array_filter([
+            trim((string)($inst['address'] ?? '')),
+            trim((string)($inst['city'] ?? '')),
+            trim((string)($inst['state'] ?? '')),
+            trim((string)($inst['pincode'] ?? '')),
+        ], static fn($v) => $v !== '');
+        $addressLine = implode(', ', $addrParts);
+        $year = trim((string)($inst['academic_year'] ?? ''));
+
+        $ink = [20, 20, 20];
+        $pdf = new SimplePdf();
+
+        // —— College letterhead (centered) ——
+        $pdf->setFont(16, true);
+        if ($college !== '') {
+            $pdf->writeCenteredWrapped($college, 0, 20, $ink);
+        }
+        $pdf->setFont(9, false);
+        if ($addressLine !== '') {
+            $pdf->writeCenteredWrapped($addressLine, 0, 12, $ink);
+        }
+        if (!empty($inst['affiliation_university'])) {
+            $pdf->writeCentered(
+                'Affiliated to ' . trim((string)$inst['affiliation_university']),
+                $ink,
+                12
+            );
+        }
+        if ($deptName !== '') {
+            $pdf->space(4);
+            $pdf->setFont(11, true);
+            $pdf->writeCentered(strtoupper($deptName), $ink, 14);
+        }
+        $pdf->space(4);
+        $pdf->doubleRule($ink);
+
+        $pdf->setFont(14, true);
+        $pdf->writeCentered('QUESTION BANK', $ink, 18);
+        $pdf->setFont(12, true);
+        $pdf->writeCenteredWrapped($subject, 0, 15, $ink);
+        $pdf->space(2);
+        $pdf->thinRule($ink);
+
+        // —— Meta in two columns ——
+        $pdf->setFont(10, false);
+        $metaPairs = [];
+        $push = static function (string $label, string $value) use (&$metaPairs): void {
+            $value = trim($value);
+            if ($value === '') {
+                return;
+            }
+            $metaPairs[] = $label . ': ' . $value;
+        };
+        $push('Course Code', $courseCode);
+        $push('Academic Year', $year);
+        $push('Year / Semester', $semester);
+        if ($unit > 0) {
+            $push('Unit', (string)$unit);
+        }
+        if (preg_match('/^K[1-6]$/', $klevel)) {
+            $push('Bloom Level', $klevel);
+        }
+        $push('Question Type', $type);
+        $push('Total Questions', (string)count($questions));
+
+        for ($i = 0; $i < count($metaPairs); $i += 2) {
+            $left = $metaPairs[$i];
+            $right = $metaPairs[$i + 1] ?? '';
+            $pdf->writeTwoColumn($left, $right, $ink, 14);
+        }
+        $pdf->thinRule($ink);
+
+        $pdf->setFont(10, true);
+        $pdf->writeLine('Instructions', $ink, 14);
+        $pdf->setFont(10, false);
+        $pdf->writeLine('1. Answer all questions.', $ink, 13);
+        $marksLabel = rtrim(rtrim(number_format($defaultMarks, 2, '.', ''), '0'), '.');
+        $pdf->writeLine(
+            '2. Each question carries ' . $marksLabel . ' mark(s) unless otherwise stated.',
+            $ink,
+            13
+        );
+        $pdf->writeLine('3. Select the most appropriate answer for objective questions.', $ink, 13);
+        $pdf->space(6);
+        $pdf->thinRule($ink);
+        $pdf->space(4);
+
+        $n = 0;
+        foreach ($questions as $q) {
+            $n++;
+            $stem = trim((string)($q['stem'] ?? ''));
+            $marks = (float)($q['marks'] ?? $defaultMarks);
+            $marksTxt = rtrim(rtrim(number_format($marks, 2, '.', ''), '0'), '.');
+            $qType = strtolower((string)($q['question_type'] ?? 'mcq'));
+            $opts = [];
+            if (!empty($q['options'])) {
+                $decoded = is_string($q['options'])
+                    ? (json_decode((string)$q['options'], true) ?: [])
+                    : (is_array($q['options']) ? $q['options'] : []);
+                if (is_array($decoded)) {
+                    foreach ($decoded as $k => $v) {
+                        $opts[(string)$k] = is_string($v) ? $v : (string)json_encode($v);
+                    }
+                }
+            }
+
+            // Keep stem + options together when possible.
+            $needed = 36 + (int)(strlen($stem) / 85) * 13 + count($opts) * 15;
+            $pdf->ensureSpace((float)$needed);
+            $pdf->setFont(10, true);
+            $pdf->writeWrapped(
+                'Q' . $n . '.  ' . $stem . '    [' . $marksTxt . ' mark' . ($marks == 1.0 ? '' : 's') . ']',
+                0,
+                13,
+                $ink
+            );
+            $pdf->setFont(10, false);
+            if ($qType === 'mcq' && $opts) {
+                $pdf->space(2);
+                foreach (['A', 'B', 'C', 'D'] as $lab) {
+                    if (!isset($opts[$lab])) {
+                        continue;
+                    }
+                    $pdf->writeIndented($lab . '.  ' . $opts[$lab], 22.0, 0, 13, $ink);
+                }
+            }
+            $pdf->space(10);
+        }
+
+        $pdf->stampPageNumbers();
+        $bytes = $pdf->output();
+
+        $safeSubject = preg_replace('/[^\p{L}\p{N}._-]+/u', '_', $subject) ?: 'Question_Bank';
+        $safeSubject = trim($safeSubject, '._-');
+        $fname = $safeSubject;
+        if ($unit > 0) {
+            $fname .= '_Unit_' . $unit;
+        }
+        $fname .= '_Question_Bank.pdf';
+
+        return ['bytes' => $bytes, 'filename' => $fname];
+    }
 }

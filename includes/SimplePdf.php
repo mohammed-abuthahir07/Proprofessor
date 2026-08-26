@@ -18,6 +18,8 @@ final class SimplePdf
     private float $fontSize = 11.0;
     private string $font = 'Helvetica';
     private bool $bold = false;
+    /** When true, output() skips its built-in page footer (stampPageNumbers already applied). */
+    private bool $pageNumbersStamped = false;
 
     public function __construct()
     {
@@ -126,6 +128,67 @@ final class SimplePdf
         $this->y += $lineH;
     }
 
+    /** Center a single line within the content area. */
+    public function writeCentered(string $text, ?array $rgb = null, float $lineH = 0.0): void
+    {
+        if ($lineH <= 0) {
+            $lineH = $this->fontSize + 5;
+        }
+        $this->ensureSpace($lineH);
+        $clean = $this->sanitize($text);
+        $tw = $this->textWidth($clean);
+        $x = $this->margin + max(0.0, ($this->contentWidth() - $tw) / 2);
+        $this->textAt($x, $this->y, $clean, $rgb);
+        $this->y += $lineH;
+    }
+
+    /** Center wrapped lines within the content area. */
+    public function writeCenteredWrapped(string $text, float $maxW = 0.0, float $lineH = 0.0, ?array $rgb = null): void
+    {
+        if ($maxW <= 0) {
+            $maxW = $this->contentWidth();
+        }
+        if ($lineH <= 0) {
+            $lineH = $this->fontSize + 4;
+        }
+        foreach ($this->wrap($text, $maxW) as $line) {
+            $this->writeCentered($line, $rgb, $lineH);
+        }
+    }
+
+    /** Left + right meta pair on one row (college paper style). */
+    public function writeTwoColumn(string $left, string $right, ?array $rgb = null, float $lineH = 0.0): void
+    {
+        if ($lineH <= 0) {
+            $lineH = $this->fontSize + 5;
+        }
+        $this->ensureSpace($lineH);
+        $half = $this->contentWidth() / 2;
+        $this->textAt($this->margin, $this->y, $left, $rgb);
+        if ($right !== '') {
+            $rx = $this->margin + $half;
+            $this->textAt($rx, $this->y, $right, $rgb);
+        }
+        $this->y += $lineH;
+    }
+
+    /** Indented wrapped text (e.g. MCQ options). */
+    public function writeIndented(string $text, float $indent = 24.0, float $maxW = 0.0, float $lineH = 0.0, ?array $rgb = null): void
+    {
+        if ($maxW <= 0) {
+            $maxW = $this->contentWidth() - $indent;
+        }
+        if ($lineH <= 0) {
+            $lineH = $this->fontSize + 4;
+        }
+        $x = $this->margin + $indent;
+        foreach ($this->wrap($text, $maxW) as $line) {
+            $this->ensureSpace($lineH);
+            $this->textAt($x, $this->y, $line, $rgb);
+            $this->y += $lineH;
+        }
+    }
+
     public function writeWrapped(string $text, float $maxW = 0.0, float $lineH = 0.0, ?array $rgb = null): void
     {
         if ($maxW <= 0) {
@@ -137,6 +200,23 @@ final class SimplePdf
         foreach ($this->wrap($text, $maxW) as $line) {
             $this->writeLine($line, $rgb, $lineH);
         }
+    }
+
+    /** Thin horizontal rule (college exam paper style). */
+    public function thinRule(array $rgb = [40, 40, 40], float $thickness = 0.8): void
+    {
+        $this->ensureSpace(10);
+        $this->filledRect($this->margin, $this->y + 2, $this->contentWidth(), $thickness, $rgb);
+        $this->y += 10;
+    }
+
+    /** Double rule under college header. */
+    public function doubleRule(array $rgb = [30, 30, 30]): void
+    {
+        $this->ensureSpace(14);
+        $this->filledRect($this->margin, $this->y, $this->contentWidth(), 1.2, $rgb);
+        $this->filledRect($this->margin, $this->y + 3.5, $this->contentWidth(), 0.6, $rgb);
+        $this->y += 12;
     }
 
     public function space(float $dy): void
@@ -226,6 +306,33 @@ final class SimplePdf
         $this->y += 10;
     }
 
+    /** Stamp centered "— N —" page numbers on every page (call once before output()). */
+    public function stampPageNumbers(): void
+    {
+        $this->pages[$this->page - 1] = $this->buf;
+        $total = count($this->pages);
+        $fontSize = 9.0;
+        $prevSize = $this->fontSize;
+        $prevBold = $this->bold;
+        $this->setFont($fontSize, false);
+        for ($i = 0; $i < $total; $i++) {
+            $label = '- ' . ($i + 1) . ' -';
+            $tw = $this->textWidth($label);
+            $x = ($this->w - $tw) / 2;
+            // PDF user space: origin bottom-left.
+            $this->pages[$i] .= sprintf(
+                "BT /F1 %.2F Tf 0.35 0.35 0.38 rg %.2F %.2F Td (%s) Tj ET 0 g\n",
+                $fontSize,
+                $x,
+                28.0,
+                $this->escape($this->sanitize($label))
+            );
+        }
+        $this->setFont($prevSize, $prevBold);
+        $this->buf = $this->pages[$this->page - 1];
+        $this->pageNumbersStamped = true;
+    }
+
     public function output(): string
     {
         $this->pages[$this->page - 1] = $this->buf;
@@ -246,18 +353,25 @@ final class SimplePdf
         $objects[] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';
         $objects[] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>';
 
+        $prevSize = $this->fontSize;
+        $prevBold = $this->bold;
+        $this->setFont(8, false);
         for ($i = 0; $i < $pageCount; $i++) {
             $pageObj = $pageObjStart + ($i * 2);
             $contentObj = $pageObj + 1;
-            // Add footer page number into content
             $content = $this->pages[$i];
-            $footer = sprintf(
-                "BT /F1 8 Tf 0.45 0.45 0.5 rg %.2F %.2F Td (Page %d / %d) Tj ET 0 g\n",
-                $this->margin,
-                24,
-                $i + 1,
-                $pageCount
-            );
+            $footer = '';
+            if (!$this->pageNumbersStamped) {
+                $label = 'Page ' . ($i + 1) . ' / ' . $pageCount;
+                $tw = $this->textWidth($label);
+                $fx = ($this->w - $tw) / 2;
+                $footer = sprintf(
+                    "BT /F1 8 Tf 0.45 0.45 0.5 rg %.2F %.2F Td (%s) Tj ET 0 g\n",
+                    $fx,
+                    24,
+                    $this->escape($this->sanitize($label))
+                );
+            }
             $stream = $content . $footer;
             $objects[] = sprintf(
                 '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.2F %.2F] /Resources << /Font << /F1 %d 0 R /F2 %d 0 R >> >> /Contents %d 0 R >>',
@@ -269,6 +383,7 @@ final class SimplePdf
             );
             $objects[] = sprintf("<< /Length %d >>\nstream\n%s\nendstream", strlen($stream), $stream);
         }
+        $this->setFont($prevSize, $prevBold);
 
         $pdf = "%PDF-1.4\n";
         $offsets = [0];
