@@ -25,7 +25,7 @@ final class LegacyController extends Controller
     {
         $this->requireRole('student');
         $this->serve('student', $page, [
-            'courses', 'notes', 'assignments', 'attendance', 'attendance-qr', 'marks', 'calendar', 'ask-ai',
+            'courses', 'notes', 'assignments', 'attendance', 'attendance-qr', 'marks', 'academic-history', 'calendar', 'ask-ai',
         ]);
     }
 

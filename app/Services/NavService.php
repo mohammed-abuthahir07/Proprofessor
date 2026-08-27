@@ -22,6 +22,7 @@ final class NavService
                 ['label' => 'ACADEMIC', 'items' => [
                     ['key' => 'attendance', 'label' => 'Attendance', 'href' => '/student/attendance', 'icon' => 'calendar'],
                     ['key' => 'marks', 'label' => 'Internal Marks', 'href' => '/student/marks', 'icon' => 'chart'],
+                    ['key' => 'history', 'label' => 'Academic History', 'href' => '/student/academic-history', 'icon' => 'clock'],
                     ['key' => 'notifications', 'label' => 'Notifications', 'href' => '/student/notifications', 'icon' => 'bell'],
                 ]],
             ],
