@@ -19,6 +19,71 @@ final class InstitutionController extends Controller
         $depts = Department::forInstitution($instId);
         $settings = json_decode($inst['settings'] ?: '{}', true) ?: [];
 
+        $filterDeptId = (int)$this->get('department_id');
+        $filterYear = (int)$this->get('year');
+        if ($filterYear < 0 || $filterYear > 4) {
+            $filterYear = 0;
+        }
+        $filterSemester = strtolower(trim((string)$this->get('semester')));
+        if (!in_array($filterSemester, ['odd', 'even', ''], true)) {
+            $filterSemester = '';
+        }
+        $filterType = strtolower(trim((string)$this->get('type')));
+        if (!in_array($filterType, ['theory', 'lab', ''], true)) {
+            $filterType = '';
+        }
+
+        $subjectRows = Database::fetchAll(
+            'SELECT s.*, d.name AS dept_name, d.code AS dept_code
+             FROM subjects s
+             JOIN departments d ON d.id = s.department_id
+             WHERE s.institution_id = ? AND s.is_active = 1
+             ORDER BY d.name, s.code, s.name',
+            [$instId]
+        );
+
+        $catalogByDept = [];
+        foreach ($depts as $d) {
+            $catalogByDept[(int)$d['id']] = [
+                'department' => $d,
+                'subjects' => [],
+            ];
+        }
+        foreach ($subjectRows as $subject) {
+            $deptId = (int)($subject['department_id'] ?? 0);
+            if ($filterDeptId > 0 && $deptId !== $filterDeptId) {
+                continue;
+            }
+            $year = subject_academic_year_level($subject);
+            if ($filterYear > 0 && $year !== $filterYear) {
+                continue;
+            }
+            if ($filterSemester !== '' && subject_semester_key((string)($subject['semester'] ?? '')) !== $filterSemester) {
+                continue;
+            }
+            if ($filterType !== '' && subject_course_type($subject) !== $filterType) {
+                continue;
+            }
+            $subject['year_level'] = $year;
+            $subject['semester_key'] = subject_semester_key((string)($subject['semester'] ?? ''));
+            $subject['course_type'] = subject_course_type($subject);
+            if (!isset($catalogByDept[$deptId])) {
+                $catalogByDept[$deptId] = [
+                    'department' => [
+                        'id' => $deptId,
+                        'name' => (string)($subject['dept_name'] ?? 'Department'),
+                        'code' => (string)($subject['dept_code'] ?? ''),
+                    ],
+                    'subjects' => [],
+                ];
+            }
+            $catalogByDept[$deptId]['subjects'][] = $subject;
+        }
+        $catalogByDept = array_filter(
+            $catalogByDept,
+            static fn(array $block): bool => $block['subjects'] !== []
+        );
+
         $this->view('admin/institution', [
             'title' => 'Institution Setup',
             'active' => 'institution',
@@ -31,6 +96,17 @@ final class InstitutionController extends Controller
                 [$instId]
             ),
             'settings' => $settings,
+            'subjectCatalog' => array_values($catalogByDept),
+            'catalogFilters' => [
+                'department_id' => $filterDeptId,
+                'year' => $filterYear,
+                'semester' => $filterSemester,
+                'type' => $filterType,
+            ],
+            'catalogTotal' => array_sum(array_map(
+                static fn(array $block): int => count($block['subjects']),
+                $catalogByDept
+            )),
         ]);
     }
 

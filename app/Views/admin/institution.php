@@ -2,6 +2,23 @@
 /** @var array $inst */
 /** @var array $depts */
 /** @var array $settings */
+/** @var array $subjectCatalog */
+/** @var array $catalogFilters */
+/** @var int $catalogTotal */
+$subjectCatalog = $subjectCatalog ?? [];
+$catalogFilters = $catalogFilters ?? ['department_id' => 0, 'year' => 0, 'semester' => '', 'type' => ''];
+$catalogTotal = (int)($catalogTotal ?? 0);
+
+$catalogQuery = static function (array $overrides = []) use ($catalogFilters): string {
+    $params = array_merge($catalogFilters, $overrides);
+    foreach ($params as $key => $value) {
+        if ($value === '' || $value === null || $value === 0 || $value === '0') {
+            unset($params[$key]);
+        }
+    }
+    $query = http_build_query($params);
+    return url('/admin/institution' . ($query !== '' ? '?' . $query : '') . '#academic-courses');
+};
 ?>
 <div class="grid grid-2">
   <div class="panel">
@@ -51,7 +68,113 @@
     </form>
   </div>
 </div>
-<div class="panel" style="margin-top:1rem">
-  <h3>Academic courses</h3>
-  <p style="color:var(--muted);font-size:.88rem;margin-top:0">Courses and subjects are managed by each department HOD under <strong>HOD → Courses</strong>. Admin sets up departments and user accounts; classes are managed under <strong>Users & Roles</strong>.</p>
+
+<div class="panel" id="academic-courses" style="margin-top:1rem">
+  <div class="panel-h" style="align-items:center">
+    <div>
+      <h3 style="margin:0">Academic courses</h3>
+      <p class="muted" style="font-size:.88rem;margin:.35rem 0 0">All subjects created by department HODs — browse by department, year (1–4), and Odd/Even semester.</p>
+    </div>
+    <span class="chip"><?= (int)$catalogTotal ?> subject<?= $catalogTotal === 1 ? '' : 's' ?></span>
+  </div>
+
+  <div class="form-row" style="margin-top:1rem">
+    <label>Department</label>
+    <div class="chip-row" role="navigation" aria-label="Department">
+      <a class="chip<?= (int)$catalogFilters['department_id'] === 0 ? ' active' : '' ?>" href="<?= e($catalogQuery(['department_id' => 0])) ?>">All</a>
+      <?php foreach ($depts as $d): ?>
+        <a class="chip<?= (int)$catalogFilters['department_id'] === (int)$d['id'] ? ' active' : '' ?>" href="<?= e($catalogQuery(['department_id' => (int)$d['id']])) ?>"><?= e((string)$d['code']) ?></a>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <div class="form-row">
+    <label>Year</label>
+    <div class="chip-row" role="navigation" aria-label="Academic year">
+      <a class="chip<?= (int)$catalogFilters['year'] === 0 ? ' active' : '' ?>" href="<?= e($catalogQuery(['year' => 0])) ?>">All</a>
+      <?php foreach ([1 => '1st', 2 => '2nd', 3 => '3rd', 4 => '4th'] as $yVal => $yLabel): ?>
+        <a class="chip<?= (int)$catalogFilters['year'] === $yVal ? ' active' : '' ?>" href="<?= e($catalogQuery(['year' => $yVal])) ?>"><?= e($yLabel) ?> Year</a>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <div class="form-row">
+    <label>Semester</label>
+    <div class="chip-row" role="navigation" aria-label="Semester">
+      <a class="chip<?= ($catalogFilters['semester'] ?? '') === '' ? ' active' : '' ?>" href="<?= e($catalogQuery(['semester' => ''])) ?>">All</a>
+      <a class="chip<?= ($catalogFilters['semester'] ?? '') === 'odd' ? ' active' : '' ?>" href="<?= e($catalogQuery(['semester' => 'odd'])) ?>">Odd</a>
+      <a class="chip<?= ($catalogFilters['semester'] ?? '') === 'even' ? ' active' : '' ?>" href="<?= e($catalogQuery(['semester' => 'even'])) ?>">Even</a>
+    </div>
+  </div>
+  <div class="form-row">
+    <label>Type</label>
+    <div class="chip-row" role="navigation" aria-label="Course type">
+      <a class="chip<?= ($catalogFilters['type'] ?? '') === '' ? ' active' : '' ?>" href="<?= e($catalogQuery(['type' => ''])) ?>">All</a>
+      <a class="chip<?= ($catalogFilters['type'] ?? '') === 'theory' ? ' active' : '' ?>" href="<?= e($catalogQuery(['type' => 'theory'])) ?>">Courses</a>
+      <a class="chip<?= ($catalogFilters['type'] ?? '') === 'lab' ? ' active' : '' ?>" href="<?= e($catalogQuery(['type' => 'lab'])) ?>">Labs</a>
+    </div>
+  </div>
+
+  <?php if (!$subjectCatalog): ?>
+    <div class="empty" style="margin-top:1rem">No subjects match these filters. HODs add courses under HOD → Courses.</div>
+  <?php else: ?>
+    <?php foreach ($subjectCatalog as $block):
+      $dept = $block['department'];
+      $subjects = $block['subjects'];
+      if (!$subjects) {
+          continue;
+      }
+      $grouped = [];
+      foreach ($subjects as $s) {
+        $y = (int)($s['year_level'] ?? 0);
+        $sk = (string)($s['semester_key'] ?? 'odd');
+        if ($y < 1) {
+            $y = 0;
+        }
+        $grouped[$y][$sk][] = $s;
+      }
+      ksort($grouped);
+    ?>
+      <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--line)">
+        <div class="panel-h" style="margin-bottom:.65rem">
+          <strong><?= e((string)($dept['code'] ?? '')) ?> — <?= e((string)($dept['name'] ?? 'Department')) ?></strong>
+          <span class="chip"><?= count($subjects) ?></span>
+        </div>
+        <?php foreach ($grouped as $y => $bySem):
+          ksort($bySem);
+          $yearLabel = $y > 0 ? subject_year_label($y) : 'Unassigned year';
+        ?>
+          <?php foreach ($bySem as $sk => $rows):
+            $semLabel = $sk === 'even' ? 'Even Semester' : 'Odd Semester';
+          ?>
+            <div style="margin:.75rem 0 .35rem;font-size:.88rem;color:var(--muted)">
+              <strong style="color:var(--text)"><?= e($yearLabel) ?></strong> · <?= e($semLabel) ?>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Subject</th>
+                    <th>Type</th>
+                    <th>Credits</th>
+                    <th>Hours</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php foreach ($rows as $s): ?>
+                    <tr>
+                      <td><strong><?= e((string)$s['code']) ?></strong></td>
+                      <td><?= e((string)$s['name']) ?></td>
+                      <td><span class="chip"><?= ($s['course_type'] ?? '') === 'lab' ? 'Lab' : 'Course' ?></span></td>
+                      <td><?= e((string)($s['credits'] ?? '')) ?></td>
+                      <td><?= e((string)($s['contact_hours'] ?? '')) ?></td>
+                    </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
+          <?php endforeach; ?>
+        <?php endforeach; ?>
+      </div>
+    <?php endforeach; ?>
+  <?php endif; ?>
 </div>
