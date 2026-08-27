@@ -17,7 +17,7 @@ final class LegacyController extends Controller
         $this->serve('professor', $page, [
             'generate-plan', 'plans', 'plan-view', 'plan-compare', 'plan-export',
             'lessons', 'questions', 'question-paper',
-            'ppt', 'ppt-view', 'ppt-download', 'ppt-pdf', 'ppt-handout', 'assignments', 'attendance', 'marks', 'messages', 'settings',
+            'ppt', 'ppt-view', 'ppt-download', 'ppt-pdf', 'ppt-handout', 'assignments', 'attendance', 'marks', 'messages', 'message-hod', 'settings',
         ]);
     }
 

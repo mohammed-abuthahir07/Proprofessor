@@ -78,6 +78,7 @@ final class NavService
                     ['key' => 'attendance', 'label' => 'Attendance', 'href' => '/professor/attendance', 'icon' => 'calendar', 'feature' => 'attendance'],
                     ['key' => 'marks', 'label' => 'Internal Marks', 'href' => '/professor/marks', 'icon' => 'chart', 'feature' => 'internal_marks'],
                     ['key' => 'messages', 'label' => 'Message Students', 'href' => '/professor/messages', 'icon' => 'mail'],
+                    ['key' => 'message-hod', 'label' => 'Message HOD', 'href' => '/professor/message-hod', 'icon' => 'users'],
                     ['key' => 'settings', 'label' => 'Settings', 'href' => '/professor/settings', 'icon' => 'settings'],
                     ['key' => 'notifications', 'label' => 'Notifications', 'href' => '/professor/notifications', 'icon' => 'bell', 'feature' => 'notifications'],
                 ]],

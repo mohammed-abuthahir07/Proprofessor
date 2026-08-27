@@ -250,15 +250,22 @@ window.PPAI = {
           },
         },
         cutout: '62%',
-        animation: { animateRotate: true, duration: 900 },
+        animation: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          ? false
+          : { animateRotate: true, animateScale: true, duration: 1100, easing: 'easeOutQuart' },
       },
     });
   },
 
   _chartDefaults() {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     return {
       responsive: true,
       maintainAspectRatio: true,
+      animation: reduce ? false : {
+        duration: 1100,
+        easing: 'easeOutQuart',
+      },
       plugins: {
         legend: {
           labels: { color: '#c4b5fd', boxWidth: 12, font: { family: 'DM Sans' } },
@@ -279,7 +286,9 @@ window.PPAI = {
     if (!el || !window.Chart) return;
     const labels = cfg.labels || [];
     const values = cfg.values || [];
-    new Chart(el, {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const fillContainer = !!cfg.fillContainer;
+    const chart = new Chart(el, {
       type: 'bar',
       data: {
         labels,
@@ -287,12 +296,22 @@ window.PPAI = {
           label: cfg.label || 'Count',
           data: values,
           backgroundColor: cfg.color || '#8b5cf6',
-          borderRadius: 8,
-          maxBarThickness: 48,
+          borderRadius: 10,
+          maxBarThickness: fillContainer ? 64 : 48,
+          hoverBackgroundColor: cfg.hoverColor || '#a78bfa',
         }],
       },
       options: {
         ...this._chartDefaults(),
+        responsive: true,
+        maintainAspectRatio: !fillContainer,
+        animation: reduce ? false : {
+          duration: 1200,
+          easing: 'easeOutQuart',
+          delay(ctx) {
+            return ctx.type === 'data' ? ctx.dataIndex * 90 : 0;
+          },
+        },
         plugins: {
           ...this._chartDefaults().plugins,
           legend: { display: false },
@@ -315,6 +334,11 @@ window.PPAI = {
         },
       },
     });
+    if (fillContainer) {
+      requestAnimationFrame(() => chart.resize());
+      setTimeout(() => chart.resize(), 400);
+    }
+    return chart;
   },
 
   renderWorkloadChart(canvasId, cfg) {
@@ -324,6 +348,7 @@ window.PPAI = {
     const values = (cfg.values || []).map((v) => Number(v) || 0);
     const preferBar = !!cfg.preferBar || labels.length > 6;
     const colors = cfg.colors || ['#8b5cf6', '#a78bfa', '#6366f1', '#38bdf8', '#fbbf24', '#fb923c', '#22d3ee', '#34d399'];
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (preferBar) {
       new Chart(el, {
         type: 'bar',
@@ -335,11 +360,19 @@ window.PPAI = {
             backgroundColor: colors[0],
             borderRadius: 8,
             maxBarThickness: 28,
+            hoverBackgroundColor: colors[1] || colors[0],
           }],
         },
         options: {
           ...this._chartDefaults(),
           indexAxis: 'y',
+          animation: reduce ? false : {
+            duration: 1000,
+            easing: 'easeOutQuart',
+            delay(ctx) {
+              return ctx.type === 'data' ? ctx.dataIndex * 55 : 0;
+            },
+          },
           plugins: {
             ...this._chartDefaults().plugins,
             legend: { display: false },
@@ -366,12 +399,20 @@ window.PPAI = {
         datasets: [{
           data: values,
           backgroundColor: labels.map((_, i) => colors[i % colors.length]),
-          borderWidth: 0,
+          borderWidth: 2,
+          borderColor: 'rgba(11,9,28,.85)',
+          hoverOffset: 8,
         }],
       },
       options: {
         ...this._chartDefaults(),
         cutout: '58%',
+        animation: reduce ? false : {
+          animateRotate: true,
+          animateScale: true,
+          duration: 1100,
+          easing: 'easeOutQuart',
+        },
         plugins: {
           ...this._chartDefaults().plugins,
           legend: {
@@ -386,7 +427,9 @@ window.PPAI = {
   renderStackedBarChart(canvasId, cfg) {
     const el = document.getElementById(canvasId);
     if (!el || !window.Chart) return;
-    new Chart(el, {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const fillContainer = !!cfg.fillContainer;
+    const chart = new Chart(el, {
       type: 'bar',
       data: {
         labels: cfg.labels || [],
@@ -397,6 +440,7 @@ window.PPAI = {
             backgroundColor: '#8b5cf6',
             borderRadius: 6,
             maxBarThickness: 36,
+            hoverBackgroundColor: '#a78bfa',
           },
           {
             label: 'Labs',
@@ -404,11 +448,21 @@ window.PPAI = {
             backgroundColor: '#38bdf8',
             borderRadius: 6,
             maxBarThickness: 36,
+            hoverBackgroundColor: '#7dd3fc',
           },
         ],
       },
       options: {
         ...this._chartDefaults(),
+        responsive: true,
+        maintainAspectRatio: !fillContainer,
+        animation: reduce ? false : {
+          duration: 1100,
+          easing: 'easeOutQuart',
+          delay(ctx) {
+            return ctx.type === 'data' ? ctx.dataIndex * 70 : 0;
+          },
+        },
         scales: {
           x: {
             stacked: true,
@@ -424,5 +478,10 @@ window.PPAI = {
         },
       },
     });
+    if (fillContainer) {
+      requestAnimationFrame(() => chart.resize());
+      setTimeout(() => chart.resize(), 400);
+    }
+    return chart;
   },
 };

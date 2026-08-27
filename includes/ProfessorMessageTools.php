@@ -573,4 +573,54 @@ final class ProfessorMessageTools
     {
         return count(self::findRecipients($user, $year, $subjectId, $classId));
     }
+
+    /**
+     * Delete professor→student announcement + matching student notifications + attachment.
+     *
+     * @return array{ok:bool,error?:string}
+     */
+    public static function delete(array $user, int $announcementId): array
+    {
+        self::ensureSchema();
+        $role = (string)($user['role'] ?? '');
+        if (!in_array($role, ['professor', 'admin', 'superadmin'], true)) {
+            return ['ok' => false, 'error' => 'Only professors can delete student messages.'];
+        }
+        $profId = (int)($user['id'] ?? 0);
+        $instId = (int)($user['institution_id'] ?? 0);
+        if ($profId < 1 || $instId < 1 || $announcementId < 1) {
+            return ['ok' => false, 'error' => 'Invalid message.'];
+        }
+
+        $ann = Database::fetch(
+            'SELECT * FROM professor_announcements WHERE id = ? AND institution_id = ? AND professor_id = ?',
+            [$announcementId, $instId, $profId]
+        );
+        if (!$ann && in_array($role, ['admin', 'superadmin'], true)) {
+            $ann = Database::fetch(
+                'SELECT * FROM professor_announcements WHERE id = ? AND institution_id = ?',
+                [$announcementId, $instId]
+            );
+        }
+        if (!$ann) {
+            return ['ok' => false, 'error' => 'Message not found.'];
+        }
+
+        Database::query(
+            'DELETE FROM notifications
+             WHERE type = ?
+               AND JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) = ?
+               AND CAST(JSON_UNQUOTE(JSON_EXTRACT(meta, "$.announcement_id")) AS UNSIGNED) = ?',
+            ['announcement', 'professor_student_message', $announcementId]
+        );
+
+        self::deleteAttachmentFile((string)($ann['attachment_path'] ?? ''));
+
+        Database::query(
+            'DELETE FROM professor_announcements WHERE id = ? AND institution_id = ?',
+            [$announcementId, $instId]
+        );
+
+        return ['ok' => true];
+    }
 }

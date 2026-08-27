@@ -6,10 +6,11 @@ namespace App\Controllers\Api;
 use App\Core\Controller;
 use AdminHodMessageTools;
 use Auth;
+use ProfessorHodMessageTools;
 use ProfessorMessageTools;
 
 /**
- * GET /api/messages/attachment?id={id}&source=professor|admin_hod
+ * GET /api/messages/attachment?id={id}&source=professor|admin_hod|professor_hod
  * Secure download for message attachments.
  */
 final class MessageAttachmentController extends Controller
@@ -44,6 +45,12 @@ final class MessageAttachmentController extends Controller
             };
             if ($ann) {
                 $fullPath = AdminHodMessageTools::attachmentAbsolutePath((string)($ann['attachment_path'] ?? ''));
+            }
+        } elseif ($source === 'professor_hod') {
+            ProfessorHodMessageTools::ensureSchema();
+            $ann = ProfessorHodMessageTools::messageForAttachment($user, $announcementId);
+            if ($ann) {
+                $fullPath = ProfessorHodMessageTools::attachmentAbsolutePath((string)($ann['attachment_path'] ?? ''));
             }
         } else {
             ProfessorMessageTools::ensureSchema();

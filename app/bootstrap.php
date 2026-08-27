@@ -18,6 +18,7 @@ require_once __DIR__ . '/../includes/LessonPlanTools.php';
 require_once __DIR__ . '/../includes/QuestionBankTools.php';
 require_once __DIR__ . '/../includes/ProfessorMessageTools.php';
 require_once __DIR__ . '/../includes/AdminHodMessageTools.php';
+require_once __DIR__ . '/../includes/ProfessorHodMessageTools.php';
 require_once __DIR__ . '/../includes/Permissions.php';
 require_once __DIR__ . '/../includes/NotificationService.php';
 

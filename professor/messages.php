@@ -90,6 +90,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flash('success', 'Message sent successfully to ' . $n . ' student' . ($n === 1 ? '' : 's') . '.');
         redirect('/professor/messages.php?year=' . $year . '&subject_id=' . $subjectId . '&class_id=' . $classId);
     }
+
+    if ($action === 'delete_message') {
+        $result = ProfessorMessageTools::delete($user, (int)post('announcement_id'));
+        if (!$result['ok']) {
+            flash('error', $result['error'] ?? 'Unable to delete message.');
+        } else {
+            flash('success', 'Message deleted for you and all student recipients.');
+        }
+        redirect(
+            '/professor/messages.php?year=' . (int)post('year', $year)
+            . '&subject_id=' . (int)post('subject_id', $subjectId)
+            . '&class_id=' . (int)post('class_id', $classId)
+        );
+    }
 }
 
 $history = ProfessorMessageTools::sentHistory($user, 25);
@@ -205,7 +219,18 @@ render_header('Message Students', 'messages', [
     $attachExt = strtolower(pathinfo($attachName, PATHINFO_EXTENSION));
   ?>
     <div style="padding:.85rem 0;border-bottom:1px solid var(--line)">
-      <strong><?= e($courseLab) ?></strong>
+      <div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start">
+        <strong><?= e($courseLab) ?></strong>
+        <form method="post" style="margin:0;flex-shrink:0" onsubmit="return confirm('Delete this message for you and all students?');">
+          <?= csrf_field() ?>
+          <input type="hidden" name="action" value="delete_message">
+          <input type="hidden" name="announcement_id" value="<?= (int)$h['id'] ?>">
+          <input type="hidden" name="year" value="<?= (int)$year ?>">
+          <input type="hidden" name="subject_id" value="<?= (int)$subjectId ?>">
+          <input type="hidden" name="class_id" value="<?= (int)$classId ?>">
+          <button class="btn btn-sm btn-ghost" type="submit" style="color:#f87171">Delete</button>
+        </form>
+      </div>
       <div class="muted" style="font-size:.85rem;margin:.15rem 0"><?= e($yearLab) ?> · <?= e($classLab) ?></div>
       <div style="white-space:pre-wrap;font-size:.92rem"><?= e((string)$h['body']) ?></div>
       <?php if ($hasAttachment && $attachName !== ''): ?>

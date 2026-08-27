@@ -18,6 +18,7 @@ require_once __DIR__ . '/AssignmentTools.php';
 require_once __DIR__ . '/AttendanceTools.php';
 require_once __DIR__ . '/ProfessorMessageTools.php';
 require_once __DIR__ . '/AdminHodMessageTools.php';
+require_once __DIR__ . '/ProfessorHodMessageTools.php';
 require_once __DIR__ . '/StudentAcademicHistoryTools.php';
 require_once __DIR__ . '/NotificationService.php';
 require_once __DIR__ . '/Permissions.php';
