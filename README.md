@@ -415,11 +415,11 @@ After `php database/seed_e2e_test_data.php --confirm-local-reset`:
 #	Professor Name	Email	Suggested Subject
 1	Vikram Raj	|| `vikram.raj@test.com`	Data Structures
 2	Meena Krishnan	|| `meena.krishnan@test.com`	Computer Organization
-3	Suresh Babu ||	suresh.babu@test.com	Web Technologies
-4	Nithya Devi	|| nithya.devi@test.com	Artificial Intelligence
-5	Vignesh Kumar ||	vignesh.kumar@test.com	Machine Learning
-6	Harish Anand ||	harish.anand@test.com	Cloud Computing
-7	Keerthana || R	keerthana.r@test.com	Cyber Security
+3	Suresh Babu ||	`suresh.babu@test.com`	Web Technologies
+4	Nithya Devi	|| `nithya.devi@test.com`	Artificial Intelligence
+5	Vignesh Kumar ||	`vignesh.kumar@test.com`	Machine Learning
+6	Harish Anand ||	`harish.anand@test.com`	Cloud Computing
+7	Keerthana || R	`keerthana.r@test.com`	Cyber Security
 
 | Student — 1st Year B | `mohammed@test.com` | Register 224026 |
 | Student — 1st Year A | `Ayyanar@test.com` | Register 224027 |
