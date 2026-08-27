@@ -27,6 +27,10 @@ final class ProfessorMessageTools
                 title VARCHAR(200) NOT NULL,
                 body TEXT NOT NULL,
                 recipient_count INT UNSIGNED NOT NULL DEFAULT 0,
+                attachment_path VARCHAR(255) NULL,
+                attachment_original_name VARCHAR(255) NULL,
+                attachment_mime_type VARCHAR(100) NULL,
+                attachment_size INT UNSIGNED NULL,
                 meta LONGTEXT NULL,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_ann_prof (professor_id, created_at),
@@ -34,6 +38,192 @@ final class ProfessorMessageTools
                 INDEX idx_ann_scope (subject_id, class_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
         );
+        $cols = [];
+        foreach (Database::fetchAll('SHOW COLUMNS FROM professor_announcements') as $c) {
+            $cols[$c['Field']] = true;
+        }
+        if (!isset($cols['attachment_path'])) {
+            Database::query('ALTER TABLE professor_announcements ADD COLUMN attachment_path VARCHAR(255) NULL AFTER recipient_count');
+        }
+        if (!isset($cols['attachment_original_name'])) {
+            Database::query('ALTER TABLE professor_announcements ADD COLUMN attachment_original_name VARCHAR(255) NULL AFTER attachment_path');
+        }
+        if (!isset($cols['attachment_mime_type'])) {
+            Database::query('ALTER TABLE professor_announcements ADD COLUMN attachment_mime_type VARCHAR(100) NULL AFTER attachment_original_name');
+        }
+        if (!isset($cols['attachment_size'])) {
+            Database::query('ALTER TABLE professor_announcements ADD COLUMN attachment_size INT UNSIGNED NULL AFTER attachment_mime_type');
+        }
+    }
+
+    public const ATTACHMENT_MAX_BYTES = 10485760; // 10 MB
+
+    /**
+     * @param array<string,mixed>|null $file $_FILES['attachment'] shape
+     * @return array{ok:bool,error?:string,path?:string,original_name?:string,mime_type?:string,size?:int}
+     */
+    public static function processAttachmentUpload(?array $file): array
+    {
+        if ($file === null || !isset($file['error']) || (int)$file['error'] === UPLOAD_ERR_NO_FILE) {
+            return ['ok' => true];
+        }
+        if ((int)$file['error'] !== UPLOAD_ERR_OK) {
+            return ['ok' => false, 'error' => 'Attachment upload failed. Please try again.'];
+        }
+        $size = (int)($file['size'] ?? 0);
+        if ($size < 1 || $size > self::ATTACHMENT_MAX_BYTES) {
+            return ['ok' => false, 'error' => 'File size must be 10 MB or less.'];
+        }
+        $original = trim((string)($file['name'] ?? ''));
+        $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
+        if (!in_array($ext, ['pdf', 'docx'], true)) {
+            return ['ok' => false, 'error' => 'Only PDF and DOCX files are allowed.'];
+        }
+        $tmp = (string)($file['tmp_name'] ?? '');
+        if ($tmp === '' || !is_uploaded_file($tmp)) {
+            return ['ok' => false, 'error' => 'Attachment upload failed. Please try again.'];
+        }
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $detected = $finfo ? (string)finfo_file($finfo, $tmp) : '';
+        if ($finfo) {
+            finfo_close($finfo);
+        }
+        $allowedMimes = [
+            'pdf' => ['application/pdf'],
+            'docx' => [
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/zip',
+                'application/x-zip-compressed',
+            ],
+        ];
+        if ($detected === '' || !in_array($detected, $allowedMimes[$ext], true)) {
+            return ['ok' => false, 'error' => 'Only PDF and DOCX files are allowed.'];
+        }
+        if ($ext === 'pdf') {
+            $head = @file_get_contents($tmp, false, null, 0, 5);
+            if ($head === false || !str_starts_with($head, '%PDF-')) {
+                return ['ok' => false, 'error' => 'Only PDF and DOCX files are allowed.'];
+            }
+        }
+        if ($ext === 'docx') {
+            if (class_exists('ZipArchive', false)) {
+                $zip = new ZipArchive();
+                if ($zip->open($tmp) !== true || $zip->locateName('word/document.xml') === false) {
+                    if ($zip->open($tmp) === true) {
+                        $zip->close();
+                    }
+                    return ['ok' => false, 'error' => 'Only PDF and DOCX files are allowed.'];
+                }
+                $zip->close();
+            } elseif ($detected === 'application/zip' || $detected === 'application/x-zip-compressed') {
+                return ['ok' => false, 'error' => 'Only PDF and DOCX files are allowed.'];
+            }
+        }
+        $dir = dirname(__DIR__) . '/uploads/professor-messages';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        $htaccess = $dir . '/.htaccess';
+        if (!is_file($htaccess)) {
+            file_put_contents($htaccess, "Options -Indexes\n<FilesMatch \"\\.(php|phtml|php3|php4|php5|phar|cgi|pl|py|js|html?)$\">\n  Require all denied\n</FilesMatch>\n");
+        }
+        $safeName = bin2hex(random_bytes(16)) . '.' . $ext;
+        $dest = $dir . '/' . $safeName;
+        if (!move_uploaded_file($tmp, $dest)) {
+            return ['ok' => false, 'error' => 'Attachment upload failed. Please try again.'];
+        }
+        $mime = $ext === 'pdf'
+            ? 'application/pdf'
+            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        return [
+            'ok' => true,
+            'path' => 'professor-messages/' . $safeName,
+            'original_name' => mb_substr($original !== '' ? $original : $safeName, 0, 255),
+            'mime_type' => $mime,
+            'size' => $size,
+        ];
+    }
+
+    public static function deleteAttachmentFile(?string $relativePath): void
+    {
+        $relativePath = trim((string)$relativePath);
+        if ($relativePath === '' || str_contains($relativePath, '..')) {
+            return;
+        }
+        $full = dirname(__DIR__) . '/uploads/' . $relativePath;
+        if (is_file($full)) {
+            @unlink($full);
+        }
+    }
+
+    public static function attachmentAbsolutePath(?string $relativePath): ?string
+    {
+        $relativePath = trim((string)$relativePath);
+        if ($relativePath === '' || str_contains($relativePath, '..') || !str_starts_with($relativePath, 'professor-messages/')) {
+            return null;
+        }
+        $full = dirname(__DIR__) . '/uploads/' . $relativePath;
+        return is_file($full) ? $full : null;
+    }
+
+    /**
+     * @return array<string,mixed>|null
+     */
+    public static function getAnnouncement(int $announcementId, int $institutionId): ?array
+    {
+        self::ensureSchema();
+        $row = Database::fetch(
+            'SELECT * FROM professor_announcements WHERE id = ? AND institution_id = ?',
+            [$announcementId, $institutionId]
+        );
+        return $row ?: null;
+    }
+
+    /**
+     * @return array<string,mixed>|null Announcement row if student may download attachment
+     */
+    public static function announcementForStudentAttachment(array $user, int $announcementId): ?array
+    {
+        if (($user['role'] ?? '') !== 'student') {
+            return null;
+        }
+        $instId = (int)($user['institution_id'] ?? 0);
+        $ann = self::getAnnouncement($announcementId, $instId);
+        if (!$ann || trim((string)($ann['attachment_path'] ?? '')) === '') {
+            return null;
+        }
+        $prof = Database::fetch(
+            'SELECT * FROM users WHERE id = ? AND institution_id = ? AND role IN ("professor","admin")',
+            [(int)$ann['professor_id'], $instId]
+        );
+        if (!$prof) {
+            return null;
+        }
+        foreach (self::findRecipients($prof, (int)$ann['year'], (int)$ann['subject_id'], (int)$ann['class_id']) as $stu) {
+            if ((int)($stu['id'] ?? 0) === (int)$user['id']) {
+                return $ann;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @return array<string,mixed>|null Announcement row if professor may download attachment
+     */
+    public static function announcementForProfessorAttachment(array $user, int $announcementId): ?array
+    {
+        if (!in_array((string)($user['role'] ?? ''), ['professor', 'admin'], true)) {
+            return null;
+        }
+        $instId = (int)($user['institution_id'] ?? 0);
+        $ann = self::getAnnouncement($announcementId, $instId);
+        if (!$ann || trim((string)($ann['attachment_path'] ?? '')) === '') {
+            return null;
+        }
+        if (($user['role'] ?? '') === 'professor' && (int)$ann['professor_id'] !== (int)$user['id']) {
+            return null;
+        }
+        return $ann;
     }
 
     /**
@@ -213,9 +403,10 @@ final class ProfessorMessageTools
     }
 
     /**
+     * @param array<string,mixed>|null $uploadFile $_FILES['attachment'] when present
      * @return array{ok:bool,error?:string,recipient_count?:int,announcement_id?:int}
      */
-    public static function send(array $user, int $year, int $subjectId, int $classId, string $message, string $title = ''): array
+    public static function send(array $user, int $year, int $subjectId, int $classId, string $message, string $title = '', ?array $uploadFile = null): array
     {
         self::ensureSchema();
         $auth = self::assertAuthorizedScope($user, $year, $subjectId, $classId);
@@ -242,6 +433,17 @@ final class ProfessorMessageTools
             return ['ok' => false, 'error' => 'No matching students found for this year/course/class.'];
         }
 
+        $attachment = null;
+        if ($uploadFile !== null) {
+            $upload = self::processAttachmentUpload($uploadFile);
+            if (!$upload['ok']) {
+                return ['ok' => false, 'error' => $upload['error'] ?? 'Attachment upload failed.'];
+            }
+            if (!empty($upload['path'])) {
+                $attachment = $upload;
+            }
+        }
+
         /** @var array $subject */
         $subject = $auth['subject'];
         /** @var array $class */
@@ -266,11 +468,17 @@ final class ProfessorMessageTools
             'title' => $title,
             'body' => $message,
             'recipient_count' => count($recipients),
+            'attachment_path' => $attachment['path'] ?? null,
+            'attachment_original_name' => $attachment['original_name'] ?? null,
+            'attachment_mime_type' => $attachment['mime_type'] ?? null,
+            'attachment_size' => isset($attachment['size']) ? (int)$attachment['size'] : null,
             'meta' => json_encode([
                 'course_label' => $courseLabel,
                 'class_label' => $classLabel,
                 'year_label' => $yearLabel,
                 'sender_name' => $senderName,
+                'has_attachment' => !empty($attachment['path']),
+                'attachment_original_name' => $attachment['original_name'] ?? null,
             ], JSON_UNESCAPED_UNICODE),
         ]);
 
@@ -307,6 +515,8 @@ final class ProfessorMessageTools
                         'course_label' => $courseLabel,
                         'class_label' => $classLabel,
                         'kind' => 'professor_student_message',
+                        'has_attachment' => !empty($attachment['path']),
+                        'attachment_original_name' => $attachment['original_name'] ?? null,
                     ],
                 ]
             );
@@ -320,6 +530,15 @@ final class ProfessorMessageTools
         }
 
         if ($sent < 1) {
+            if (!empty($attachment['path'])) {
+                self::deleteAttachmentFile((string)$attachment['path']);
+                Database::update('professor_announcements', [
+                    'attachment_path' => null,
+                    'attachment_original_name' => null,
+                    'attachment_mime_type' => null,
+                    'attachment_size' => null,
+                ], 'id = :id', ['id' => $annId]);
+            }
             return ['ok' => false, 'error' => 'Could not deliver to any students.'];
         }
 

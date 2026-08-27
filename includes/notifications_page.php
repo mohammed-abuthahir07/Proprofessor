@@ -146,11 +146,19 @@ render_header('Notifications', 'notifications', ['subtitle' => 'Approvals, AI co
   <?php foreach ($rows as $n):
     $prio = strtolower((string)($n['priority'] ?? 'medium'));
     $delivery = json_decode((string)($n['delivery_status'] ?? ''), true) ?: [];
+    $nmeta = json_decode((string)($n['meta'] ?? ''), true) ?: [];
     $hasAction = !empty($n['action_type']) || !empty($n['action_url']);
     $btnLabel = NotificationService::actionLabel(
         $n['action_type'] ?? null,
         !empty($n['action_url']) ? 'Open' : null
     );
+    $msgAttachment = null;
+    if (($nmeta['kind'] ?? '') === 'professor_student_message' && !empty($nmeta['announcement_id']) && !empty($nmeta['has_attachment'])) {
+        $msgAttachment = [
+            'announcement_id' => (int)$nmeta['announcement_id'],
+            'name' => (string)($nmeta['attachment_original_name'] ?? 'attachment'),
+        ];
+    }
   ?>
     <div style="padding:.9rem 0;border-bottom:1px solid var(--line);opacity:<?= $n['is_read'] ? '.65' : '1' ?>">
       <div style="display:flex;justify-content:space-between;gap:1rem">
@@ -161,6 +169,17 @@ render_header('Notifications', 'notifications', ['subtitle' => 'Approvals, AI co
           </div>
           <strong><?= e($n['title']) ?></strong>
           <div style="color:var(--muted);font-size:.88rem;white-space:pre-wrap"><?= e((string)$n['body']) ?></div>
+          <?php if ($msgAttachment): ?>
+            <?php
+              $attachExt = strtolower(pathinfo($msgAttachment['name'], PATHINFO_EXTENSION));
+              $dlLabel = $attachExt === 'pdf' ? 'Download PDF' : ($attachExt === 'docx' ? 'Download DOCX' : 'Download');
+            ?>
+            <div style="margin-top:.45rem;font-size:.88rem">
+              <strong>Attachment:</strong><br>
+              📄 <?= e($msgAttachment['name']) ?>
+              <a class="btn btn-sm btn-ghost" style="margin-left:.25rem;margin-top:.25rem" href="<?= e(base_url('/api/messages/attachment?id=' . $msgAttachment['announcement_id'])) ?>"><?= e($dlLabel) ?></a>
+            </div>
+          <?php endif; ?>
           <div class="chip-row" style="margin-top:.35rem">
             <span class="chip"><?= e($n['type']) ?></span>
             <span class="chip"><?= e($n['created_at']) ?></span>

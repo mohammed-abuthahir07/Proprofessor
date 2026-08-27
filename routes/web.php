@@ -11,6 +11,7 @@ use App\Controllers\Admin\InstitutionController;
 use App\Controllers\Admin\NaacController;
 use App\Controllers\Admin\UserController;
 use App\Controllers\Api\AiController;
+use App\Controllers\Api\MessageAttachmentController;
 use App\Controllers\Api\ProfessorMessagesController;
 use App\Controllers\Auth\AuthController;
 use App\Controllers\Hod\DashboardController as HodDashboardController;
@@ -63,6 +64,7 @@ $router->post('/hod/notifications', [NotificationController::class, 'index']);
 // AI API
 $router->post('/api/ai', [AiController::class, 'handle']);
 $router->post('/api/professor/messages', [ProfessorMessagesController::class, 'store']);
+$router->get('/api/messages/attachment', [MessageAttachmentController::class, 'download']);
 
 // Remaining modules via MVC front controller bridge
 $router->get('/professor/{page}', [LegacyController::class, 'professor']);

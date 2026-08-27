@@ -47,7 +47,15 @@ final class ProfessorMessagesController extends Controller
         $title = (string)($json['title'] ?? $_POST['title'] ?? '');
 
         ProfessorMessageTools::ensureSchema();
-        $result = ProfessorMessageTools::send($user, $year, $courseId, $classId, $message, $title);
+        $result = ProfessorMessageTools::send(
+            $user,
+            $year,
+            $courseId,
+            $classId,
+            $message,
+            $title,
+            isset($_FILES['attachment']) && is_array($_FILES['attachment']) ? $_FILES['attachment'] : null
+        );
 
         if (!$result['ok']) {
             json_response([

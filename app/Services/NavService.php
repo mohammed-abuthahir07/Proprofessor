@@ -12,7 +12,7 @@ final class NavService
                 ['label' => 'MAIN', 'items' => [
                     ['key' => 'dash', 'label' => 'Dashboard', 'href' => '/student/dashboard', 'icon' => 'home'],
                     ['key' => 'courses', 'label' => 'My Courses', 'href' => '/student/courses', 'icon' => 'book', 'feature' => 'student_portal'],
-                    ['key' => 'notes', 'label' => 'Notes & PPT', 'href' => '/student/notes', 'icon' => 'folder'],
+                    ['key' => 'notes', 'label' => 'Course PPT', 'href' => '/student/notes', 'icon' => 'folder'],
                 ]],
                 ['label' => 'LEARNING', 'items' => [
                     ['key' => 'assignments', 'label' => 'Assignments', 'href' => '/student/assignments', 'icon' => 'edit'],

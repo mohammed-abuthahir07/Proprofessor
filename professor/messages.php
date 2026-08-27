@@ -45,7 +45,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $message = (string)post('message');
         $title = trim((string)post('title'));
 
-        $result = ProfessorMessageTools::send($user, $year, $subjectId, $classId, $message, $title);
+        $result = ProfessorMessageTools::send(
+            $user,
+            $year,
+            $subjectId,
+            $classId,
+            $message,
+            $title,
+            isset($_FILES['attachment']) && is_array($_FILES['attachment']) ? $_FILES['attachment'] : null
+        );
         $wantsJson = str_contains(strtolower((string)($_SERVER['HTTP_ACCEPT'] ?? '')), 'application/json')
             || (string)post('format') === 'json';
 
@@ -133,7 +141,7 @@ render_header('Message Students', 'messages', [
     </div>
   </form>
 
-  <form method="post" class="form-grid" id="sendForm">
+  <form method="post" class="form-grid" id="sendForm" enctype="multipart/form-data">
     <?= csrf_field() ?>
     <input type="hidden" name="action" value="send_message">
     <input type="hidden" name="year" value="<?= (int)$year ?>">
@@ -149,6 +157,12 @@ render_header('Message Students', 'messages', [
       <label for="message">Message</label>
       <textarea name="message" id="message" rows="6" maxlength="4000" placeholder="Write your message…" required <?= !$canSend ? 'disabled' : '' ?>></textarea>
       <div class="muted" style="font-size:.8rem;margin-top:.25rem">Max 4000 characters.</div>
+    </div>
+
+    <div class="form-row">
+      <label for="attachment">Attachment <span class="muted">(optional)</span></label>
+      <input type="file" name="attachment" id="attachment" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" <?= !$canSend ? 'disabled' : '' ?>>
+      <div class="muted" style="font-size:.8rem;margin-top:.25rem">Supported formats: PDF, DOCX · Maximum file size: 10 MB.</div>
     </div>
 
     <div class="muted" style="margin:.25rem 0 .75rem">
@@ -186,11 +200,20 @@ render_header('Message Students', 'messages', [
         ]);
     }
     $yearLab = subject_year_label((int)($h['year'] ?? 0));
+    $hasAttachment = trim((string)($h['attachment_path'] ?? '')) !== '';
+    $attachName = (string)($h['attachment_original_name'] ?? '');
+    $attachExt = strtolower(pathinfo($attachName, PATHINFO_EXTENSION));
   ?>
     <div style="padding:.85rem 0;border-bottom:1px solid var(--line)">
       <strong><?= e($courseLab) ?></strong>
       <div class="muted" style="font-size:.85rem;margin:.15rem 0"><?= e($yearLab) ?> · <?= e($classLab) ?></div>
       <div style="white-space:pre-wrap;font-size:.92rem"><?= e((string)$h['body']) ?></div>
+      <?php if ($hasAttachment && $attachName !== ''): ?>
+        <div style="margin-top:.45rem;font-size:.88rem">
+          📎 <?= e($attachName) ?>
+          <a class="btn btn-sm btn-ghost" style="margin-left:.35rem" href="<?= e(base_url('/api/messages/attachment?id=' . (int)$h['id'])) ?>">Download<?= $attachExt === 'pdf' ? ' PDF' : ($attachExt === 'docx' ? ' DOCX' : '') ?></a>
+        </div>
+      <?php endif; ?>
       <div class="chip-row" style="margin-top:.35rem">
         <span class="chip">Recipients: <?= (int)$h['recipient_count'] ?></span>
         <span class="chip">Sent: <?= e((string)$h['created_at']) ?></span>
