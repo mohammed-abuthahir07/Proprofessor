@@ -18,6 +18,10 @@ $roster = Database::fetch(
 $reg = trim((string)($user['register_no'] ?: ($roster['register_no'] ?? '')));
 $min = institution_attendance_min((int)$user['institution_id']);
 
+// Current academic context only — same subject scope as Internal Marks / My Courses.
+$currentSubjects = courses_for_student($user);
+$allowedSubjectIds = array_map(static fn($s) => (int)$s['id'], $currentSubjects);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     if (post('action') === 'request_regularization') {
@@ -47,17 +51,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $rows = [];
-if ($classId) {
+if ($classId && $allowedSubjectIds) {
+    $placeholders = implode(',', array_fill(0, count($allowedSubjectIds), '?'));
+    $params = [(int)$user['institution_id'], $classId, (int)$user['id'], $reg];
+    foreach ($allowedSubjectIds as $sid) {
+        $params[] = $sid;
+    }
     $rows = Database::fetchAll(
-        'SELECT s.name AS subject_name, r.status, sess.session_date, sess.period, sess.id AS session_id, sess.subject_id
+        "SELECT s.name AS subject_name, r.status, sess.session_date, sess.period, sess.id AS session_id, sess.subject_id
          FROM attendance_records r
          JOIN attendance_sessions sess ON sess.id = r.session_id
            AND sess.institution_id = ?
            AND sess.class_id = ?
-         LEFT JOIN subjects s ON s.id = sess.subject_id
-         WHERE r.student_id = ? OR (r.register_no <> "" AND r.register_no = ?)
-         ORDER BY sess.session_date DESC, sess.period DESC',
-        [$user['institution_id'], $classId, $user['id'], $reg]
+         JOIN subjects s ON s.id = sess.subject_id
+         WHERE (r.student_id = ? OR (r.register_no <> '' AND r.register_no = ?))
+           AND sess.subject_id IN ($placeholders)
+         ORDER BY sess.session_date DESC, sess.period DESC",
+        $params
     );
 }
 $bySub = [];
