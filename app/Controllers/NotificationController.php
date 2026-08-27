@@ -66,6 +66,22 @@ final class NotificationController extends Controller
             $this->redirect('/admin/notifications');
         }
 
+        if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && post('action') === 'delete_hod_message') {
+            verify_csrf();
+            if (!in_array($role, ['admin', 'superadmin'], true)) {
+                flash('error', 'Only College Admin can delete HOD messages.');
+                $this->redirect('/' . $prefix . '/notifications');
+            }
+            \AdminHodMessageTools::ensureSchema();
+            $result = \AdminHodMessageTools::delete($user, (int)post('announcement_id'));
+            if (!$result['ok']) {
+                flash('error', $result['error'] ?? 'Unable to delete message.');
+            } else {
+                flash('success', 'Message deleted for admin and all HODs.');
+            }
+            $this->redirect('/admin/notifications');
+        }
+
         $hodRecipientCount = 0;
         $hodSentHistory = [];
         if (in_array($role, ['admin', 'superadmin'], true)) {
@@ -97,10 +113,14 @@ final class NotificationController extends Controller
             $digestPreview = NotificationService::buildDigest($user, (string)$this->get('digest'));
         }
 
+        $canMessageHods = in_array($role, ['admin', 'superadmin'], true);
+
         $this->view('shared/notifications', [
             'title' => 'Notifications',
             'active' => 'notifications',
-            'subtitle' => 'Approvals, AI completions & system events',
+            'subtitle' => $canMessageHods
+                ? 'Send messages & files to all department HODs'
+                : 'Approvals, AI completions & system events',
             'rows' => $rows,
             'rolePrefix' => $prefix,
             'typeFilter' => $type,
@@ -108,7 +128,7 @@ final class NotificationController extends Controller
             'providers' => NotificationService::allProviderStatuses(),
             'digestMode' => $digestMode,
             'digestPreview' => $digestPreview,
-            'canMessageHods' => in_array($role, ['admin', 'superadmin'], true),
+            'canMessageHods' => $canMessageHods,
             'hodRecipientCount' => $hodRecipientCount,
             'hodSentHistory' => $hodSentHistory,
         ]);

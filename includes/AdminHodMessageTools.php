@@ -345,4 +345,45 @@ final class AdminHodMessageTools
         }
         return $ann;
     }
+
+    /**
+     * Delete announcement + matching HOD inbox notifications + attachment file.
+     *
+     * @return array{ok:bool,error?:string}
+     */
+    public static function delete(array $admin, int $announcementId): array
+    {
+        self::ensureSchema();
+        $role = (string)($admin['role'] ?? '');
+        if (!in_array($role, ['admin', 'superadmin'], true)) {
+            return ['ok' => false, 'error' => 'Only College Admin can delete HOD messages.'];
+        }
+        $instId = (int)($admin['institution_id'] ?? 0);
+        if ($instId < 1 || $announcementId < 1) {
+            return ['ok' => false, 'error' => 'Invalid message.'];
+        }
+
+        $ann = self::getAnnouncement($announcementId, $instId);
+        if (!$ann) {
+            return ['ok' => false, 'error' => 'Message not found.'];
+        }
+
+        // Remove from every HOD notification feed that references this announcement.
+        Database::query(
+            'DELETE FROM notifications
+             WHERE type = ?
+               AND JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) = ?
+               AND CAST(JSON_UNQUOTE(JSON_EXTRACT(meta, "$.announcement_id")) AS UNSIGNED) = ?',
+            ['announcement', 'admin_hod_message', $announcementId]
+        );
+
+        self::deleteAttachmentFile((string)($ann['attachment_path'] ?? ''));
+
+        Database::query(
+            'DELETE FROM admin_hod_announcements WHERE id = ? AND institution_id = ?',
+            [$announcementId, $instId]
+        );
+
+        return ['ok' => true];
+    }
 }

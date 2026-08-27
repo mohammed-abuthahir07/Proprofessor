@@ -57,7 +57,15 @@ $hodSentHistory = $hodSentHistory ?? [];
         $attExt = strtolower(pathinfo($attName, PATHINFO_EXTENSION));
       ?>
         <div style="padding:.85rem 0;border-bottom:1px solid var(--line)">
-          <strong><?= e((string)$h['title']) ?></strong>
+          <div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start">
+            <strong><?= e((string)$h['title']) ?></strong>
+            <form method="post" style="margin:0;flex-shrink:0" onsubmit="return confirm('Delete this message for admin and all HODs?');">
+              <?= csrf_field() ?>
+              <input type="hidden" name="action" value="delete_hod_message">
+              <input type="hidden" name="announcement_id" value="<?= (int)$h['id'] ?>">
+              <button class="btn btn-sm btn-ghost" type="submit" style="color:#f87171">Delete</button>
+            </form>
+          </div>
           <div style="white-space:pre-wrap;font-size:.92rem;margin-top:.25rem"><?= e((string)$h['body']) ?></div>
           <?php if ($hasAtt && $attName !== ''): ?>
             <div style="margin-top:.4rem;font-size:.88rem">
@@ -76,6 +84,7 @@ $hodSentHistory = $hodSentHistory ?? [];
 </div>
 <?php endif; ?>
 
+<?php if (!$canMessageHods): ?>
 <div class="panel">
   <div class="panel-h">
     <div class="chip-row">
@@ -188,3 +197,4 @@ $hodSentHistory = $hodSentHistory ?? [];
   <?php endforeach; ?>
   <?php endif; ?>
 </div>
+<?php endif; ?>
