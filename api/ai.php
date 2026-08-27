@@ -33,6 +33,256 @@ function load_plan_for_user(int $planId, array $user): ?array
 }
 
 /**
+ * Resolve a student's selected subject against their CURRENT academic context (My Courses scope).
+ *
+ * @return array<string,mixed>|null
+ */
+function resolve_student_ask_ai_subject(array $user, int $subjectId): ?array
+{
+    if ($subjectId < 1) {
+        return null;
+    }
+    foreach (courses_for_student($user) as $subject) {
+        if ((int)($subject['id'] ?? 0) === $subjectId) {
+            return $subject;
+        }
+    }
+    return null;
+}
+
+/** Build syllabus / course-plan context for student Ask AI. */
+function build_student_ask_ai_materials(array $user, array $subjectRow): string
+{
+    $instId = (int)($user['institution_id'] ?? 0);
+    $subjectId = (int)($subjectRow['id'] ?? 0);
+    $classId = student_class_id($user);
+    $parts = [];
+    $name = trim((string)($subjectRow['name'] ?? ''));
+    $code = trim((string)($subjectRow['code'] ?? ''));
+    if ($name !== '') {
+        $parts[] = 'Course: ' . $name . ($code !== '' ? " ($code)" : '');
+    }
+
+    $plan = null;
+    if ($classId > 0) {
+        $plan = Database::fetch(
+            'SELECT * FROM course_plans
+             WHERE subject_id = ? AND class_id = ? AND status = "approved" AND institution_id = ?
+             ORDER BY id DESC LIMIT 1',
+            [$subjectId, $classId, $instId]
+        );
+    }
+    if (!$plan) {
+        $plan = Database::fetch(
+            'SELECT * FROM course_plans
+             WHERE subject_id = ? AND status = "approved" AND institution_id = ?
+             ORDER BY id DESC LIMIT 1',
+            [$subjectId, $instId]
+        );
+    }
+    if ($plan) {
+        $syllabus = trim((string)($plan['syllabus_input'] ?? ''));
+        if ($syllabus !== '') {
+            $parts[] = "## Syllabus\n" . $syllabus;
+        }
+        $planData = json_decode((string)($plan['plan_data'] ?? ''), true) ?: [];
+        $outcomes = $planData['learning_outcomes'] ?? [];
+        if (is_array($outcomes) && $outcomes) {
+            $lines = [];
+            foreach ($outcomes as $o) {
+                $lines[] = '- ' . trim((string)$o);
+            }
+            $parts[] = "## Course Outcomes\n" . implode("\n", $lines);
+        }
+        $units = $planData['units'] ?? [];
+        if (is_array($units) && $units) {
+            $unitBlock = "## Units and Topics\n";
+            foreach ($units as $unit) {
+                if (!is_array($unit)) {
+                    continue;
+                }
+                $title = trim((string)($unit['title'] ?? ('Unit ' . (int)($unit['unit_number'] ?? 0))));
+                $unitBlock .= "### {$title}\n";
+                foreach (($unit['topics'] ?? []) as $topic) {
+                    $unitBlock .= '- ' . trim((string)$topic) . "\n";
+                }
+            }
+            $parts[] = trim($unitBlock);
+        }
+    }
+
+    $docs = Database::fetchAll(
+        'SELECT d.title, d.content_text FROM documents d
+         JOIN subjects s ON s.id = d.subject_id
+         WHERE d.subject_id = ? AND d.is_published = 1 AND s.institution_id = ?
+         ORDER BY d.id DESC LIMIT 10',
+        [$subjectId, $instId]
+    );
+    foreach ($docs as $doc) {
+        $text = trim((string)($doc['content_text'] ?? ''));
+        if ($text === '') {
+            continue;
+        }
+        $parts[] = '## ' . trim((string)($doc['title'] ?? 'Material')) . "\n" . mb_substr($text, 0, 2500);
+    }
+
+    return trim(implode("\n\n", array_filter($parts)));
+}
+
+/** @return list<string> */
+function ask_ai_question_terms(string $text): array
+{
+    $text = strtolower(preg_replace('/[^a-z0-9\s]/', ' ', $text) ?? '');
+    $terms = [];
+    foreach (preg_split('/\s+/', $text) ?: [] as $word) {
+        $word = trim($word);
+        if (strlen($word) >= 4 && !in_array($word, ['what', 'when', 'where', 'which', 'that', 'this', 'with', 'from', 'your', 'about', 'tell', 'please'], true)) {
+            $terms[] = $word;
+        }
+    }
+    return array_values(array_unique($terms));
+}
+
+function ask_ai_subject_fit_score(string $question, string $subjectName, string $materials): int
+{
+    $q = strtolower($question);
+    $score = 0;
+    foreach (preg_split('/\s+/', strtolower(preg_replace('/[^a-z0-9\s]/', ' ', $subjectName) ?? '')) ?: [] as $word) {
+        if (strlen($word) >= 4 && str_contains($q, $word)) {
+            $score += 5;
+        }
+    }
+    $mat = strtolower($materials);
+    foreach (ask_ai_question_terms($question) as $term) {
+        if (str_contains($mat, $term)) {
+            $score += 3;
+        }
+    }
+    return $score;
+}
+
+/**
+ * Offline syllabus-grounded answer when Gemini is unavailable (student Ask AI only).
+ *
+ * @param list<string> $otherSubjectNames
+ * @return array{answer:string,citations:list<string>}
+ */
+function answer_student_ask_ai_offline(
+    string $question,
+    string $subjectName,
+    string $materials,
+    array $otherSubjectNames,
+    array $user
+): array {
+    $bestOther = null;
+    $bestOtherScore = 0;
+    $selectedScore = ask_ai_subject_fit_score($question, $subjectName, $materials);
+
+    foreach ($otherSubjectNames as $otherName) {
+        $otherName = trim($otherName);
+        if ($otherName === '') {
+            continue;
+        }
+        $otherRow = null;
+        foreach (courses_for_student($user) as $s) {
+            if (trim((string)($s['name'] ?? '')) === $otherName) {
+                $otherRow = $s;
+                break;
+            }
+        }
+        $otherMaterials = $otherRow ? build_student_ask_ai_materials($user, $otherRow) : '';
+        $score = ask_ai_subject_fit_score($question, $otherName, $otherMaterials);
+        if ($score > $bestOtherScore) {
+            $bestOtherScore = $score;
+            $bestOther = $otherName;
+        }
+    }
+
+    if ($bestOther !== null && $bestOtherScore >= 4 && $bestOtherScore > $selectedScore + 2) {
+        return [
+            'answer' => "This question is related to {$bestOther} rather than {$subjectName}. "
+                . "Please select {$bestOther} from the Subject context dropdown and ask again.",
+            'citations' => [],
+        ];
+    }
+
+    $hasMaterials = trim($materials) !== '' && !str_contains(strtolower($materials), 'no syllabus');
+    if (!$hasMaterials) {
+        return [
+            'answer' => "I don't have enough course material for this topic in {$subjectName}.",
+            'citations' => [],
+        ];
+    }
+
+    $qTerms = ask_ai_question_terms($question);
+    $snippets = [];
+    foreach (preg_split('/\r\n|\r|\n/', $materials) ?: [] as $line) {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, '#')) {
+            continue;
+        }
+        $lineLower = strtolower($line);
+        foreach ($qTerms as $term) {
+            if (str_contains($lineLower, $term)) {
+                $snippets[] = preg_replace('/^[\-\*]\s*/', '', $line) ?? $line;
+                break;
+            }
+        }
+    }
+    $snippets = array_values(array_unique(array_slice($snippets, 0, 6)));
+
+    if (preg_match('/\b(hard|easy|difficult|tough|simple|bro)\b/i', $question)) {
+        $focus = $snippets ? implode('; ', array_slice($snippets, 0, 3)) : '';
+        $answer = "For {$subjectName}, the difficulty of a project presentation or viva depends on how well you prepare the topics covered in your syllabus";
+        if ($focus !== '') {
+            $answer .= ", including areas such as {$focus}";
+        }
+        $answer .= ".\n\n"
+            . "It becomes easier when you:\n"
+            . "• Revise the unit outcomes and core concepts from your course plan\n"
+            . "• Prepare clear slides/demos aligned with the project requirements\n"
+            . "• Practice explaining your work, results, and limitations confidently\n\n"
+            . "If your question is about a specific technical topic, ask about that topic directly so I can answer from the {$subjectName} syllabus.";
+        return ['answer' => $answer, 'citations' => [$subjectName . ' syllabus']];
+    }
+
+    if ($snippets) {
+        $body = "In {$subjectName}, based on your course syllabus:\n\n";
+        foreach ($snippets as $snippet) {
+            $body .= "• {$snippet}\n";
+        }
+        $body .= "\n";
+        if (str_contains(strtolower($question), 'http')) {
+            $body .= "HTTP (Hypertext Transfer Protocol) is an application-layer protocol used for communication between a web client (browser) and a web server. "
+                . "The client sends a request; the server returns a response (such as an HTML page). "
+                . "HTTPS adds encryption (TLS/SSL) on top of HTTP for secure communication.";
+        } elseif (count($snippets) === 1) {
+            $body .= "This topic is part of your {$subjectName} syllabus. Review the related unit notes and practice explaining the concept with examples from your course material.";
+        } else {
+            $body .= "These syllabus points are the relevant foundation for your question. Study them together and try a short example or definition in your own words.";
+        }
+        return ['answer' => trim($body), 'citations' => [$subjectName . ' syllabus']];
+    }
+
+    $unitHints = [];
+    foreach (preg_split('/\r\n|\r|\n/', $materials) ?: [] as $line) {
+        if (preg_match('/^[\-\*]\s*(.+)$/', trim($line), $m)) {
+            $unitHints[] = trim($m[1]);
+        }
+        if (count($unitHints) >= 4) {
+            break;
+        }
+    }
+    $hint = $unitHints ? (' Topics in your syllabus include: ' . implode(', ', $unitHints) . '.') : '';
+
+    return [
+        'answer' => "I don't have enough course material for this specific topic in {$subjectName}.{$hint} "
+            . 'Try asking about a syllabus topic listed in your course plan, or rephrase your question using terms from the unit outline.',
+        'citations' => [$subjectName . ' syllabus'],
+    ];
+}
+
+/**
  * @param list<mixed> $raw
  * @return list<array<string,mixed>>
  */
@@ -1259,65 +1509,143 @@ try {
 
     if ($module === 'ask_ai') {
         Auth::requireRole('student', 'professor', 'admin');
+        Auth::refresh();
         $question = trim((string)post('question'));
         if ($question === '') {
             json_response(['ok'=>false,'error'=>'Question is required.'], 422);
         }
-        $subjectId = (int)post('subject_id', 0) ?: null;
-        if ($subjectId) {
-            if (($user['role'] ?? '') === 'student') {
-                $enrolled = Database::fetch(
-                    'SELECT id FROM enrollments WHERE student_id = ? AND subject_id = ? LIMIT 1',
-                    [$user['id'], $subjectId]
-                );
-                if (!$enrolled) {
-                    $subjectId = null;
+
+        $isStudent = ($user['role'] ?? '') === 'student';
+        $subjectId = (int)post('subject_id', 0);
+        $subjectRow = null;
+        $materials = '';
+        $subjectName = '';
+        $otherSubjectNames = [];
+
+        if ($isStudent) {
+            if ($subjectId < 1) {
+                json_response(['ok'=>false,'error'=>'Please select a subject first.'], 422);
+            }
+            $subjectRow = resolve_student_ask_ai_subject($user, $subjectId);
+            if (!$subjectRow) {
+                json_response(['ok'=>false,'error'=>'That subject is not in your current academic context.'], 403);
+            }
+            $subjectName = trim((string)($subjectRow['name'] ?? ''));
+            $materials = build_student_ask_ai_materials($user, $subjectRow);
+            foreach (courses_for_student($user) as $s) {
+                if ((int)($s['id'] ?? 0) !== $subjectId) {
+                    $label = trim((string)($s['name'] ?? ''));
+                    if ($label !== '') {
+                        $otherSubjectNames[] = $label;
+                    }
                 }
-            } else {
+            }
+        } else {
+            $subjectId = $subjectId > 0 ? $subjectId : null;
+            if ($subjectId) {
                 $ownedSubject = Database::fetch(
-                    'SELECT id FROM subjects WHERE id = ? AND institution_id = ?',
+                    'SELECT id, name FROM subjects WHERE id = ? AND institution_id = ?',
                     [$subjectId, $user['institution_id']]
                 );
                 if (!$ownedSubject) {
                     $subjectId = null;
+                } else {
+                    $subjectName = trim((string)($ownedSubject['name'] ?? ''));
                 }
             }
-        }
-        $materials = '';
-        if ($subjectId) {
-            $docs = Database::fetchAll(
-                'SELECT d.title, d.content_text FROM documents d
-                 JOIN subjects s ON s.id = d.subject_id
-                 WHERE d.subject_id = ? AND d.is_published = 1 AND s.institution_id = ? LIMIT 10',
-                [$subjectId, $user['institution_id']]
-            );
-            foreach ($docs as $d) {
-                $materials .= "\n## {$d['title']}\n" . mb_substr((string)$d['content_text'], 0, 2000) . "\n";
+            if ($subjectId) {
+                $docs = Database::fetchAll(
+                    'SELECT d.title, d.content_text FROM documents d
+                     JOIN subjects s ON s.id = d.subject_id
+                     WHERE d.subject_id = ? AND d.is_published = 1 AND s.institution_id = ? LIMIT 10',
+                    [$subjectId, $user['institution_id']]
+                );
+                foreach ($docs as $d) {
+                    $materials .= "\n## {$d['title']}\n" . mb_substr((string)$d['content_text'], 0, 2000) . "\n";
+                }
+                $plan = Database::fetch(
+                    'SELECT plan_data, subject_name, syllabus_input FROM course_plans WHERE subject_id = ? AND status = "approved" AND institution_id = ? ORDER BY id DESC LIMIT 1',
+                    [$subjectId, $user['institution_id']]
+                );
+                if ($plan) {
+                    if (trim((string)($plan['syllabus_input'] ?? '')) !== '') {
+                        $materials .= "\n## Syllabus {$plan['subject_name']}\n" . trim((string)$plan['syllabus_input']) . "\n";
+                    }
+                    $materials .= "\n## Approved plan {$plan['subject_name']}\n" . mb_substr((string)$plan['plan_data'], 0, 3000);
+                }
             }
-            $plan = Database::fetch(
-                'SELECT plan_data, subject_name FROM course_plans WHERE subject_id = ? AND status = "approved" AND institution_id = ? ORDER BY id DESC LIMIT 1',
-                [$subjectId, $user['institution_id']]
-            );
-            if ($plan) $materials .= "\n## Approved plan {$plan['subject_name']}\n" . mb_substr((string)$plan['plan_data'], 0, 3000);
+            if ($materials === '') {
+                $materials = 'No institutional materials found. Answer carefully and state limitations.';
+            }
         }
-        if ($materials === '') {
-            $materials = 'No institutional materials found. Answer carefully and state limitations.';
-        }
-        $tpl = prompt_template('study_assistant');
-        if ($gemini->isConfigured()) {
-            $result = $gemini->generate(
-                $tpl['system_prompt'] ?? 'Answer from materials.',
-                "Materials:\n$materials\n\nQuestion: $question\nReturn JSON {answer,citations:[]}"
-            );
-            $data = $result['json'] ?? ['answer' => $result['text'] ?? ''];
+
+        if ($isStudent) {
+            if ($materials === '') {
+                $materials = '(No syllabus or published materials on file for this subject yet.)';
+            }
+            $otherList = $otherSubjectNames ? implode(', ', $otherSubjectNames) : 'none';
+            $userPrompt = "SELECTED SUBJECT: {$subjectName}\n"
+                . "OTHER CURRENT SUBJECTS (for redirect suggestions only): {$otherList}\n\n"
+                . "COURSE MATERIALS:\n{$materials}\n\n"
+                . "STUDENT QUESTION:\n{$question}\n\n"
+                . 'Return JSON {"answer":"...","citations":[]}';
+
+            if (!$gemini->isConfigured()) {
+                $data = answer_student_ask_ai_offline(
+                    $question,
+                    $subjectName,
+                    $materials,
+                    $otherSubjectNames,
+                    $user
+                );
+                $result = ['ok' => true, 'json' => $data, 'latency_ms' => 0, 'offline' => true];
+            } else {
+                $tpl = prompt_template('study_assistant');
+                $systemPrompt = ($tpl['system_prompt'] ?? 'Answer using ONLY the provided course materials.')
+                    . "\n\nRules:"
+                    . "\n- Answer ONLY in the context of the selected subject."
+                    . "\n- Use ONLY the provided syllabus, units, topics, outcomes, and materials."
+                    . "\n- If the question is unrelated to the selected subject, do NOT answer it. Tell the student which subject they should select instead."
+                    . "\n- If materials do not cover the topic, say you do not have enough course material for that topic in the selected subject."
+                    . "\n- Never mention demo mode, API keys, placeholders, or generic study advice without subject-specific content."
+                    . "\n- Return ONLY valid JSON: {\"answer\":\"...\",\"citations\":[]}";
+
+                $result = $gemini->generate($systemPrompt, $userPrompt);
+                $data = $result['json'] ?? ['answer' => trim((string)($result['text'] ?? ''))];
+                if (empty($result['ok']) || trim((string)($data['answer'] ?? '')) === '') {
+                    $data = answer_student_ask_ai_offline(
+                        $question,
+                        $subjectName,
+                        $materials,
+                        $otherSubjectNames,
+                        $user,
+                        $subjectId
+                    );
+                    $result = ['ok' => true, 'json' => $data, 'latency_ms' => (int)($result['latency_ms'] ?? 0), 'offline' => true];
+                }
+            }
         } else {
-            $data = [
-                'answer' => "Based on available course context: focus on core definitions, examples, and Bloom-aligned practice. (Demo mode · add Gemini API key for grounded answers.)\n\nYour question: $question",
-                'citations' => ['Local course materials'],
-                'demo' => true,
-            ];
-            $result = ['ok'=>true,'json'=>$data,'latency_ms'=>0];
+            if (!$gemini->isConfigured()) {
+                json_response(['ok'=>false,'error'=>'The study assistant is temporarily unavailable. Please try again later.'], 503);
+            }
+            $tpl = prompt_template('study_assistant');
+            $systemPrompt = ($tpl['system_prompt'] ?? 'Answer using ONLY the provided course materials.')
+                . "\n\nRules:"
+                . "\n- Answer ONLY in the context of the selected subject."
+                . "\n- Use ONLY the provided syllabus, units, topics, outcomes, and materials."
+                . "\n- If the question is unrelated to the selected subject, do NOT answer it. Tell the student which subject they should select instead."
+                . "\n- If materials do not cover the topic, say you do not have enough course material for that topic in the selected subject."
+                . "\n- Never mention demo mode, API keys, placeholders, or generic study advice without subject-specific content."
+                . "\n- Return ONLY valid JSON: {\"answer\":\"...\",\"citations\":[]}";
+
+            $userPrompt = "Materials:\n{$materials}\n\nQuestion: {$question}\nReturn JSON {answer,citations:[]}";
+            $result = $gemini->generate($systemPrompt, $userPrompt);
+            $data = $result['json'] ?? ['answer' => trim((string)($result['text'] ?? ''))];
+            if (trim((string)($data['answer'] ?? '')) === '') {
+                json_response(['ok'=>false,'error'=>'The study assistant could not generate an answer. Please try again.'], 500);
+            }
         }
+
         $chatId = (int)post('chat_id', 0);
         if ($chatId) {
             $ownChat = Database::fetch('SELECT id FROM ai_chats WHERE id = ? AND user_id = ?', [$chatId, $user['id']]);
@@ -1329,7 +1657,7 @@ try {
             $chatId = Database::insert('ai_chats', [
                 'institution_id' => (int)$user['institution_id'],
                 'user_id' => (int)$user['id'],
-                'subject_id' => $subjectId,
+                'subject_id' => $subjectId ?: null,
                 'title' => mb_substr($question, 0, 80),
             ]);
         }

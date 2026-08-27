@@ -940,15 +940,30 @@ function assignments_visible_to_student(array $user): array
     if ($classId < 1) {
         return [];
     }
+
+    // Current academic context only — same subject scope as Internal Marks / My Courses.
+    $currentSubjects = courses_for_student($user);
+    $allowedSubjectIds = array_map(static fn($s) => (int)$s['id'], $currentSubjects);
+    if (!$allowedSubjectIds) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($allowedSubjectIds), '?'));
+    $params = [(int)$user['id'], (int)$user['institution_id'], $classId];
+    foreach ($allowedSubjectIds as $sid) {
+        $params[] = $sid;
+    }
+
     return Database::fetchAll(
-        'SELECT a.*, s.status AS sub_status, s.grade, s.feedback, s.content_text AS sub_content
+        "SELECT a.*, s.status AS sub_status, s.grade, s.feedback, s.content_text AS sub_content
          FROM assignments a
          LEFT JOIN assignment_submissions s ON s.assignment_id = a.id AND s.student_id = ?
-         WHERE a.status = "published"
+         WHERE a.status = \"published\"
            AND a.institution_id = ?
            AND a.class_id = ?
-         ORDER BY a.deadline IS NULL, a.deadline, a.id DESC',
-        [(int)$user['id'], (int)$user['institution_id'], $classId]
+           AND a.subject_id IN ($placeholders)
+         ORDER BY a.deadline IS NULL, a.deadline, a.id DESC",
+        $params
     );
 }
 
@@ -958,10 +973,21 @@ function student_can_submit_assignment(int $assignmentId, array $user): bool
     if ($classId < 1 || $assignmentId < 1) {
         return false;
     }
+
+    $currentSubjects = courses_for_student($user);
+    $allowedSubjectIds = array_map(static fn($s) => (int)$s['id'], $currentSubjects);
+    if (!$allowedSubjectIds) {
+        return false;
+    }
+
+    $placeholders = implode(',', array_fill(0, count($allowedSubjectIds), '?'));
+    $params = array_merge([$assignmentId, (int)$user['institution_id'], $classId], $allowedSubjectIds);
+
     return Database::fetch(
-        'SELECT id FROM assignments
-         WHERE id = ? AND status = "published" AND institution_id = ? AND class_id = ?',
-        [$assignmentId, (int)$user['institution_id'], $classId]
+        "SELECT id FROM assignments
+         WHERE id = ? AND status = \"published\" AND institution_id = ? AND class_id = ?
+           AND subject_id IN ($placeholders)",
+        $params
     ) !== null;
 }
 
