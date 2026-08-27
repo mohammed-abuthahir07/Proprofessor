@@ -30,6 +30,7 @@ final class UserController extends Controller
         $filters = [
             'role' => (string)$this->get('role', ''),
             'department_id' => $this->get('department_id', ''),
+            'class_id' => $this->get('class_id', ''),
             'is_active' => $this->get('status', ''),
             'program_level' => strtoupper((string)$this->get('program_level', '')),
             'year' => $this->get('year', ''),
@@ -37,11 +38,22 @@ final class UserController extends Controller
         $editId = (int)$this->get('edit', 0);
         $editing = $editId ? User::inInstitution($editId, $instId) : null;
 
+        $allUsers = User::forInstitution($instId, $filters);
+        $perPage = 20;
+        $totalUsers = count($allUsers);
+        $totalPages = max(1, (int)ceil($totalUsers / $perPage));
+        $page = max(1, min($totalPages, (int)$this->get('page', 1)));
+        $users = array_slice($allUsers, ($page - 1) * $perPage, $perPage);
+
         $this->view('admin/users', [
             'title' => 'Users & Roles',
             'active' => 'users',
             'subtitle' => 'Add, assign, import, and control access — this college only',
-            'users' => User::forInstitution($instId, $filters),
+            'users' => $users,
+            'userPage' => $page,
+            'userTotalPages' => $totalPages,
+            'userTotal' => $totalUsers,
+            'userPerPage' => $perPage,
             'depts' => Department::forInstitution($instId),
             'classes' => Database::fetchAll(
                 'SELECT c.*, d.name AS dept_name, d.code AS dept_code FROM classes c

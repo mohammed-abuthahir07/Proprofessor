@@ -13,7 +13,7 @@
       <h2><?= e($inst['name']) ?> — Accreditation snapshot</h2>
       <p style="margin:0;color:var(--muted)">NAAC <?= e((string)$inst['naac_grade']) ?> · <?= e((string)$inst['affiliation_university']) ?></p>
     </div>
-    <button class="btn btn-primary btn-sm no-print" type="button" data-print>Print / PDF</button>
+    <a class="btn btn-primary btn-sm no-print" href="<?= e(url('/admin/naac?download=pdf')) ?>">Print / PDF</a>
   </div>
   <h3>Plan compliance</h3>
   <div class="chip-row" style="margin-bottom:1rem">

@@ -6,12 +6,76 @@
 /** @var array $providers */
 /** @var string $digestMode */
 /** @var array|null $digestPreview */
+/** @var bool $canMessageHods */
+/** @var int $hodRecipientCount */
+/** @var array $hodSentHistory */
 $typeFilter = $typeFilter ?? null;
 $priorityFilter = $priorityFilter ?? null;
 $providers = $providers ?? \NotificationService::allProviderStatuses();
 $digestMode = $digestMode ?? 'immediate';
 $digestPreview = $digestPreview ?? null;
+$canMessageHods = !empty($canMessageHods);
+$hodRecipientCount = (int)($hodRecipientCount ?? 0);
+$hodSentHistory = $hodSentHistory ?? [];
 ?>
+<?php if ($canMessageHods): ?>
+<div class="grid grid-2" style="margin-bottom:1rem;align-items:start">
+  <div class="panel">
+    <div class="panel-h">
+      <h2 style="margin:0;font-size:1.05rem">Message all HODs</h2>
+      <span class="chip"><?= (int)$hodRecipientCount ?> HOD<?= $hodRecipientCount === 1 ? '' : 's' ?></span>
+    </div>
+    <p class="muted" style="font-size:.85rem;margin:.35rem 0 .85rem">Send a message (and optional PDF/DOCX) to every active HOD in this institution.</p>
+    <form method="post" enctype="multipart/form-data" class="form-grid">
+      <?= csrf_field() ?>
+      <input type="hidden" name="action" value="send_hod_message">
+      <div class="form-row">
+        <label for="hod_title">Title <span class="muted">(optional)</span></label>
+        <input type="text" name="title" id="hod_title" maxlength="200" placeholder="Message from College Admin" <?= $hodRecipientCount < 1 ? 'disabled' : '' ?>>
+      </div>
+      <div class="form-row">
+        <label for="hod_message">Message</label>
+        <textarea name="message" id="hod_message" rows="5" maxlength="4000" required placeholder="Write your message to all HODs…" <?= $hodRecipientCount < 1 ? 'disabled' : '' ?>></textarea>
+        <div class="muted" style="font-size:.8rem;margin-top:.25rem">Max 4000 characters.</div>
+      </div>
+      <div class="form-row">
+        <label for="hod_attachment">Attachment <span class="muted">(optional)</span></label>
+        <input type="file" name="attachment" id="hod_attachment" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" <?= $hodRecipientCount < 1 ? 'disabled' : '' ?>>
+        <div class="muted" style="font-size:.8rem;margin-top:.25rem">Supported: PDF, DOCX · Max 10 MB.</div>
+      </div>
+      <button class="btn btn-primary" type="submit" <?= $hodRecipientCount < 1 ? 'disabled' : '' ?>>Send to all HODs</button>
+    </form>
+  </div>
+  <div class="panel" style="max-height:min(70vh, 640px);overflow:auto">
+    <div class="panel-h"><strong>Sent to HODs</strong></div>
+    <?php if (!$hodSentHistory): ?>
+      <div class="empty">No HOD messages sent yet.</div>
+    <?php else: ?>
+      <?php foreach ($hodSentHistory as $h):
+        $hasAtt = trim((string)($h['attachment_path'] ?? '')) !== '';
+        $attName = (string)($h['attachment_original_name'] ?? '');
+        $attExt = strtolower(pathinfo($attName, PATHINFO_EXTENSION));
+      ?>
+        <div style="padding:.85rem 0;border-bottom:1px solid var(--line)">
+          <strong><?= e((string)$h['title']) ?></strong>
+          <div style="white-space:pre-wrap;font-size:.92rem;margin-top:.25rem"><?= e((string)$h['body']) ?></div>
+          <?php if ($hasAtt && $attName !== ''): ?>
+            <div style="margin-top:.4rem;font-size:.88rem">
+              📄 <?= e($attName) ?>
+              <a class="btn btn-sm btn-ghost" style="margin-left:.25rem" href="<?= e(base_url('/api/messages/attachment?source=admin_hod&id=' . (int)$h['id'])) ?>">Download<?= $attExt === 'pdf' ? ' PDF' : ($attExt === 'docx' ? ' DOCX' : '') ?></a>
+            </div>
+          <?php endif; ?>
+          <div class="chip-row" style="margin-top:.35rem">
+            <span class="chip">Recipients: <?= (int)$h['recipient_count'] ?></span>
+            <span class="chip"><?= e((string)$h['created_at']) ?></span>
+          </div>
+        </div>
+      <?php endforeach; ?>
+    <?php endif; ?>
+  </div>
+</div>
+<?php endif; ?>
+
 <div class="panel">
   <div class="panel-h">
     <div class="chip-row">
@@ -64,8 +128,23 @@ $digestPreview = $digestPreview ?? null;
   <?php if (!$rows): ?><div class="empty">No notifications.</div><?php else: ?>
   <?php foreach ($rows as $n):
     $prio = strtolower((string)($n['priority'] ?? 'medium'));
+    $nmeta = json_decode((string)($n['meta'] ?? ''), true) ?: [];
     $hasAction = !empty($n['action_type']) || !empty($n['action_url']);
     $btnLabel = \NotificationService::actionLabel($n['action_type'] ?? null, !empty($n['action_url']) ? 'Open' : null);
+    $adminHodAtt = null;
+    if (($nmeta['kind'] ?? '') === 'admin_hod_message' && !empty($nmeta['announcement_id']) && !empty($nmeta['has_attachment'])) {
+        $adminHodAtt = [
+            'id' => (int)$nmeta['announcement_id'],
+            'name' => (string)($nmeta['attachment_original_name'] ?? 'attachment'),
+        ];
+    }
+    $profStuAtt = null;
+    if (($nmeta['kind'] ?? '') === 'professor_student_message' && !empty($nmeta['announcement_id']) && !empty($nmeta['has_attachment'])) {
+        $profStuAtt = [
+            'id' => (int)$nmeta['announcement_id'],
+            'name' => (string)($nmeta['attachment_original_name'] ?? 'attachment'),
+        ];
+    }
   ?>
     <div class="notif-item" style="opacity:<?= $n['is_read'] ? '.65' : '1' ?>">
       <div class="notif-row">
@@ -76,6 +155,21 @@ $digestPreview = $digestPreview ?? null;
           </div>
           <strong><?= e($n['title']) ?></strong>
           <div class="notif-text" style="white-space:pre-wrap"><?= e((string)$n['body']) ?></div>
+          <?php if ($adminHodAtt): ?>
+            <?php $ext = strtolower(pathinfo($adminHodAtt['name'], PATHINFO_EXTENSION)); ?>
+            <div style="margin-top:.45rem;font-size:.88rem">
+              <strong>Attachment:</strong><br>
+              📄 <?= e($adminHodAtt['name']) ?>
+              <a class="btn btn-sm btn-ghost" style="margin-left:.25rem;margin-top:.25rem" href="<?= e(base_url('/api/messages/attachment?source=admin_hod&id=' . $adminHodAtt['id'])) ?>">Download<?= $ext === 'pdf' ? ' PDF' : ($ext === 'docx' ? ' DOCX' : '') ?></a>
+            </div>
+          <?php elseif ($profStuAtt): ?>
+            <?php $ext = strtolower(pathinfo($profStuAtt['name'], PATHINFO_EXTENSION)); ?>
+            <div style="margin-top:.45rem;font-size:.88rem">
+              <strong>Attachment:</strong><br>
+              📄 <?= e($profStuAtt['name']) ?>
+              <a class="btn btn-sm btn-ghost" style="margin-left:.25rem;margin-top:.25rem" href="<?= e(base_url('/api/messages/attachment?id=' . $profStuAtt['id'])) ?>">Download<?= $ext === 'pdf' ? ' PDF' : ($ext === 'docx' ? ' DOCX' : '') ?></a>
+            </div>
+          <?php endif; ?>
           <div class="chip-row" style="margin-top:.35rem">
             <span class="chip"><?= e($n['type']) ?></span>
             <span class="chip"><?= e($n['created_at']) ?></span>

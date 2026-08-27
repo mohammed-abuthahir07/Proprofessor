@@ -33,6 +33,10 @@ final class User extends Model
             $sql .= ' AND u.department_id = ?';
             $params[] = (int)$filters['department_id'];
         }
+        if (!empty($filters['class_id'])) {
+            $sql .= ' AND u.class_id = ?';
+            $params[] = (int)$filters['class_id'];
+        }
         if (isset($filters['is_active']) && $filters['is_active'] !== '' && $filters['is_active'] !== null) {
             $sql .= ' AND u.is_active = ?';
             $params[] = (int)$filters['is_active'];

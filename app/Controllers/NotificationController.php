@@ -44,6 +44,36 @@ final class NotificationController extends Controller
             $this->redirect('/' . $prefix . '/notifications');
         }
 
+        if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && post('action') === 'send_hod_message') {
+            verify_csrf();
+            if (!in_array($role, ['admin', 'superadmin'], true)) {
+                flash('error', 'Only College Admin can message HODs.');
+                $this->redirect('/' . $prefix . '/notifications');
+            }
+            \AdminHodMessageTools::ensureSchema();
+            $result = \AdminHodMessageTools::send(
+                $user,
+                (string)post('message'),
+                (string)post('title'),
+                isset($_FILES['attachment']) && is_array($_FILES['attachment']) ? $_FILES['attachment'] : null
+            );
+            if (!$result['ok']) {
+                flash('error', $result['error'] ?? 'Unable to send message.');
+            } else {
+                $n = (int)($result['recipient_count'] ?? 0);
+                flash('success', 'Message sent to ' . $n . ' HOD' . ($n === 1 ? '' : 's') . '.');
+            }
+            $this->redirect('/admin/notifications');
+        }
+
+        $hodRecipientCount = 0;
+        $hodSentHistory = [];
+        if (in_array($role, ['admin', 'superadmin'], true)) {
+            \AdminHodMessageTools::ensureSchema();
+            $hodRecipientCount = count(\AdminHodMessageTools::findHodRecipients($user));
+            $hodSentHistory = \AdminHodMessageTools::sentHistory($user, 15);
+        }
+
         $type = $this->get('type');
         $priority = strtolower((string)$this->get('priority'));
         if (!in_array($priority, ['high', 'medium', 'low'], true)) {
@@ -78,6 +108,9 @@ final class NotificationController extends Controller
             'providers' => NotificationService::allProviderStatuses(),
             'digestMode' => $digestMode,
             'digestPreview' => $digestPreview,
+            'canMessageHods' => in_array($role, ['admin', 'superadmin'], true),
+            'hodRecipientCount' => $hodRecipientCount,
+            'hodSentHistory' => $hodSentHistory,
         ]);
     }
 

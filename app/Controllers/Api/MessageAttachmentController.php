@@ -4,12 +4,13 @@ declare(strict_types=1);
 namespace App\Controllers\Api;
 
 use App\Core\Controller;
+use AdminHodMessageTools;
 use Auth;
 use ProfessorMessageTools;
 
 /**
- * GET /api/messages/attachment?id={announcement_id}
- * Secure download for professor message attachments (professor owner or eligible student).
+ * GET /api/messages/attachment?id={id}&source=professor|admin_hod
+ * Secure download for message attachments.
  */
 final class MessageAttachmentController extends Controller
 {
@@ -23,30 +24,42 @@ final class MessageAttachmentController extends Controller
 
         $user = Auth::user();
         $announcementId = (int)($_GET['id'] ?? 0);
+        $source = strtolower((string)($_GET['source'] ?? 'professor'));
         if ($announcementId < 1) {
             http_response_code(404);
             echo 'Not found';
             return;
         }
 
-        ProfessorMessageTools::ensureSchema();
         $role = (string)($user['role'] ?? '');
-        $ann = match ($role) {
-            'student' => ProfessorMessageTools::announcementForStudentAttachment($user, $announcementId),
-            'professor', 'admin' => ProfessorMessageTools::announcementForProfessorAttachment($user, $announcementId),
-            default => null,
-        };
+        $ann = null;
+        $fullPath = null;
 
-        if (!$ann) {
-            http_response_code(403);
-            echo 'Forbidden';
-            return;
+        if ($source === 'admin_hod') {
+            AdminHodMessageTools::ensureSchema();
+            $ann = match ($role) {
+                'hod' => AdminHodMessageTools::announcementForHodAttachment($user, $announcementId),
+                'admin', 'superadmin' => AdminHodMessageTools::announcementForAdminAttachment($user, $announcementId),
+                default => null,
+            };
+            if ($ann) {
+                $fullPath = AdminHodMessageTools::attachmentAbsolutePath((string)($ann['attachment_path'] ?? ''));
+            }
+        } else {
+            ProfessorMessageTools::ensureSchema();
+            $ann = match ($role) {
+                'student' => ProfessorMessageTools::announcementForStudentAttachment($user, $announcementId),
+                'professor', 'admin', 'superadmin' => ProfessorMessageTools::announcementForProfessorAttachment($user, $announcementId),
+                default => null,
+            };
+            if ($ann) {
+                $fullPath = ProfessorMessageTools::attachmentAbsolutePath((string)($ann['attachment_path'] ?? ''));
+            }
         }
 
-        $fullPath = ProfessorMessageTools::attachmentAbsolutePath((string)($ann['attachment_path'] ?? ''));
-        if ($fullPath === null) {
-            http_response_code(404);
-            echo 'Attachment not found';
+        if (!$ann || $fullPath === null) {
+            http_response_code($ann ? 404 : 403);
+            echo $ann ? 'Attachment not found' : 'Forbidden';
             return;
         }
 

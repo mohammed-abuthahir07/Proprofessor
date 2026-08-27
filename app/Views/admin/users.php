@@ -7,12 +7,33 @@
 /** @var array $permissions */
 /** @var array $editPerms */
 /** @var bool $editIsFull */
+/** @var int $userPage */
+/** @var int $userTotalPages */
+/** @var int $userTotal */
+/** @var int $userPerPage */
 $editing = $editing ?? null;
-$filters = $filters ?? ['role' => '', 'department_id' => '', 'is_active' => '', 'program_level' => '', 'year' => ''];
+$filters = $filters ?? ['role' => '', 'department_id' => '', 'class_id' => '', 'is_active' => '', 'program_level' => '', 'year' => ''];
 $permissions = $permissions ?? [];
 $editPerms = $editPerms ?? [];
+$userPage = max(1, (int)($userPage ?? 1));
+$userTotalPages = max(1, (int)($userTotalPages ?? 1));
+$userTotal = (int)($userTotal ?? count($users));
+$userPerPage = max(1, (int)($userPerPage ?? 20));
 $isEdit = is_array($editing);
 $roleVal = $isEdit ? (string)$editing['role'] : 'professor';
+$userListQuery = static function (array $filters, int $page, ?int $editId = null): string {
+    $q = array_filter([
+        'role' => $filters['role'] ?? '',
+        'department_id' => $filters['department_id'] ?? '',
+        'class_id' => $filters['class_id'] ?? '',
+        'status' => $filters['is_active'] ?? '',
+        'program_level' => $filters['program_level'] ?? '',
+        'year' => $filters['year'] ?? '',
+        'page' => $page > 1 ? (string)$page : null,
+        'edit' => $editId ? (string)$editId : null,
+    ], static fn($v) => $v !== null && $v !== '');
+    return url('/admin/users' . ($q ? ('?' . http_build_query($q)) : ''));
+};
 ?>
 <p class="lede" style="margin-top:0">Add or remove professors, HODs, students, and sub-admins. Access is limited to <strong>this college</strong> (row-level). Department assignment segments academic data. Unchecked admin permissions = full College Admin; checked boxes = limited sub-admin.</p>
 
@@ -34,11 +55,12 @@ $roleVal = $isEdit ? (string)$editing['role'] : 'professor';
         <?php endforeach; ?>
       </select>
     </div>
-    <div class="form-row"><label>Access</label>
-      <select name="status">
-        <option value="">All</option>
-        <option value="1" <?= (string)($filters['is_active'] ?? '') === '1' ? 'selected' : '' ?>>Active</option>
-        <option value="0" <?= (string)($filters['is_active'] ?? '') === '0' ? 'selected' : '' ?>>Removed</option>
+    <div class="form-row"><label>Class</label>
+      <select name="class_id">
+        <option value="">All classes</option>
+        <?php foreach ($classes as $c): ?>
+          <option value="<?= (int)$c['id'] ?>" <?= (string)($filters['class_id'] ?? '') === (string)$c['id'] ? 'selected' : '' ?>><?= e(class_batch_label($c)) ?></option>
+        <?php endforeach; ?>
       </select>
     </div>
     <div class="form-row student-only-filter"><label>UG / PG (students)</label>
@@ -206,7 +228,10 @@ $roleVal = $isEdit ? (string)$editing['role'] : 'professor';
 </div>
 
 <div class="panel" style="margin-top:1rem">
-  <div class="panel-h"><h3>People in this college</h3><span class="chip"><?= count($users) ?> shown</span></div>
+  <div class="panel-h">
+    <h3>People in this college</h3>
+    <span class="chip"><?= (int)$userTotal ?> total · page <?= (int)$userPage ?> / <?= (int)$userTotalPages ?></span>
+  </div>
   <div class="table-wrap"><table>
     <thead><tr><th>Name</th><th>Role</th><th>Department</th><th>Class</th><th>Access</th><th></th></tr></thead>
     <tbody>
@@ -236,7 +261,7 @@ $roleVal = $isEdit ? (string)$editing['role'] : 'professor';
         <td><?= !empty($u['is_active']) ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Removed</span>' ?></td>
         <td>
           <div class="user-actions">
-            <a class="btn btn-sm btn-ghost" href="<?= e(url('/admin/users?edit=' . (int)$u['id'])) ?>">Edit</a>
+            <a class="btn btn-sm btn-ghost" href="<?= e($userListQuery($filters, $userPage, (int)$u['id'])) ?>">Edit</a>
             <form method="post" action="<?= e(url('/admin/users')) ?>"><?= csrf_field() ?>
               <input type="hidden" name="action" value="toggle">
               <input type="hidden" name="user_id" value="<?= (int)$u['id'] ?>">
@@ -255,6 +280,26 @@ $roleVal = $isEdit ? (string)$editing['role'] : 'professor';
     </tbody>
   </table></div>
   <?php if (!$users): ?><div class="empty">No users match this filter.</div><?php endif; ?>
+  <?php if ($userTotalPages > 1): ?>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;margin-top:.9rem;flex-wrap:wrap">
+    <div class="muted" style="font-size:.85rem">
+      Showing <?= (int)((($userPage - 1) * $userPerPage) + 1) ?>–<?= (int)min($userPage * $userPerPage, $userTotal) ?> of <?= (int)$userTotal ?>
+    </div>
+    <div class="chip-row" style="margin:0">
+      <?php if ($userPage > 1): ?>
+        <a class="btn btn-sm btn-ghost" href="<?= e($userListQuery($filters, $userPage - 1)) ?>">Previous</a>
+      <?php else: ?>
+        <button class="btn btn-sm btn-ghost" type="button" disabled>Previous</button>
+      <?php endif; ?>
+      <span class="chip">Page <?= (int)$userPage ?> / <?= (int)$userTotalPages ?></span>
+      <?php if ($userPage < $userTotalPages): ?>
+        <a class="btn btn-sm btn-primary" href="<?= e($userListQuery($filters, $userPage + 1)) ?>">Next</a>
+      <?php else: ?>
+        <button class="btn btn-sm btn-ghost" type="button" disabled>Next</button>
+      <?php endif; ?>
+    </div>
+  </div>
+  <?php endif; ?>
 </div>
 <script>
 (function () {

@@ -51,49 +51,7 @@
     </form>
   </div>
 </div>
-<?php $classes = $classes ?? []; ?>
-<div class="panel" style="margin-top:1rem">
-  <h3>Classes</h3>
-  <?php if ($classes): ?>
-    <ul><?php foreach ($classes as $c): ?>
-      <li><?= e(class_batch_label($c)) ?></li>
-    <?php endforeach; ?></ul>
-  <?php else: ?>
-    <p style="color:var(--muted);font-size:.88rem">No classes yet. Add one so students can be assigned.</p>
-  <?php endif; ?>
-  <form method="post" action="<?= e(url('/admin/institution')) ?>" class="form-grid" style="margin-top:1rem">
-    <?= csrf_field() ?><input type="hidden" name="action" value="add_class">
-    <div class="form-row two">
-      <div><label>Department</label>
-        <select name="department_id" required>
-          <option value="">Select</option>
-          <?php foreach ($depts as $d): ?><option value="<?= (int)$d['id'] ?>"><?= e($d['name']) ?></option><?php endforeach; ?>
-        </select>
-      </div>
-      <div><label>Class name</label><input name="class_name" required placeholder="CSE-A"></div>
-    </div>
-    <div class="form-row two">
-      <div><label>UG / PG</label>
-        <select name="program_level" required>
-          <option value="">Select</option>
-          <option value="UG">UG</option>
-          <option value="PG">PG</option>
-        </select>
-      </div>
-      <div><label>Year</label>
-        <select name="year" required>
-          <option value="">Select</option>
-          <?php foreach ([1, 2, 3, 4] as $yr): ?>
-            <option value="<?= $yr ?>"><?= $yr ?> year</option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-    </div>
-    <div class="form-row"><label>Section</label><input name="section" required placeholder="A"></div>
-    <button class="btn btn-ghost" type="submit">Add class</button>
-  </form>
-</div>
 <div class="panel" style="margin-top:1rem">
   <h3>Academic courses</h3>
-  <p style="color:var(--muted);font-size:.88rem;margin-top:0">Courses and subjects are managed by each department HOD under <strong>HOD → Courses</strong>. Admin sets up departments, classes, and user accounts only.</p>
+  <p style="color:var(--muted);font-size:.88rem;margin-top:0">Courses and subjects are managed by each department HOD under <strong>HOD → Courses</strong>. Admin sets up departments and user accounts; classes are managed under <strong>Users & Roles</strong>.</p>
 </div>
