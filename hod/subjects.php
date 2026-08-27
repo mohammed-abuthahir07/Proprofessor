@@ -205,7 +205,7 @@ render_header('Department Courses', 'subjects');
   </p>
 </div>
 
-<div class="grid grid-2">
+<div class="grid grid-2" style="margin-top:1.25rem">
   <div class="panel reveal">
     <h3><?= $courseType === 'lab' ? 'Add lab' : 'Add course' ?></h3>
     <p class="cell-sub" style="margin-top:0">Saved under <?= e(subject_year_label($year)) ?> · <?= e($semesterLabel) ?> · <?= $courseType === 'lab' ? 'Lab' : 'Theory' ?>.</p>

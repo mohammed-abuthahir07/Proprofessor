@@ -27,6 +27,30 @@ $plans = ($deptId > 0)
     )
     : [];
 
+$perPage = 5;
+$planTotal = count($plans);
+$planTotalPages = max(1, (int)ceil($planTotal / $perPage));
+$planPage = (int)($_GET['page'] ?? 1);
+if ($planPage < 1) {
+    $planPage = 1;
+}
+if ($planPage > $planTotalPages) {
+    $planPage = $planTotalPages;
+}
+$planOffset = ($planPage - 1) * $perPage;
+$plansPage = array_slice($plans, $planOffset, $perPage);
+
+$reportsPageQuery = static function (int $page) use ($isAdmin, $deptId): string {
+    $params = [];
+    if ($isAdmin && $deptId > 0) {
+        $params['department_id'] = $deptId;
+    }
+    if ($page > 1) {
+        $params['page'] = $page;
+    }
+    $query = http_build_query($params);
+    return url('/hod/reports' . ($query !== '' ? '?' . $query : ''));
+};
 /**
  * @param array<string,mixed>|null $inst
  * @param array<string,mixed>|null $dept
@@ -280,10 +304,10 @@ render_header('NAAC / NBA Reports', 'reports', ['subtitle' => 'Evidence snapshot
   <div class="table-wrap"><table>
     <thead><tr><th>Subject</th><th>Status</th><th>AI score</th><th>Bloom K4-K6</th><th>Version</th><th>Updated</th></tr></thead>
     <tbody>
-    <?php if (!$plans): ?>
+    <?php if (!$plansPage): ?>
       <tr><td colspan="6" class="muted">No course plans in this department yet.</td></tr>
     <?php endif; ?>
-    <?php foreach ($plans as $p):
+    <?php foreach ($plansPage as $p):
       $b = json_decode($p['bloom_data'] ?: '{}', true) ?: [];
       $h = (float)($b['K4'] ?? 0) + (float)($b['K5'] ?? 0) + (float)($b['K6'] ?? 0);
     ?>
@@ -298,6 +322,23 @@ render_header('NAAC / NBA Reports', 'reports', ['subtitle' => 'Evidence snapshot
     <?php endforeach; ?>
     </tbody>
   </table></div>
+  <?php if ($planTotal > 0): ?>
+  <div class="panel-h" style="margin-top:1rem;align-items:center">
+    <span class="chip"><?= (int)$planTotal ?> total · page <?= (int)$planPage ?> / <?= (int)$planTotalPages ?> · 5 per page</span>
+    <div style="display:flex;gap:.4rem">
+      <?php if ($planPage > 1): ?>
+        <a class="btn btn-sm btn-ghost" href="<?= e($reportsPageQuery($planPage - 1)) ?>">Previous</a>
+      <?php else: ?>
+        <button class="btn btn-sm btn-ghost" type="button" disabled>Previous</button>
+      <?php endif; ?>
+      <?php if ($planPage < $planTotalPages): ?>
+        <a class="btn btn-sm btn-primary" href="<?= e($reportsPageQuery($planPage + 1)) ?>">Next</a>
+      <?php else: ?>
+        <button class="btn btn-sm btn-ghost" type="button" disabled>Next</button>
+      <?php endif; ?>
+    </div>
+  </div>
+  <?php endif; ?>
 </div>
 <?php endif; ?>
 <?php render_footer(); ?>

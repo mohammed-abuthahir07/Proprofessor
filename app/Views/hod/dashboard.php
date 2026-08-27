@@ -25,7 +25,7 @@ $firstName = explode(' ', (string)($user['full_name'] ?? 'HOD'))[0];
   <div class="module-cards stagger">
     <a class="qa-card" href="<?= e(url('/hod/approvals')) ?>"><div class="ico"><?= icon('check') ?></div><h3>Approvals queue</h3><p><?= (int)$pending ?> waiting</p></a>
     <a class="qa-card" href="<?= e(url('/hod/analytics')) ?>"><div class="ico"><?= icon('trend') ?></div><h3>Department analytics</h3><p>Bloom & quality trends</p></a>
-    <a class="qa-card" href="<?= e(url('/hod/compliance')) ?>"><div class="ico"><?= icon('alert') ?></div><h3>Compliance alerts</h3><p>NBA / deadline risks</p></a>
+    <a class="qa-card" href="<?= e(url('/hod/compliance')) ?>"><div class="ico"><?= icon('mail') ?></div><h3>Complaints</h3><p>Professor messages & replies</p></a>
     <a class="qa-card" href="<?= e(url('/hod/reports')) ?>"><div class="ico"><?= icon('file') ?></div><h3>NAAC reports</h3><p>Evidence packs</p></a>
   </div>
 </div>

@@ -44,56 +44,6 @@ if ($threadRead = (int)get('read_thread')) {
     redirect('/hod/compliance' . $q);
 }
 
-// Auto-generate alerts from plans
-$plans = $deptId > 0
-    ? Database::fetchAll(
-        'SELECT * FROM course_plans WHERE institution_id=? AND department_id=?',
-        [$instId, $deptId]
-    )
-    : [];
-foreach ($plans as $p) {
-    $bloom = json_decode($p['bloom_data'] ?: '{}', true) ?: [];
-    $higher = (float)($bloom['K4'] ?? 0) + (float)($bloom['K5'] ?? 0) + (float)($bloom['K6'] ?? 0);
-    if ($higher < 30 && $p['status'] !== 'draft') {
-        $exists = Database::fetch(
-            'SELECT id FROM compliance_alerts WHERE plan_id=? AND alert_type="low_bloom" AND is_resolved=0',
-            [$p['id']]
-        );
-        if (!$exists) {
-            Database::insert('compliance_alerts', [
-                'institution_id' => $instId,
-                'department_id' => $deptId,
-                'plan_id' => $p['id'],
-                'alert_type' => 'low_bloom',
-                'severity' => 'high',
-                'message' => $p['subject_name'] . ': Low K4-K6 coverage (' . $higher . '%). NBA risk.',
-            ]);
-        }
-    }
-    if (($p['ai_score'] !== null && (float)$p['ai_score'] < 65)) {
-        $exists = Database::fetch(
-            'SELECT id FROM compliance_alerts WHERE plan_id=? AND alert_type="low_score" AND is_resolved=0',
-            [$p['id']]
-        );
-        if (!$exists) {
-            Database::insert('compliance_alerts', [
-                'institution_id' => $instId,
-                'department_id' => $deptId,
-                'plan_id' => $p['id'],
-                'alert_type' => 'low_score',
-                'severity' => 'medium',
-                'message' => $p['subject_name'] . ': AI quality score below 65.',
-            ]);
-        }
-    }
-}
-$alerts = $deptId > 0
-    ? Database::fetchAll(
-        'SELECT * FROM compliance_alerts WHERE department_id=? ORDER BY is_resolved, FIELD(severity,"high","medium","low"), id DESC',
-        [$deptId]
-    )
-    : [];
-
 $hodUser = $user;
 if ($isAdmin && $deptId > 0) {
     $hodUser['department_id'] = $deptId;
@@ -103,8 +53,8 @@ $threads = $deptId > 0 ? ProfessorHodMessageTools::threadsForHod($hodUser, 40) :
 $unreadFaculty = $deptId > 0 ? ProfessorHodMessageTools::unreadCountForHod($hodUser) : 0;
 $deptLabel = $deptId > 0 ? ProfessorHodMessageTools::departmentLabel($deptId) : 'Department';
 
-render_header('Compliance Alerts', 'compliance', [
-    'subtitle' => 'Faculty messages & NBA / quality risks',
+render_header('Complaints', 'compliance', [
+    'subtitle' => 'Complaints & messages from your department professors',
 ]);
 ?>
 <?php if (!$isAdmin && $deptId < 1): ?>
@@ -116,9 +66,9 @@ render_header('Compliance Alerts', 'compliance', [
 <div class="panel" style="margin-bottom:1rem">
   <div class="panel-h" style="align-items:center">
     <div>
-      <h2 style="margin:0;font-size:1.05rem">Faculty messages</h2>
+      <h2 style="margin:0;font-size:1.05rem">Complaints</h2>
       <p class="muted" style="margin:.3rem 0 0;font-size:.85rem">
-        Complaints & messages from <?= e($deptLabel) ?> professors only. Reply per professor below.
+        Complaints & messages from <?= e($deptLabel) ?> professors only. Reply to each professor below.
       </p>
     </div>
     <span class="chip"><?= (int)$unreadFaculty ?> unread</span>
@@ -196,19 +146,6 @@ render_header('Compliance Alerts', 'compliance', [
       </div>
     <?php endforeach; ?>
   <?php endif; ?>
-</div>
-
-<div class="panel">
-  <div class="panel-h">
-    <h2 style="margin:0;font-size:1.05rem">Compliance alerts</h2>
-  </div>
-  <?php foreach ($alerts as $a): ?>
-    <div class="alert alert-<?= $a['is_resolved'] ? 'success' : 'warn' ?>">
-      <strong><?= e(strtoupper((string)$a['severity'])) ?></strong> · <?= e((string)$a['message']) ?>
-      <?php if ($a['plan_id']): ?> · <a href="<?= e(base_url('/hod/approvals.php?id=' . $a['plan_id'])) ?>">Review</a><?php endif; ?>
-    </div>
-  <?php endforeach; ?>
-  <?php if (!$alerts): ?><div class="empty">No alerts.</div><?php endif; ?>
 </div>
 <?php endif; ?>
 <?php render_footer(); ?>

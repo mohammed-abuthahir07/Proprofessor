@@ -9,6 +9,7 @@ $user = \Auth::user();
 $firstName = explode(' ', (string)($user['full_name'] ?? 'Student'))[0];
 $subjects = $subjects ?? $courses ?? [];
 $labs = $labs ?? [];
+$ann = $ann ?? [];
 $academic = $academic ?? student_academic_context($user);
 
 $profLabel = static function (array $c): string {
@@ -81,34 +82,21 @@ $profLabel = static function (array $c): string {
   </div>
 </div>
 
-<div class="grid grid-2" style="margin-top:1rem">
-  <div class="panel reveal">
-    <h2>College feed</h2>
-    <?php foreach ($ann as $a): ?>
-      <div style="padding:.7rem 0;border-bottom:1px solid var(--line)">
-        <span class="chip"><?= e($a['announcement_type']) ?></span>
-        <strong><?= e($a['title']) ?></strong>
-        <div style="color:var(--muted);font-size:.85rem"><?= e(mb_substr($a['body'], 0, 120)) ?></div>
+<div class="panel reveal" style="margin-top:1rem">
+  <div class="panel-h"><h2>Open assignments</h2><a class="btn btn-sm btn-ghost" href="<?= e(url('/student/assignments')) ?>">All</a></div>
+  <?php if (!$assignmentsDue): ?><div class="empty">No open assignments.</div><?php else: ?>
+    <div class="plan-list">
+    <?php foreach ($assignmentsDue as $a): ?>
+      <div class="plan-row">
+        <div class="plan-ico"><?= icon('edit') ?></div>
+        <div class="meta">
+          <strong><?= e($a['title'] ?? 'Assignment') ?></strong>
+          <span><?= e((string)($a['due_at'] ?? $a['deadline'] ?? '')) ?></span>
+        </div>
       </div>
     <?php endforeach; ?>
-    <?php if (!$ann): ?><div class="empty">No announcements.</div><?php endif; ?>
-  </div>
-  <div class="panel reveal">
-    <div class="panel-h"><h2>Open assignments</h2><a class="btn btn-sm btn-ghost" href="<?= e(url('/student/assignments')) ?>">All</a></div>
-    <?php if (!$assignmentsDue): ?><div class="empty">No open assignments.</div><?php else: ?>
-      <div class="plan-list">
-      <?php foreach ($assignmentsDue as $a): ?>
-        <div class="plan-row">
-          <div class="plan-ico"><?= icon('edit') ?></div>
-          <div class="meta">
-            <strong><?= e($a['title'] ?? 'Assignment') ?></strong>
-            <span><?= e((string)($a['due_at'] ?? $a['deadline'] ?? '')) ?></span>
-          </div>
-        </div>
-      <?php endforeach; ?>
-      </div>
-    <?php endif; ?>
-  </div>
+    </div>
+  <?php endif; ?>
 </div>
 
 <div class="panel reveal" style="margin-top:1rem">

@@ -227,10 +227,16 @@ function notify_user(int $userId, string $type, string $title, string $body = ''
 
 function unread_notifications_count(int $userId): int
 {
-    $row = Database::fetch(
-        'SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND is_read = 0',
-        [$userId]
-    );
+    $roleRow = Database::fetch('SELECT role FROM users WHERE id = ?', [$userId]);
+    $role = (string)($roleRow['role'] ?? '');
+    $sql = 'SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND is_read = 0';
+    $params = [$userId];
+    if ($role !== 'hod') {
+        $sql .= ' AND (meta IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) IS NULL'
+            . ' OR JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) <> ?)';
+        $params[] = 'admin_hod_message';
+    }
+    $row = Database::fetch($sql, $params);
     return (int)($row['c'] ?? 0);
 }
 

@@ -1260,6 +1260,9 @@ a.chip.active {
   width: 100%;
   gap: .5rem;
 }
+.hod-students-page .hod-students-list-panel {
+  margin-top: 1.25rem;
+}
 .hod-students-page .hod-students-filter-actions .btn {
   flex: 1 1 8rem;
   min-height: 44px;

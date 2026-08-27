@@ -40,6 +40,21 @@ $students = ($deptId > 0 && $dept)
     ? User::studentsForDepartment($instId, $deptId, $filters)
     : [];
 
+$perPage = 10;
+$studentTotal = count($students);
+$studentTotalPages = max(1, (int)ceil($studentTotal / $perPage));
+$studentPage = (int)($_GET['page'] ?? 1);
+if ($studentPage < 1) {
+    $studentPage = 1;
+}
+if ($studentPage > $studentTotalPages) {
+    $studentPage = $studentTotalPages;
+}
+$studentOffset = ($studentPage - 1) * $perPage;
+$studentsPage = $studentTotal > 0 ? array_slice($students, $studentOffset, $perPage) : [];
+$showingFrom = $studentTotal > 0 ? ($studentOffset + 1) : 0;
+$showingTo = min($studentOffset + $perPage, $studentTotal);
+
 $classes = $deptId > 0 ? academic_classes($instId, $deptId) : [];
 $sections = [];
 foreach ($classes as $classRow) {
@@ -51,7 +66,7 @@ foreach ($classes as $classRow) {
 ksort($sections);
 
 $grouped = [];
-foreach ($students as $student) {
+foreach ($studentsPage as $student) {
     $studentYear = (int)($student['class_year'] ?? 0);
     $yearKey = $studentYear > 0 ? $studentYear : 0;
     $sectionKey = trim((string)($student['class_section'] ?? '')) ?: 'Unassigned';
@@ -68,9 +83,13 @@ function hod_students_query(array $overrides = []): string
     $params = array_merge($_GET, $overrides);
     unset($params['department_id']);
     foreach ($params as $key => $value) {
-        if ($value === '' || $value === 0 || $value === '0') {
+        if ($value === '' || $value === 0 || $value === '0' || $value === null) {
             unset($params[$key]);
         }
+    }
+    // Drop page=1 from URLs
+    if (isset($params['page']) && (int)$params['page'] <= 1) {
+        unset($params['page']);
     }
     $query = http_build_query($params);
     return url('/hod/students' . ($query !== '' ? '?' . $query : ''));
@@ -108,7 +127,7 @@ render_header('Department Students', 'students');
       <label>Year</label>
       <div class="chip-row">
         <?php foreach ([0 => 'All Years', 1 => '1st Year', 2 => '2nd Year', 3 => '3rd Year', 4 => '4th Year'] as $yearValue => $yearLabel): ?>
-          <a class="chip<?= $year === $yearValue ? ' active' : '' ?>" href="<?= e(hod_students_query(['year' => $yearValue])) ?>"><?= e($yearLabel) ?></a>
+          <a class="chip<?= $year === $yearValue ? ' active' : '' ?>" href="<?= e(hod_students_query(['year' => $yearValue, 'page' => 1])) ?>"><?= e($yearLabel) ?></a>
         <?php endforeach; ?>
       </div>
     </div>
@@ -158,10 +177,13 @@ render_header('Department Students', 'students');
   </form>
 </div>
 
-<div class="panel reveal hod-students-list-panel">
+<div class="panel reveal hod-students-list-panel" style="margin-top:1.25rem">
   <?php if (!$students): ?>
     <div class="empty">No students match the current filters in this department.</div>
   <?php else: ?>
+    <div class="panel-h" style="margin-bottom:.75rem;align-items:center">
+      <span class="chip"><?= (int)$showingFrom ?>–<?= (int)$showingTo ?> of <?= (int)$studentTotal ?> · 10 per page</span>
+    </div>
     <div class="students-tree">
       <?php foreach ($grouped as $yearKey => $sectionGroups): ?>
         <div class="students-year">
@@ -205,6 +227,23 @@ render_header('Department Students', 'students');
         </div>
       <?php endforeach; ?>
     </div>
+    <?php if ($studentTotalPages > 1): ?>
+    <div class="panel-h" style="margin-top:1rem;align-items:center">
+      <span class="chip">Page <?= (int)$studentPage ?> / <?= (int)$studentTotalPages ?></span>
+      <div style="display:flex;gap:.4rem">
+        <?php if ($studentPage > 1): ?>
+          <a class="btn btn-sm btn-ghost" href="<?= e(hod_students_query(['page' => $studentPage - 1])) ?>">Previous</a>
+        <?php else: ?>
+          <button class="btn btn-sm btn-ghost" type="button" disabled>Previous</button>
+        <?php endif; ?>
+        <?php if ($studentPage < $studentTotalPages): ?>
+          <a class="btn btn-sm btn-primary" href="<?= e(hod_students_query(['page' => $studentPage + 1])) ?>">Next</a>
+        <?php else: ?>
+          <button class="btn btn-sm btn-ghost" type="button" disabled>Next</button>
+        <?php endif; ?>
+      </div>
+    </div>
+    <?php endif; ?>
   <?php endif; ?>
 </div>
 </div>

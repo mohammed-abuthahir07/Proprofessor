@@ -33,6 +33,18 @@ if ($id = (int)get('read_id')) {
     Database::query('UPDATE notifications SET is_read=1 WHERE id=? AND user_id=?', [$id, $user['id']]);
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'delete_notification') {
+    verify_csrf();
+    $nid = (int)post('notification_id');
+    if ($nid > 0) {
+        Database::query('DELETE FROM notifications WHERE id=? AND user_id=?', [$nid, $user['id']]);
+        flash('success', 'Notification deleted.');
+    } else {
+        flash('error', 'Unable to delete notification.');
+    }
+    redirect("/$base/notifications.php");
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'generate_digest') {
     verify_csrf();
     $mode = (string)post('digest_mode', 'daily');
@@ -208,6 +220,12 @@ render_header('Notifications', 'notifications', ['subtitle' => 'Approvals, AI co
           <?php if (!$n['is_read']): ?>
             <a class="btn btn-sm btn-ghost" href="?read_id=<?= (int)$n['id'] ?>">Read</a>
           <?php endif; ?>
+          <form method="post" style="margin:0" onsubmit="return confirm('Delete this notification from your account?');">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="delete_notification">
+            <input type="hidden" name="notification_id" value="<?= (int)$n['id'] ?>">
+            <button class="btn btn-sm btn-ghost" type="submit" style="color:#f87171">Delete</button>
+          </form>
         </div>
       </div>
     </div>

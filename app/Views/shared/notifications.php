@@ -105,6 +105,7 @@ $hodSentHistory = $hodSentHistory ?? [];
   </div>
 </div>
 
+<?php if (($rolePrefix ?? '') !== 'hod'): ?>
 <div class="panel" style="margin-top:1rem">
   <strong>Delivery channels</strong>
   <div class="chip-row" style="margin-top:.45rem">
@@ -113,6 +114,7 @@ $hodSentHistory = $hodSentHistory ?? [];
     <?php endforeach; ?>
   </div>
 </div>
+<?php endif; ?>
 
 <?php if ($digestPreview): ?>
 <div class="panel" style="margin-top:1rem">
@@ -191,6 +193,12 @@ $hodSentHistory = $hodSentHistory ?? [];
           <?php if (!$n['is_read']): ?>
             <a class="btn btn-sm btn-ghost" href="?read_id=<?= (int)$n['id'] ?>">Read</a>
           <?php endif; ?>
+          <form method="post" style="margin:0;display:inline" onsubmit="return confirm('Delete this notification from your account?');">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="delete_notification">
+            <input type="hidden" name="notification_id" value="<?= (int)$n['id'] ?>">
+            <button class="btn btn-sm btn-ghost" type="submit" style="color:#f87171">Delete</button>
+          </form>
         </div>
       </div>
     </div>

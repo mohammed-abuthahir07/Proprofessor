@@ -36,7 +36,7 @@ final class NavService
                 ]],
                 ['label' => 'INSIGHTS', 'items' => [
                     ['key' => 'analytics', 'label' => 'Analytics', 'href' => '/hod/analytics', 'icon' => 'trend', 'feature' => 'dept_analytics'],
-                    ['key' => 'compliance', 'label' => 'Compliance', 'href' => '/hod/compliance', 'icon' => 'alert'],
+                    ['key' => 'compliance', 'label' => 'Complaints', 'href' => '/hod/compliance', 'icon' => 'mail'],
                     ['key' => 'timeline', 'label' => 'Timeline', 'href' => '/hod/timeline', 'icon' => 'clock'],
                 ]],
                 ['label' => 'REPORTS', 'items' => [

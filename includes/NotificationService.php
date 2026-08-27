@@ -117,6 +117,12 @@ final class NotificationService
             return 0;
         }
 
+        // Hard guard: Admin→HOD messages must never land on non-HOD accounts.
+        $metaEarly = is_array($options['meta'] ?? null) ? $options['meta'] : [];
+        if (($metaEarly['kind'] ?? '') === 'admin_hod_message' && (string)($recipient['role'] ?? '') !== 'hod') {
+            return 0;
+        }
+
         $category = self::normalizeCategory((string)($options['category'] ?? ''), $type);
         $priority = self::normalizePriority((string)($options['priority'] ?? ''), $type, $title, $body);
         $action = self::normalizeAction($options['action'] ?? null);

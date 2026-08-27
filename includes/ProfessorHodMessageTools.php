@@ -590,24 +590,31 @@ final class ProfessorHodMessageTools
              WHERE professor_id = ? AND (id = ? OR thread_id = ?)',
             [$profId, $tid, $tid]
         );
-        $messageIds = [];
         foreach ($rows as $row) {
-            $messageIds[] = (int)$row['id'];
             self::deleteAttachmentFile((string)($row['attachment_path'] ?? ''));
         }
 
-        // Remove related inbox notifications for this thread.
         Database::query(
             'DELETE FROM notifications
              WHERE type = ?
-               AND (
-                 CAST(JSON_UNQUOTE(JSON_EXTRACT(meta, "$.thread_id")) AS UNSIGNED) = ?
-                 OR CAST(JSON_UNQUOTE(JSON_EXTRACT(meta, "$.message_id")) AS UNSIGNED) IN ('
-            . (count($messageIds) ? implode(',', array_fill(0, count($messageIds), '?')) : '0')
-            . ')
-               )
-               AND JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) IN ("professor_hod_message", "hod_professor_reply")',
-            array_merge(['announcement', $tid], $messageIds ?: [])
+               AND JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) = ?
+               AND CAST(JSON_UNQUOTE(JSON_EXTRACT(meta, "$.thread_id")) AS UNSIGNED) = ?',
+            ['announcement', 'professor_hod_message', $tid]
+        );
+        Database::query(
+            'DELETE FROM notifications
+             WHERE type = ?
+               AND JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) = ?
+               AND CAST(JSON_UNQUOTE(JSON_EXTRACT(meta, "$.thread_id")) AS UNSIGNED) = ?',
+            ['announcement', 'hod_professor_reply', $tid]
+        );
+        // Fallback for older rows keyed only by message_id = root
+        Database::query(
+            'DELETE FROM notifications
+             WHERE type = ?
+               AND JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) IN ("professor_hod_message", "hod_professor_reply")
+               AND CAST(JSON_UNQUOTE(JSON_EXTRACT(meta, "$.message_id")) AS UNSIGNED) = ?',
+            ['announcement', $tid]
         );
 
         Database::query(

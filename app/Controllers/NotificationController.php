@@ -36,6 +36,17 @@ final class NotificationController extends Controller
             Notification::markRead($id, (int)$user['id']);
         }
 
+        if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && post('action') === 'delete_notification') {
+            verify_csrf();
+            $deleted = Notification::deleteForUser((int)post('notification_id'), (int)$user['id']);
+            if ($deleted) {
+                flash('success', 'Notification deleted.');
+            } else {
+                flash('error', 'Unable to delete notification.');
+            }
+            $this->redirect('/' . $prefix . '/notifications');
+        }
+
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && post('action') === 'generate_digest') {
             verify_csrf();
             $mode = (string)post('digest_mode', 'daily');

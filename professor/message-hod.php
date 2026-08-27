@@ -47,7 +47,7 @@ if ($threadRead = (int)get('read_thread')) {
 $threads = ProfessorHodMessageTools::threadsForProfessor($user, 30);
 
 render_header('Message HOD', 'message-hod', [
-    'subtitle' => 'Send complaints or messages to your department HOD (PDF/DOCX allowed)',
+    'subtitle' => 'Send messages to your department HOD (PDF/DOCX allowed)',
 ]);
 ?>
 <?php if ($deptId < 1): ?>
@@ -66,16 +66,12 @@ render_header('Message HOD', 'message-hod', [
       <h2 style="margin:0;font-size:1.05rem">Message your HOD</h2>
       <span class="chip"><?= e($deptLabel) ?></span>
     </div>
-    <p class="muted" style="font-size:.85rem;margin:.35rem 0 .85rem">
-      Messages go only to <strong><?= e((string)$hod['full_name']) ?></strong> (your department HOD).
-      ECE professors reach ECE HOD; CSE professors reach CSE HOD.
-    </p>
     <form method="post" enctype="multipart/form-data" class="form-grid">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="send_hod_message">
       <div class="form-row">
         <label for="hod_title">Subject <span class="muted">(optional)</span></label>
-        <input type="text" name="title" id="hod_title" maxlength="200" placeholder="Complaint / request subject">
+        <input type="text" name="title" id="hod_title" maxlength="200" placeholder="Request / message subject">
       </div>
       <div class="form-row">
         <label for="hod_message">Message</label>

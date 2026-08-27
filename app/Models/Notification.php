@@ -15,6 +15,9 @@ final class Notification extends Model
         if (class_exists('\\NotificationService', false)) {
             \NotificationService::ensureSchema();
         }
+        $roleRow = Database::fetch('SELECT role FROM users WHERE id = ?', [$userId]);
+        $role = (string)($roleRow['role'] ?? '');
+
         $sql = 'SELECT * FROM notifications WHERE user_id = ?';
         $params = [$userId];
         if ($type) {
@@ -24,6 +27,12 @@ final class Notification extends Model
         if ($priority && in_array($priority, ['high', 'medium', 'low'], true)) {
             $sql .= ' AND priority = ?';
             $params[] = $priority;
+        }
+        // Admin→HOD broadcasts are HOD-only; never show to professors/students.
+        if ($role !== 'hod') {
+            $sql .= ' AND (meta IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) IS NULL'
+                . ' OR JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) <> ?)';
+            $params[] = 'admin_hod_message';
         }
         $sql .= ' ORDER BY created_at DESC LIMIT ' . (int)$limit;
         return Database::fetchAll($sql, $params);
@@ -37,5 +46,18 @@ final class Notification extends Model
     public static function markRead(int $id, int $userId): void
     {
         Database::query('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?', [$id, $userId]);
+    }
+
+    /** Delete a notification owned by this user only. */
+    public static function deleteForUser(int $id, int $userId): bool
+    {
+        if ($id < 1 || $userId < 1) {
+            return false;
+        }
+        $stmt = Database::query(
+            'DELETE FROM notifications WHERE id = ? AND user_id = ?',
+            [$id, $userId]
+        );
+        return $stmt->rowCount() > 0;
     }
 }

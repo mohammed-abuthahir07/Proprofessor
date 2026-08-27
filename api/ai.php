@@ -1648,8 +1648,12 @@ try {
 
         $chatId = (int)post('chat_id', 0);
         if ($chatId) {
-            $ownChat = Database::fetch('SELECT id FROM ai_chats WHERE id = ? AND user_id = ?', [$chatId, $user['id']]);
-            if (!$ownChat) {
+            $ownChat = Database::fetch(
+                'SELECT id, subject_id FROM ai_chats WHERE id = ? AND user_id = ?',
+                [$chatId, $user['id']]
+            );
+            // Continue only if the open chat belongs to the selected subject.
+            if (!$ownChat || ($subjectId && (int)($ownChat['subject_id'] ?? 0) !== (int)$subjectId)) {
                 $chatId = 0;
             }
         }
