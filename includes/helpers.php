@@ -324,6 +324,217 @@ function student_class_id(array $user): int
     return (int)($row['class_id'] ?? 0);
 }
 
+/**
+ * Additive student academic fields on users (year level 1–4 + Odd/Even semester).
+ * Safe for existing rows (NULLs until College Admin sets them).
+ */
+function ensure_student_academic_schema(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    $cols = [];
+    foreach (Database::fetchAll('SHOW COLUMNS FROM users') as $c) {
+        $cols[$c['Field']] = true;
+    }
+    if (!isset($cols['academic_year_level'])) {
+        Database::query(
+            "ALTER TABLE users
+             ADD COLUMN academic_year_level TINYINT UNSIGNED NULL DEFAULT NULL
+             COMMENT 'Student academic year 1-4' AFTER class_id"
+        );
+    }
+    if (!isset($cols['semester'])) {
+        Database::query(
+            "ALTER TABLE users
+             ADD COLUMN semester VARCHAR(40) NULL DEFAULT NULL
+             COMMENT 'Student Odd/Even semester' AFTER academic_year_level"
+        );
+    }
+}
+
+/** Student year 1–4 from user field, else class.year fallback for legacy rows. */
+function student_academic_year_level(array $user): int
+{
+    ensure_student_academic_schema();
+    $y = (int)($user['academic_year_level'] ?? 0);
+    if ($y >= 1 && $y <= 4) {
+        return $y;
+    }
+    $classId = student_class_id($user);
+    if ($classId < 1) {
+        return 0;
+    }
+    $class = Database::fetch('SELECT year FROM classes WHERE id = ?', [$classId]);
+    $cy = (int)($class['year'] ?? 0);
+    return ($cy >= 1 && $cy <= 4) ? $cy : 0;
+}
+
+/**
+ * Normalized "Odd Semester" / "Even Semester".
+ * Legacy students without a value fall back to institution current semester.
+ */
+function student_semester(array $user): string
+{
+    ensure_student_academic_schema();
+    $raw = trim((string)($user['semester'] ?? ''));
+    if ($raw !== '') {
+        return subject_normalize_semester($raw);
+    }
+    $inst = (int)($user['institution_id'] ?? 0);
+    if ($inst > 0) {
+        return subject_normalize_semester(institution_current_semester($inst));
+    }
+    return 'Odd Semester';
+}
+
+/**
+ * Read-only academic context for student UI.
+ *
+ * @return array{
+ *   year:int,year_label:string,semester:string,semester_key:string,semester_label:string,
+ *   department_id:int,department_code:string,department_name:string,
+ *   class_id:int,section:string,class_label:string
+ * }
+ */
+function student_academic_context(array $user): array
+{
+    ensure_student_academic_schema();
+    $year = student_academic_year_level($user);
+    $semester = student_semester($user);
+    $deptId = (int)($user['department_id'] ?? 0);
+    $classId = student_class_id($user);
+    $deptCode = '';
+    $deptName = '';
+    if ($deptId > 0) {
+        $d = Database::fetch('SELECT code, name FROM departments WHERE id = ?', [$deptId]);
+        $deptCode = (string)($d['code'] ?? '');
+        $deptName = (string)($d['name'] ?? '');
+    }
+    $section = '';
+    $classLabel = '';
+    if ($classId > 0) {
+        $c = Database::fetch(
+            'SELECT c.*, d.code AS dept_code, d.name AS dept_name
+             FROM classes c LEFT JOIN departments d ON d.id = c.department_id
+             WHERE c.id = ?',
+            [$classId]
+        );
+        if ($c) {
+            $section = trim((string)($c['section'] ?? ''));
+            $classLabel = class_batch_label($c);
+            if ($deptCode === '') {
+                $deptCode = (string)($c['dept_code'] ?? '');
+            }
+            if ($deptName === '') {
+                $deptName = (string)($c['dept_name'] ?? '');
+            }
+        }
+    }
+    $semKey = subject_semester_key($semester);
+    return [
+        'year' => $year,
+        'year_label' => subject_year_label($year),
+        'semester' => $semester,
+        'semester_key' => $semKey,
+        'semester_label' => $semKey === 'even' ? 'Even' : 'Odd',
+        'department_id' => $deptId,
+        'department_code' => $deptCode,
+        'department_name' => $deptName,
+        'class_id' => $classId,
+        'section' => $section,
+        'class_label' => $classLabel,
+    ];
+}
+
+/**
+ * HOD catalog subjects/labs for this student's academic context + live professor assignment.
+ * Does not invent professors; unassigned → empty professor_name (UI shows "Not Assigned").
+ *
+ * @return list<array<string,mixed>>
+ */
+function subjects_for_student_academic_context(array $user): array
+{
+    ensure_student_academic_schema();
+    $instId = (int)($user['institution_id'] ?? 0);
+    $deptId = (int)($user['department_id'] ?? 0);
+    $classId = student_class_id($user);
+    $year = student_academic_year_level($user);
+    $semester = student_semester($user);
+    if ($instId < 1 || $deptId < 1 || $year < 1) {
+        return [];
+    }
+
+    // Ensure student belongs to this institution row (defense in depth).
+    $uid = (int)($user['id'] ?? 0);
+    if ($uid > 0) {
+        $check = Database::fetch(
+            'SELECT id FROM users WHERE id = ? AND institution_id = ? AND role = "student" AND is_active = 1',
+            [$uid, $instId]
+        );
+        if (!$check) {
+            return [];
+        }
+    }
+
+    $catalog = subjects_for_department_context(
+        $instId,
+        $deptId,
+        $year,
+        subject_semester_key($semester),
+        null
+    );
+    if (!$catalog) {
+        return [];
+    }
+
+    $out = [];
+    foreach ($catalog as $subject) {
+        $sid = (int)($subject['id'] ?? 0);
+        if ($sid < 1 || (int)($subject['institution_id'] ?? 0) !== $instId) {
+            continue;
+        }
+        if ((int)($subject['department_id'] ?? 0) !== $deptId) {
+            continue;
+        }
+        $professorName = null;
+        $professorId = null;
+        if ($classId > 0) {
+            $asg = Database::fetch(
+                'SELECT sa.professor_id, u.full_name
+                 FROM subject_assignments sa
+                 JOIN users u ON u.id = sa.professor_id
+                 WHERE sa.subject_id = ? AND sa.class_id = ?
+                   AND u.institution_id = ? AND u.role = "professor" AND u.is_active = 1
+                 LIMIT 1',
+                [$sid, $classId, $instId]
+            );
+            if ($asg) {
+                $professorId = (int)$asg['professor_id'];
+                $professorName = (string)$asg['full_name'];
+            }
+        }
+        $subject['professor_id'] = $professorId;
+        $subject['professor_name'] = $professorName;
+        $subject['course_type'] = subject_course_type($subject);
+        $subject['semester'] = subject_normalize_semester((string)($subject['semester'] ?? $semester));
+        $out[] = $subject;
+    }
+
+    usort($out, static function (array $a, array $b): int {
+        $ta = subject_course_type($a) === 'lab' ? 1 : 0;
+        $tb = subject_course_type($b) === 'lab' ? 1 : 0;
+        if ($ta !== $tb) {
+            return $ta <=> $tb;
+        }
+        return strcasecmp((string)($a['name'] ?? ''), (string)($b['name'] ?? ''));
+    });
+
+    return $out;
+}
+
 function class_belongs_to_institution(int $classId, int $institutionId): bool
 {
     if ($classId < 1 || $institutionId < 1) {
@@ -456,6 +667,38 @@ function enroll_class_students_in_subject(int $institutionId, int $classId, int 
 
 function courses_for_student(array $user): array
 {
+    ensure_student_academic_schema();
+    $year = student_academic_year_level($user);
+    $deptId = (int)($user['department_id'] ?? 0);
+
+    // When student has academic context (year + department), match HOD catalog live.
+    if ($year >= 1 && $deptId > 0) {
+        $matched = subjects_for_student_academic_context($user);
+        $classId = student_class_id($user);
+        foreach ($matched as &$row) {
+            if (empty($row['professor_name'])) {
+                $row['professor_name'] = null;
+            }
+            $row['bloom_data'] = null;
+            $row['ai_score'] = null;
+            if ($classId > 0) {
+                $cp = Database::fetch(
+                    'SELECT bloom_data, ai_score FROM course_plans
+                     WHERE subject_id = ? AND class_id = ? AND status = "approved"
+                     ORDER BY id DESC LIMIT 1',
+                    [(int)$row['id'], $classId]
+                );
+                if ($cp) {
+                    $row['bloom_data'] = $cp['bloom_data'] ?? null;
+                    $row['ai_score'] = $cp['ai_score'] ?? null;
+                }
+            }
+        }
+        unset($row);
+        return $matched;
+    }
+
+    // Legacy fallback: enrollment rows (students missing year/department).
     $uid = (int)($user['id'] ?? 0);
     $inst = (int)($user['institution_id'] ?? 0);
     $classId = student_class_id($user);

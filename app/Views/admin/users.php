@@ -94,17 +94,48 @@ $roleVal = $isEdit ? (string)$editing['role'] : 'professor';
       </div>
       <div class="form-row two" id="studentFields">
         <div><label>Class (students)</label>
-          <select name="class_id">
+          <select name="class_id" id="userClass">
             <option value="">—</option>
             <?php if (!$classes): ?>
               <option value="" disabled>No classes yet — add one on the right</option>
             <?php endif; ?>
             <?php foreach ($classes as $c): ?>
-              <option value="<?= (int)$c['id'] ?>" <?= (int)($editing['class_id'] ?? 0) === (int)$c['id'] ? 'selected' : '' ?>><?= e(class_batch_label($c)) ?></option>
+              <option value="<?= (int)$c['id'] ?>"
+                      data-year="<?= (int)($c['year'] ?? 0) ?>"
+                      data-dept="<?= (int)($c['department_id'] ?? 0) ?>"
+                      <?= (int)($editing['class_id'] ?? 0) === (int)$c['id'] ? 'selected' : '' ?>><?= e(class_batch_label($c)) ?></option>
             <?php endforeach; ?>
           </select>
         </div>
         <div><label>Register No</label><input name="register_no" value="<?= e((string)($editing['register_no'] ?? '')) ?>"></div>
+      </div>
+      <?php
+        $editYear = (int)($editing['academic_year_level'] ?? 0);
+        if ($editYear < 1 && $isEdit && !empty($editing['class_id'])) {
+            foreach ($classes as $c) {
+                if ((int)$c['id'] === (int)$editing['class_id']) {
+                    $editYear = (int)($c['year'] ?? 0);
+                    break;
+                }
+            }
+        }
+        $editSem = $isEdit ? subject_semester_key((string)($editing['semester'] ?? '')) : 'odd';
+      ?>
+      <div class="form-row two" id="studentAcademicFields">
+        <div><label>Academic Year</label>
+          <select name="academic_year_level" id="userAcademicYear">
+            <option value="">Select year…</option>
+            <?php foreach ([1, 2, 3, 4] as $yr): ?>
+              <option value="<?= $yr ?>" <?= $editYear === $yr ? 'selected' : '' ?>><?= e(subject_year_label($yr)) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div><label>Semester</label>
+          <select name="semester" id="userSemester">
+            <option value="odd" <?= $editSem === 'odd' ? 'selected' : '' ?>>Odd</option>
+            <option value="even" <?= $editSem === 'even' ? 'selected' : '' ?>>Even</option>
+          </select>
+        </div>
       </div>
       <div class="form-row two">
         <div><label>Employee ID</label><input name="employee_id" value="<?= e((string)($editing['employee_id'] ?? '')) ?>"></div>
@@ -229,12 +260,25 @@ $roleVal = $isEdit ? (string)$editing['role'] : 'professor';
 (function () {
   const role = document.getElementById('userRole');
   const student = document.getElementById('studentFields');
+  const academic = document.getElementById('studentAcademicFields');
   const perms = document.getElementById('permBox');
+  const classSel = document.getElementById('userClass');
+  const yearSel = document.getElementById('userAcademicYear');
   const sync = () => {
     const v = role?.value;
-    if (student) student.hidden = v !== 'student';
+    const isStudent = v === 'student';
+    if (student) student.hidden = !isStudent;
+    if (academic) academic.hidden = !isStudent;
     if (perms) perms.hidden = v !== 'admin';
   };
+  // When class changes, suggest matching academic year (admin can still change semester).
+  classSel?.addEventListener('change', () => {
+    const opt = classSel.options[classSel.selectedIndex];
+    const y = parseInt(opt?.getAttribute('data-year') || '0', 10);
+    if (yearSel && y >= 1 && y <= 4) {
+      yearSel.value = String(y);
+    }
+  });
   role?.addEventListener('change', sync);
   sync();
 })();

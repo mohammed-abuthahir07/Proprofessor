@@ -1,9 +1,20 @@
 <?php
 /** @var array $courses */
+/** @var array $subjects */
+/** @var array $labs */
+/** @var array $academic */
 /** @var array $assignmentsDue */
 /** @var array $ann */
 $user = \Auth::user();
 $firstName = explode(' ', (string)($user['full_name'] ?? 'Student'))[0];
+$subjects = $subjects ?? $courses ?? [];
+$labs = $labs ?? [];
+$academic = $academic ?? student_academic_context($user);
+
+$profLabel = static function (array $c): string {
+    $name = trim((string)($c['professor_name'] ?? ''));
+    return $name !== '' ? $name : 'Not Assigned';
+};
 ?>
 <section class="welcome-banner reveal">
   <div>
@@ -18,23 +29,59 @@ $firstName = explode(' ', (string)($user['full_name'] ?? 'Student'))[0];
   <div class="stat"><div class="label">Announcements</div><div class="value"><?= count($ann) ?></div></div>
   <div class="stat"><div class="label">Ask AI</div><div class="value"><?= icon('spark', 'icon-lg') ?></div><div class="hint">Study assistant</div></div>
 </div>
+
+<div class="panel reveal" style="margin-top:1rem">
+  <div class="panel-h"><h2>My Academic Details</h2></div>
+  <div class="chip-row" style="margin-top:.35rem">
+    <span class="chip"><?= e($academic['year_label'] ?: 'Year not set') ?></span>
+    <span class="chip"><?= e($academic['department_code'] ?: ($academic['department_name'] ?: 'Department')) ?></span>
+    <?php if ($academic['section'] !== ''): ?>
+      <span class="chip">Section <?= e($academic['section']) ?></span>
+    <?php endif; ?>
+    <span class="chip"><?= e($academic['semester_label']) ?> Semester</span>
+  </div>
+  <?php if ($academic['class_label'] !== ''): ?>
+    <div class="muted" style="margin-top:.45rem;font-size:.85rem"><?= e($academic['class_label']) ?></div>
+  <?php endif; ?>
+  <div class="muted" style="margin-top:.35rem;font-size:.8rem">Academic year and semester are managed by College Admin.</div>
+</div>
+
 <div class="grid grid-2" style="margin-top:1rem">
   <div class="panel reveal">
-    <div class="panel-h"><h2>My courses</h2><a class="btn btn-sm btn-ghost" href="<?= e(url('/student/courses')) ?>">All</a></div>
-    <?php if (!$courses): ?><div class="empty">No enrollments yet.</div><?php else: ?>
+    <div class="panel-h"><h2>My Subjects</h2><a class="btn btn-sm btn-ghost" href="<?= e(url('/student/courses')) ?>">All</a></div>
+    <?php if (!$subjects): ?><div class="empty">No matching subjects for your year and semester.</div><?php else: ?>
       <div class="plan-list">
-      <?php foreach ($courses as $c): ?>
+      <?php foreach ($subjects as $c): ?>
         <div class="plan-row">
           <div class="plan-ico"><?= icon('book') ?></div>
           <div class="meta">
             <strong><?= e($c['name']) ?></strong>
-            <span><?= e($c['code']) ?> · <?= e((string)$c['professor_name']) ?></span>
+            <span><?= e($c['code']) ?> · Professor: <?= e($profLabel($c)) ?></span>
           </div>
         </div>
       <?php endforeach; ?>
       </div>
     <?php endif; ?>
   </div>
+  <div class="panel reveal">
+    <div class="panel-h"><h2>My Labs</h2></div>
+    <?php if (!$labs): ?><div class="empty">No matching labs for your year and semester.</div><?php else: ?>
+      <div class="plan-list">
+      <?php foreach ($labs as $c): ?>
+        <div class="plan-row">
+          <div class="plan-ico"><?= icon('monitor') ?></div>
+          <div class="meta">
+            <strong><?= e($c['name']) ?></strong>
+            <span><?= e($c['code']) ?> · Professor: <?= e($profLabel($c)) ?></span>
+          </div>
+        </div>
+      <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:1rem">
   <div class="panel reveal">
     <h2>College feed</h2>
     <?php foreach ($ann as $a): ?>
@@ -44,8 +91,26 @@ $firstName = explode(' ', (string)($user['full_name'] ?? 'Student'))[0];
         <div style="color:var(--muted);font-size:.85rem"><?= e(mb_substr($a['body'], 0, 120)) ?></div>
       </div>
     <?php endforeach; ?>
+    <?php if (!$ann): ?><div class="empty">No announcements.</div><?php endif; ?>
+  </div>
+  <div class="panel reveal">
+    <div class="panel-h"><h2>Open assignments</h2><a class="btn btn-sm btn-ghost" href="<?= e(url('/student/assignments')) ?>">All</a></div>
+    <?php if (!$assignmentsDue): ?><div class="empty">No open assignments.</div><?php else: ?>
+      <div class="plan-list">
+      <?php foreach ($assignmentsDue as $a): ?>
+        <div class="plan-row">
+          <div class="plan-ico"><?= icon('edit') ?></div>
+          <div class="meta">
+            <strong><?= e($a['title'] ?? 'Assignment') ?></strong>
+            <span><?= e((string)($a['due_at'] ?? $a['deadline'] ?? '')) ?></span>
+          </div>
+        </div>
+      <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
   </div>
 </div>
+
 <div class="panel reveal" style="margin-top:1rem">
   <div class="panel-h"><h2><?= icon('spark', 'icon-inline') ?> Quick Actions</h2></div>
   <div class="module-cards stagger">

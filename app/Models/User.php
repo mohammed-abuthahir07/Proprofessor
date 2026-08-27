@@ -46,7 +46,7 @@ final class User extends Model
                 $params[] = $level;
             }
             if ($year > 0) {
-                $sql .= ' AND c.year = ?';
+                $sql .= ' AND (COALESCE(u.academic_year_level, c.year) = ?)';
                 $params[] = $year;
             }
         }

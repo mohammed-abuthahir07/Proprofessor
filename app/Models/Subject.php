@@ -22,6 +22,7 @@ final class Subject extends Model
 
     public static function enrolledForStudent(int $studentId): array
     {
+        ensure_student_academic_schema();
         $user = Database::fetch('SELECT * FROM users WHERE id = ?', [$studentId]);
         return $user ? courses_for_student($user) : [];
     }

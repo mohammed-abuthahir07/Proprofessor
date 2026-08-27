@@ -19,6 +19,7 @@ final class UserController extends Controller
     public function index(): void
     {
         require_admin_perm('manage_users');
+        ensure_student_academic_schema();
         $user = $this->user();
         $instId = (int)$user['institution_id'];
 
@@ -59,6 +60,7 @@ final class UserController extends Controller
     public function store(): void
     {
         require_admin_perm('manage_users');
+        ensure_student_academic_schema();
         $this->verifyCsrf();
         $actor = $this->user();
         $action = (string)$this->post('action');
@@ -319,11 +321,48 @@ final class UserController extends Controller
             return null;
         }
         $deptId = $this->resolveDept($institutionId, (int)$this->post('department_id'));
-        $classId = $this->resolveClass($institutionId, (int)$this->post('class_id'));
+        $classId = $this->resolveClass($institutionId, (int)$this->post('class_id'), $deptId);
         if (in_array($role, ['hod', 'professor', 'student'], true) && !$deptId) {
             $this->flash('error', 'Department is required for HOD, Professor, and Student.');
             return null;
         }
+
+        $academicYearLevel = null;
+        $semester = null;
+        if ($role === 'student') {
+            if (!$classId) {
+                $this->flash('error', 'Class / section is required for students.');
+                return null;
+            }
+            $academicYearLevel = (int)$this->post('academic_year_level');
+            if ($academicYearLevel < 1 || $academicYearLevel > 4) {
+                $this->flash('error', 'Select a valid academic year (1st–4th).');
+                return null;
+            }
+            $semesterKey = strtolower(trim((string)$this->post('semester')));
+            if (!in_array($semesterKey, ['odd', 'even'], true)) {
+                $this->flash('error', 'Select semester: Odd or Even.');
+                return null;
+            }
+            $semester = subject_normalize_semester($semesterKey);
+            $class = Database::fetch(
+                'SELECT id, year, department_id FROM classes WHERE id = ? AND institution_id = ?',
+                [$classId, $institutionId]
+            );
+            if (!$class) {
+                $this->flash('error', 'Class not found in this institution.');
+                return null;
+            }
+            if ((int)$class['year'] !== $academicYearLevel) {
+                $this->flash('error', 'Selected class year must match the student’s academic year.');
+                return null;
+            }
+            if ($deptId && (int)$class['department_id'] > 0 && (int)$class['department_id'] !== $deptId) {
+                $this->flash('error', 'Selected class must belong to the student’s department.');
+                return null;
+            }
+        }
+
         $perms = $this->post('permissions');
         $extra = null;
         if ($role === 'admin' && is_array($perms) && $perms !== []) {
@@ -336,6 +375,8 @@ final class UserController extends Controller
             'email' => $email,
             'full_name' => $fullName,
             'class_id' => $role === 'student' ? $classId : null,
+            'academic_year_level' => $role === 'student' ? $academicYearLevel : null,
+            'semester' => $role === 'student' ? $semester : null,
             'register_no' => trim((string)$this->post('register_no')) ?: null,
             'employee_id' => trim((string)$this->post('employee_id')) ?: null,
             'phone' => trim((string)$this->post('phone')) ?: null,
@@ -366,16 +407,21 @@ final class UserController extends Controller
         return $row ? (int)$row['id'] : null;
     }
 
-    private function resolveClass(int $institutionId, int $classId): ?int
+    private function resolveClass(int $institutionId, int $classId, ?int $departmentId = null): ?int
     {
         if ($classId < 1) {
             return null;
         }
-        $row = Database::fetch(
-            'SELECT id FROM classes WHERE id = ? AND institution_id = ?',
-            [$classId, $institutionId]
-        );
-        return $row ? (int)$row['id'] : null;
+        $sql = 'SELECT id, department_id FROM classes WHERE id = ? AND institution_id = ?';
+        $params = [$classId, $institutionId];
+        $row = Database::fetch($sql, $params);
+        if (!$row) {
+            return null;
+        }
+        if ($departmentId && (int)$row['department_id'] > 0 && (int)$row['department_id'] !== $departmentId) {
+            return null;
+        }
+        return (int)$row['id'];
     }
 
     private function syncHodLink(int $institutionId, int $userId, string $role, ?int $deptId, ?array $previous): void
