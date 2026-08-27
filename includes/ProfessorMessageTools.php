@@ -194,80 +194,19 @@ final class ProfessorMessageTools
             return [];
         }
         $instId = (int)$user['institution_id'];
-        $profDept = (int)($user['department_id'] ?? 0);
-
-        $params = [$instId, $classId, $subjectId, $classId];
-        $sql = "SELECT DISTINCT u.id, u.register_no, u.full_name
-             FROM enrollments e
-             JOIN users u ON u.id = e.student_id
-             WHERE u.institution_id = ?
-               AND u.role = 'student'
-               AND u.is_active = 1
-               AND e.class_id = ?
-               AND e.subject_id = ?
-               AND e.status = 'active'
-               AND (u.class_id IS NULL OR u.class_id = 0 OR u.class_id = ?)";
-        if ($profDept > 0) {
-            $sql .= ' AND (u.department_id IS NULL OR u.department_id = 0 OR u.department_id = ?)';
-            $params[] = $profDept;
-        }
-        $sql .= ' ORDER BY u.register_no, u.full_name';
-        $enrolled = Database::fetchAll($sql, $params);
-        if ($enrolled) {
-            return $enrolled;
-        }
-
-        // Fallback: class roster (same pattern as Internal Marks) when enrollments not synced.
-        $roster = sync_class_roster($instId, $classId);
+        // CURRENT academic-context recipients only (same rules as attendance/marks).
+        $roster = students_for_current_course_context(
+            $instId,
+            $classId,
+            $subjectId,
+            (($user['role'] ?? '') === 'professor') ? (int)$user['id'] : null
+        );
         $out = [];
         foreach ($roster as $row) {
-            $uid = (int)($row['user_id'] ?? 0);
-            if ($uid < 1) {
-                // Resolve by register_no within institution + class
-                $stu = Database::fetch(
-                    'SELECT id, register_no, full_name, department_id FROM users
-                     WHERE institution_id = ? AND role = "student" AND is_active = 1
-                       AND register_no = ? AND (class_id = ? OR class_id IS NULL OR class_id = 0)
-                     LIMIT 1',
-                    [$instId, (string)($row['register_no'] ?? ''), $classId]
-                );
-                if (!$stu) {
-                    continue;
-                }
-                if ($profDept > 0) {
-                    $sd = (int)($stu['department_id'] ?? 0);
-                    if ($sd > 0 && $sd !== $profDept) {
-                        continue;
-                    }
-                }
-                $out[] = [
-                    'id' => (int)$stu['id'],
-                    'register_no' => (string)$stu['register_no'],
-                    'full_name' => (string)$stu['full_name'],
-                ];
-                continue;
-            }
-            $stu = Database::fetch(
-                'SELECT id, register_no, full_name, department_id, institution_id, role, is_active
-                 FROM users WHERE id = ?',
-                [$uid]
-            );
-            if (!$stu || (string)$stu['role'] !== 'student' || !(int)$stu['is_active']) {
-                continue;
-            }
-            if ((int)$stu['institution_id'] !== $instId) {
-                continue;
-            }
-            if ($profDept > 0) {
-                $sd = (int)($stu['department_id'] ?? 0);
-                if ($sd > 0 && $sd !== $profDept) {
-                    continue;
-                }
-            }
             $out[] = [
-                'id' => (int)$stu['id'],
-                'register_no' => (string)$stu['register_no'],
-                'full_name' => (string)$stu['full_name'],
+                'id' => (int)($row['user_id'] ?? $row['id'] ?? 0),
+                'register_no' => (string)($row['register_no'] ?? ''),
+                'full_name' => (string)($row['full_name'] ?? ''),
             ];
         }
         return $out;

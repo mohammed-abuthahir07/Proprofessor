@@ -173,8 +173,13 @@ $viewMeta = $view ? (json_decode((string)($view['meta'] ?? '{}'), true) ?: []) :
 $similarityReport = is_array($viewMeta['similarity_report'] ?? null) ? $viewMeta['similarity_report'] : [];
 $rosterCount = 0;
 $analytics = null;
-if ($view && !empty($view['class_id'])) {
-    $rosterCount = count(sync_class_roster((int)$user['institution_id'], (int)$view['class_id']));
+if ($view && !empty($view['class_id']) && !empty($view['subject_id'])) {
+    $rosterCount = count(students_for_current_course_context(
+        (int)$user['institution_id'],
+        (int)$view['class_id'],
+        (int)$view['subject_id'],
+        (int)$user['id']
+    ));
     $analytics = AssignmentTools::analytics($view, $subs, $rosterCount);
 }
 $aiDetectOk = AssignmentTools::aiContentDetectionConfigured();

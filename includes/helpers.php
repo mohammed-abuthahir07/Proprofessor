@@ -535,6 +535,158 @@ function subjects_for_student_academic_context(array $user): array
     return $out;
 }
 
+/**
+ * Academic context for a course+class pair (mirrors student-side matching dimensions).
+ *
+ * @return array{
+ *   institution_id:int,department_id:int,class_id:int,subject_id:int,
+ *   year:int,semester:string,semester_key:string,class:?array,subject:?array
+ * }|null
+ */
+function course_academic_context(int $institutionId, int $subjectId, int $classId): ?array
+{
+    ensure_student_academic_schema();
+    if ($institutionId < 1 || $subjectId < 1 || $classId < 1) {
+        return null;
+    }
+    $subject = Database::fetch(
+        'SELECT * FROM subjects WHERE id = ? AND institution_id = ? AND is_active = 1',
+        [$subjectId, $institutionId]
+    );
+    $class = Database::fetch(
+        'SELECT * FROM classes WHERE id = ? AND institution_id = ? AND is_active = 1',
+        [$classId, $institutionId]
+    );
+    if (!$subject || !$class) {
+        return null;
+    }
+    $year = subject_academic_year_level($subject);
+    if ($year < 1) {
+        $year = (int)($class['year'] ?? 0);
+    }
+    if ($year < 1 || $year > 4) {
+        return null;
+    }
+    $semester = subject_normalize_semester((string)($subject['semester'] ?? 'Odd Semester'));
+    $deptId = (int)($subject['department_id'] ?? 0) ?: (int)($class['department_id'] ?? 0);
+    return [
+        'institution_id' => $institutionId,
+        'department_id' => $deptId,
+        'class_id' => $classId,
+        'subject_id' => $subjectId,
+        'year' => $year,
+        'semester' => $semester,
+        'semester_key' => subject_semester_key($semester),
+        'class' => $class,
+        'subject' => $subject,
+    ];
+}
+
+/**
+ * Whether a student currently matches a course/class academic context
+ * (institution + department + class/section + year + semester).
+ */
+function student_matches_course_context(array $student, array $ctx): bool
+{
+    if ((int)($student['institution_id'] ?? 0) !== (int)($ctx['institution_id'] ?? 0)) {
+        return false;
+    }
+    if ((string)($student['role'] ?? '') !== 'student') {
+        return false;
+    }
+    if (!(int)($student['is_active'] ?? 0)) {
+        return false;
+    }
+    if ((int)student_class_id($student) !== (int)($ctx['class_id'] ?? 0)) {
+        return false;
+    }
+    $deptId = (int)($ctx['department_id'] ?? 0);
+    if ($deptId > 0) {
+        $sd = (int)($student['department_id'] ?? 0);
+        if ($sd > 0 && $sd !== $deptId) {
+            return false;
+        }
+    }
+    if (student_academic_year_level($student) !== (int)($ctx['year'] ?? 0)) {
+        return false;
+    }
+    return subject_semester_key(student_semester($student)) === (string)($ctx['semester_key'] ?? '');
+}
+
+/**
+ * CURRENT students for a professor course/class — same match rules as student subject visibility.
+ * Does not create/delete/update historical attendance, marks, assignments, or tests.
+ *
+ * @return list<array<string,mixed>> roster-shaped rows (user_id, register_no, full_name, email, …)
+ */
+function students_for_current_course_context(
+    int $institutionId,
+    int $classId,
+    int $subjectId,
+    ?int $professorId = null
+): array {
+    ensure_student_academic_schema();
+    $ctx = course_academic_context($institutionId, $subjectId, $classId);
+    if ($ctx === null) {
+        return [];
+    }
+
+    if ($professorId !== null && $professorId > 0) {
+        $asg = Database::fetch(
+            'SELECT sa.id
+             FROM subject_assignments sa
+             JOIN subjects s ON s.id = sa.subject_id
+             WHERE sa.professor_id = ?
+               AND sa.subject_id = ?
+               AND sa.class_id = ?
+               AND s.institution_id = ?
+             LIMIT 1',
+            [$professorId, $subjectId, $classId, $institutionId]
+        );
+        if (!$asg) {
+            return [];
+        }
+    }
+
+    // Keep students_roster in sync for register_no lookups, then filter by academic context.
+    sync_class_roster($institutionId, $classId);
+
+    $candidates = Database::fetchAll(
+        'SELECT u.*
+         FROM users u
+         WHERE u.institution_id = ?
+           AND u.role = "student"
+           AND u.is_active = 1
+           AND u.class_id = ?
+         ORDER BY u.register_no, u.full_name',
+        [$institutionId, $classId]
+    );
+
+    $out = [];
+    foreach ($candidates as $stu) {
+        if (!student_matches_course_context($stu, $ctx)) {
+            continue;
+        }
+        $reg = trim((string)($stu['register_no'] ?? ''));
+        if ($reg === '') {
+            $reg = 'STU' . (int)$stu['id'];
+        }
+        $out[] = [
+            'id' => (int)$stu['id'],
+            'user_id' => (int)$stu['id'],
+            'register_no' => $reg,
+            'full_name' => (string)$stu['full_name'],
+            'email' => (string)($stu['email'] ?? ''),
+            'is_active' => 1,
+            'class_id' => $classId,
+            'institution_id' => $institutionId,
+            'academic_year_level' => student_academic_year_level($stu),
+            'semester' => student_semester($stu),
+        ];
+    }
+    return $out;
+}
+
 function class_belongs_to_institution(int $classId, int $institutionId): bool
 {
     if ($classId < 1 || $institutionId < 1) {
@@ -630,15 +782,24 @@ function enroll_class_students_in_subject(int $institutionId, int $classId, int 
     if ($classId < 1 || $subjectId < 1) {
         return;
     }
+    ensure_student_academic_schema();
+    $ctx = course_academic_context($institutionId, $subjectId, $classId);
+    if ($ctx === null) {
+        return;
+    }
     $academicYear = institution_academic_year($institutionId);
     $semester = trim((string)$semesterOverride) !== ''
         ? subject_normalize_semester((string)$semesterOverride)
-        : institution_current_semester($institutionId);
+        : $ctx['semester'];
+    // Only CURRENT matching students — do not touch non-matching (historical) enrollment rows.
     $students = Database::fetchAll(
-        'SELECT id FROM users WHERE institution_id = ? AND role = "student" AND class_id = ? AND is_active = 1',
+        'SELECT * FROM users WHERE institution_id = ? AND role = "student" AND class_id = ? AND is_active = 1',
         [$institutionId, $classId]
     );
     foreach ($students as $s) {
+        if (!student_matches_course_context($s, $ctx)) {
+            continue;
+        }
         $studentId = (int)$s['id'];
         $exists = Database::fetch(
             'SELECT id FROM enrollments

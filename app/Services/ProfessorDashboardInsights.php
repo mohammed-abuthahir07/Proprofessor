@@ -672,18 +672,42 @@ final class ProfessorDashboardInsights
                 }
             }
 
-            $missing = Database::fetchAll(
-                'SELECT u.register_no, u.full_name
-                 FROM enrollments e
-                 JOIN users u ON u.id = e.student_id
-                 WHERE e.class_id = ? AND e.status = "active" AND u.institution_id = ?
-                   AND NOT EXISTS (
-                     SELECT 1 FROM assignment_submissions s
-                     WHERE s.assignment_id = ? AND s.student_id = u.id
-                   )
-                 LIMIT 50',
-                [$classId, $instId, $aid]
-            );
+            $missing = [];
+            if ($subjectId > 0) {
+                foreach (students_for_current_course_context($instId, $classId, $subjectId, $professorId) as $stu) {
+                    $sid = (int)($stu['user_id'] ?? $stu['id'] ?? 0);
+                    if ($sid < 1) {
+                        continue;
+                    }
+                    $hasSub = Database::fetch(
+                        'SELECT id FROM assignment_submissions WHERE assignment_id = ? AND student_id = ? LIMIT 1',
+                        [$aid, $sid]
+                    );
+                    if ($hasSub) {
+                        continue;
+                    }
+                    $missing[] = [
+                        'register_no' => (string)($stu['register_no'] ?? ''),
+                        'full_name' => (string)($stu['full_name'] ?? ''),
+                    ];
+                    if (count($missing) >= 50) {
+                        break;
+                    }
+                }
+            } else {
+                $missing = Database::fetchAll(
+                    'SELECT u.register_no, u.full_name
+                     FROM enrollments e
+                     JOIN users u ON u.id = e.student_id
+                     WHERE e.class_id = ? AND e.status = "active" AND u.institution_id = ?
+                       AND NOT EXISTS (
+                         SELECT 1 FROM assignment_submissions s
+                         WHERE s.assignment_id = ? AND s.student_id = u.id
+                       )
+                     LIMIT 50',
+                    [$classId, $instId, $aid]
+                );
+            }
             foreach ($missing as $m) {
                 $reg = (string)$m['register_no'];
                 foreach ($subjectTargets as $sid => $subjectLabel) {

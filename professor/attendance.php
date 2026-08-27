@@ -64,7 +64,7 @@ if (get('download') === 'report_pdf') {
     try {
         $monthStart = $month . '-01';
         $monthEnd = date('Y-m-t', strtotime($monthStart) ?: time());
-        $rosterPdf = sync_class_roster($instId, $classId);
+        $rosterPdf = students_for_current_course_context($instId, $classId, $subjectId, (int)$user['id']);
         $sessionsPdf = Database::fetchAll(
             'SELECT * FROM attendance_sessions
              WHERE class_id=? AND subject_id=? AND session_date BETWEEN ? AND ?
@@ -219,7 +219,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $summaryTmp[$reg] = $a['total'] ? round(($a['present'] ?? 0) * 100 / $a['total'], 1) : 0;
             }
         }
-        $rosterTmp = $classId ? sync_class_roster($instId, $classId) : [];
+        $rosterTmp = ($classId && $subjectId)
+            ? students_for_current_course_context($instId, $classId, $subjectId, (int)$user['id'])
+            : [];
         $n = AttendanceTools::dispatchShortageAlerts($user, $classId, $subjectId, $summaryTmp, $rosterTmp, $minPct);
         flash('success', $n ? "Sent {$n} shortage alert(s)." : 'No new alerts to send (already notified or none flagged).');
         redirect('/professor/attendance.php?class_id=' . $classId . '&subject_id=' . $subjectId . '&tab=tools');
@@ -253,8 +255,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $date = (string)post('session_date');
         $period = trim((string)post('period', '1')) ?: '1';
         $statuses = post('status') ?: [];
+        $currentRoster = students_for_current_course_context($instId, $classId, $subjectId, (int)$user['id']);
+        $allowedRegs = [];
+        foreach ($currentRoster as $row) {
+            $allowedRegs[(string)$row['register_no']] = true;
+        }
+        // Only CURRENT matching students may be marked (historical sessions remain untouched).
+        $statuses = array_filter(
+            is_array($statuses) ? $statuses : [],
+            static fn($st, $reg) => isset($allowedRegs[(string)$reg]),
+            ARRAY_FILTER_USE_BOTH
+        );
         if (!$statuses) {
-            flash('error', 'No students to mark. Import a roster or assign students to this class.');
+            flash('error', 'No matching students for this course year/semester. Check HOD assignment and student academic details.');
             redirect('/professor/attendance.php?class_id=' . $classId . '&subject_id=' . $subjectId);
         }
         $records = [];
@@ -310,7 +323,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$roster = $classId ? sync_class_roster($instId, $classId) : [];
+$roster = ($classId && $subjectId)
+    ? students_for_current_course_context($instId, $classId, $subjectId, (int)$user['id'])
+    : [];
 $monthStart = $month . '-01';
 $monthEnd = date('Y-m-t', strtotime($monthStart) ?: time());
 $sessions = [];

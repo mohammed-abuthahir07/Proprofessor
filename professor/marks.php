@@ -58,28 +58,14 @@ $resolveContext = static function (int $classId, int $subjectId) use ($instId): 
 };
 
 /** @return list<array<string,mixed>> */
-$loadStudents = static function (int $classId, int $subjectId) use ($instId, $academicYear): array {
-    $params = [$instId, $classId, $subjectId];
-    $sql = 'SELECT u.id AS user_id, u.register_no, u.full_name
-            FROM enrollments e
-            JOIN users u ON u.id = e.student_id
-            WHERE u.institution_id = ?
-              AND e.class_id = ?
-              AND e.subject_id = ?
-              AND e.status = "active"
-              AND u.role = "student"
-              AND u.is_active = 1';
-    if ($academicYear !== '') {
-        $sql .= ' AND (e.academic_year IS NULL OR e.academic_year = ?)';
-        $params[] = $academicYear;
-    }
-    $sql .= ' ORDER BY u.register_no, u.full_name';
-    $enrolled = Database::fetchAll($sql, $params);
-    if ($enrolled) {
-        return $enrolled;
-    }
-    // Fallback: class roster (same source as Attendance) when enrollments are not yet synced.
-    return sync_class_roster($instId, $classId);
+$loadStudents = static function (int $classId, int $subjectId) use ($instId, $user): array {
+    // CURRENT academic-context roster only (year + semester + class + dept + assignment).
+    return students_for_current_course_context(
+        $instId,
+        $classId,
+        $subjectId,
+        (($user['role'] ?? '') === 'professor') ? (int)$user['id'] : null
+    );
 };
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
