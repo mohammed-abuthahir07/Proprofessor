@@ -83,6 +83,31 @@ final class Expense extends Model
         return (float)($row['total'] ?? 0);
     }
 
+    /** @return list<int> */
+    public static function yearsWithExpenses(int $institutionId): array
+    {
+        $rows = Database::fetchAll(
+            'SELECT DISTINCT YEAR(expense_date) AS y FROM expenses
+             WHERE institution_id = ?
+             ORDER BY y DESC',
+            [$institutionId]
+        );
+        $years = [];
+        foreach ($rows as $row) {
+            $year = (int)($row['y'] ?? 0);
+            if ($year > 0) {
+                $years[] = $year;
+            }
+        }
+        $current = (int)date('Y');
+        if (!in_array($current, $years, true)) {
+            array_unshift($years, $current);
+        }
+        $years = array_values(array_unique($years));
+        rsort($years);
+        return $years;
+    }
+
     public static function totalForMonth(int $institutionId, int $year, int $month): float
     {
         $row = Database::fetch(
@@ -91,5 +116,73 @@ final class Expense extends Model
             [$institutionId, $year, $month]
         );
         return (float)($row['total'] ?? 0);
+    }
+
+    /** @return list<array<string,mixed>> */
+    public static function listForStatement(int $institutionId, int $year, ?int $month = null): array
+    {
+        $sql = 'SELECT e.*, d.name AS dept_name FROM expenses e
+             LEFT JOIN departments d ON d.id = e.department_id
+             WHERE e.institution_id = ? AND YEAR(e.expense_date) = ?';
+        $params = [$institutionId, $year];
+        if ($month !== null && $month >= 1 && $month <= 12) {
+            $sql .= ' AND MONTH(e.expense_date) = ?';
+            $params[] = $month;
+        }
+        $sql .= ' ORDER BY e.expense_date ASC, e.id ASC';
+        return Database::fetchAll($sql, $params);
+    }
+
+    /** @return list<array{category:string,total:float|int}> */
+    public static function totalsByCategoryForPeriod(int $institutionId, int $year, ?int $month = null): array
+    {
+        $sql = 'SELECT category, SUM(amount) AS total FROM expenses
+             WHERE institution_id = ? AND YEAR(expense_date) = ?';
+        $params = [$institutionId, $year];
+        if ($month !== null && $month >= 1 && $month <= 12) {
+            $sql .= ' AND MONTH(expense_date) = ?';
+            $params[] = $month;
+        }
+        $sql .= ' GROUP BY category ORDER BY total DESC, category ASC';
+        return Database::fetchAll($sql, $params);
+    }
+
+    /**
+     * @return array<int, array{total:float,entries:int}>
+     */
+    public static function totalsByMonthForYear(int $institutionId, int $year): array
+    {
+        $rows = Database::fetchAll(
+            'SELECT MONTH(expense_date) AS month_num, SUM(amount) AS total, COUNT(*) AS entries
+             FROM expenses
+             WHERE institution_id = ? AND YEAR(expense_date) = ?
+             GROUP BY MONTH(expense_date)',
+            [$institutionId, $year]
+        );
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)$row['month_num']] = [
+                'total' => (float)$row['total'],
+                'entries' => (int)$row['entries'],
+            ];
+        }
+        $out = [];
+        for ($month = 1; $month <= 12; $month++) {
+            $out[$month] = $map[$month] ?? ['total' => 0.0, 'entries' => 0];
+        }
+        return $out;
+    }
+
+    /** @return array{category: string, total: float}|null */
+    public static function topCategoryForPeriod(int $institutionId, int $year, ?int $month = null): ?array
+    {
+        $rows = self::totalsByCategoryForPeriod($institutionId, $year, $month);
+        if (!$rows || (string)($rows[0]['category'] ?? '') === '') {
+            return null;
+        }
+        return [
+            'category' => (string)$rows[0]['category'],
+            'total' => (float)$rows[0]['total'],
+        ];
     }
 }

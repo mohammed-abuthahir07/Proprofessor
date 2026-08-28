@@ -39,6 +39,7 @@ $router->get('/admin/features', [FeatureController::class, 'index']);
 $router->post('/admin/features', [FeatureController::class, 'toggle']);
 $router->get('/admin/finance', [FinanceController::class, 'index']);
 $router->post('/admin/finance', [FinanceController::class, 'store']);
+$router->get('/admin/finance/pdf', [FinanceController::class, 'pdf']);
 $router->get('/admin/formulas', [FormulaController::class, 'index']);
 $router->post('/admin/formulas', [FormulaController::class, 'store']);
 $router->get('/admin/naac', [NaacController::class, 'index']);

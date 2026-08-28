@@ -1244,6 +1244,61 @@ tr.inline-fb-row:hover td { background: transparent; }
   margin-top: .9rem;
   flex-wrap: wrap;
 }
+.finance-pdf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .55rem;
+  margin-top: 1rem;
+}
+.finance-pdf-actions .btn {
+  flex: 1 1 11rem;
+  justify-content: center;
+  text-align: center;
+}
+.finance-year-archive { margin-top: 1rem; }
+.finance-year-archive .panel-h { margin-bottom: .75rem; gap: .75rem; }
+.finance-month-totals {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: .55rem;
+}
+.finance-month-total {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: .7rem .75rem;
+  min-width: 0;
+}
+.finance-month-total.has-amount {
+  border-color: rgba(167, 139, 250, 0.4);
+  background: rgba(139, 92, 246, 0.08);
+}
+.finance-month-total .label {
+  color: var(--muted);
+  font-size: .75rem;
+  font-weight: 600;
+}
+.finance-month-total .value {
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-top: .2rem;
+  overflow-wrap: anywhere;
+}
+.finance-month-total .hint {
+  font-size: .75rem;
+  color: var(--ink-soft);
+  margin-top: .2rem;
+}
+@media (max-width: 1100px) {
+  .finance-month-totals { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .finance-month-totals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .finance-month-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .chip {
   background: rgba(139, 92, 246, 0.16); color: var(--brand-2);
   border-radius: var(--radius-pill);

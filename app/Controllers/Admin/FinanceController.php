@@ -6,6 +6,8 @@ namespace App\Controllers\Admin;
 use App\Core\Controller;
 use App\Models\Department;
 use App\Models\Expense;
+use App\Models\Institution;
+use App\Services\FinanceExpensePdf;
 
 final class FinanceController extends Controller
 {
@@ -18,6 +20,11 @@ final class FinanceController extends Controller
         $month = (int)$this->get('month', date('n'));
         if ($month < 1 || $month > 12) {
             $month = (int)date('n');
+        }
+        $archiveYears = Expense::yearsWithExpenses($instId);
+        $archiveYear = (int)$this->get('archive', $year);
+        if (!in_array($archiveYear, $archiveYears, true)) {
+            $archiveYear = $year;
         }
         $topCategory = Expense::topCategoryForYear($instId, $year);
         $perPage = 4;
@@ -46,6 +53,10 @@ final class FinanceController extends Controller
             'expensePerPage' => $perPage,
             'expenseTotal' => $expenseTotal,
             'expenseTotalPages' => $totalPages,
+            'archiveYear' => $archiveYear,
+            'archiveYears' => $archiveYears,
+            'archiveMonths' => Expense::totalsByMonthForYear($instId, $archiveYear),
+            'archiveYearTotal' => Expense::totalForYear($instId, $archiveYear),
             'depts' => Department::forInstitution($instId),
         ]);
     }
@@ -69,5 +80,30 @@ final class FinanceController extends Controller
         $this->flash('success', 'Expense recorded.');
         $savedDate = strtotime((string)$this->post('expense_date')) ?: time();
         $this->redirect('/admin/finance?month=' . (int)date('n', $savedDate));
+    }
+
+    public function pdf(): void
+    {
+        require_admin_perm('manage_finance');
+        $user = $this->user();
+        $instId = (int)$user['institution_id'];
+        $year = (int)$this->get('year', date('Y'));
+        if ($year < 1990 || $year > 2100) {
+            $year = (int)date('Y');
+        }
+        $month = (int)$this->get('month', date('n'));
+        if ($month < 1 || $month > 12) {
+            $month = (int)date('n');
+        }
+        $scope = strtolower(trim((string)$this->get('scope', 'month')));
+        if ($scope !== 'year') {
+            $scope = 'month';
+        }
+        $inst = Institution::find($instId);
+        if (!$inst) {
+            $this->flash('error', 'Institution not found.');
+            $this->redirect('/admin/finance?month=' . $month);
+        }
+        FinanceExpensePdf::send($inst, $user, $scope, $year, $month);
     }
 }
