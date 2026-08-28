@@ -1563,6 +1563,10 @@ function presentation_accessible(array $user, array $ppt): bool
         if (!$owner || (int)$owner['institution_id'] !== $instId) {
             return false;
         }
+        $status = strtolower((string)($ppt['status'] ?? ''));
+        if (!in_array($status, ['ready', 'published'], true)) {
+            return false;
+        }
         $subjectId = (int)($ppt['subject_id'] ?? 0);
         if ($subjectId < 1 && !empty($ppt['plan_id'])) {
             $plan = Database::fetch('SELECT subject_id FROM course_plans WHERE id = ?', [(int)$ppt['plan_id']]);
@@ -1571,8 +1575,14 @@ function presentation_accessible(array $user, array $ppt): bool
         if ($subjectId < 1) {
             return false;
         }
+        // Same course scope as Course PPT list (year/department catalog), not enrollments-only.
+        foreach (courses_for_student($user) as $course) {
+            if ((int)($course['id'] ?? 0) === $subjectId) {
+                return true;
+            }
+        }
         return (bool)Database::fetch(
-            'SELECT id FROM enrollments WHERE student_id = ? AND subject_id = ? LIMIT 1',
+            'SELECT id FROM enrollments WHERE student_id = ? AND subject_id = ? AND status = "active" LIMIT 1',
             [$uid, $subjectId]
         );
     }

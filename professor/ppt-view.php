@@ -6,7 +6,8 @@ Auth::requireRole('professor', 'admin', 'student');
 $user = Auth::user();
 $id = (int)get('id');
 $isEditor = in_array((string)($user['role'] ?? ''), ['professor', 'admin'], true);
-$home = ($user['role'] ?? '') === 'student' ? '/student/notes.php' : '/professor/ppt.php';
+$isStudent = ($user['role'] ?? '') === 'student';
+$home = $isStudent ? '/student/notes' : '/professor/ppt.php';
 
 if ($isEditor && $_SERVER['REQUEST_METHOD'] === 'POST') {
     Auth::requireRole('professor', 'admin');
@@ -53,14 +54,15 @@ if (!$ppt || !presentation_accessible($user, $ppt)) {
 }
 $slides = json_decode($ppt['slides'] ?: '[]', true) ?: [];
 $branding = PresentationTools::brandingForPresentation($user, $ppt);
-$saveUrl = base_url('/professor/ppt-download.php?id=' . $id);
-$pdfUrl = base_url('/professor/ppt-pdf.php?id=' . $id);
+$pptBase = $isStudent ? '/student' : '/professor';
+$saveUrl = base_url($pptBase . ($isStudent ? '/ppt-download?id=' : '/ppt-download.php?id=') . $id);
+$pdfUrl = base_url($pptBase . ($isStudent ? '/ppt-pdf?id=' : '/ppt-pdf.php?id=') . $id);
 $handoutUrl = base_url('/professor/ppt-handout.php?id=' . $id);
 $narrationOk = PresentationTools::narrationConfigured();
 $googleOk = PresentationTools::googleSlidesConfigured();
 
 $actionsHtml = '<a class="btn btn-accent btn-sm topbar-save" href="' . e($saveUrl) . '">' . icon('download') . ' Save PPT</a>';
-render_header($ppt['title'], 'ppt', [
+render_header($ppt['title'], $isStudent ? 'notes' : 'ppt', [
     'subtitle' => count($slides) . ' slides · ' . $branding['name'],
     'actions' => $actionsHtml,
 ]);

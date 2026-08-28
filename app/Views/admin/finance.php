@@ -11,10 +11,7 @@
 /** @var int $expensePerPage */
 /** @var int $expenseTotal */
 /** @var int $expenseTotalPages */
-/** @var int $archiveYear */
-/** @var list<int> $archiveYears */
-/** @var array<int, array{total:float,entries:int}> $archiveMonths */
-/** @var float|int $archiveYearTotal */
+/** @var list<array{year:int,stored:bool,total:float,months:array<int,array{total:float,entries:int}>,topCategoryName:string,topCategoryTotal:float}> $yearArchives */
 /** @var array $depts */
 $yearlyTotal = (float)($yearlyTotal ?? 0);
 $monthlyTotal = (float)($monthlyTotal ?? 0);
@@ -27,28 +24,14 @@ $expensePage = max(1, (int)($expensePage ?? 1));
 $expensePerPage = max(1, (int)($expensePerPage ?? 4));
 $expenseTotal = (int)($expenseTotal ?? count($expenses ?? []));
 $expenseTotalPages = max(1, (int)($expenseTotalPages ?? 1));
-$archiveYear = (int)($archiveYear ?? $expenseYear);
-$archiveYears = is_array($archiveYears ?? null) ? $archiveYears : [$expenseYear];
-$archiveMonths = is_array($archiveMonths ?? null) ? $archiveMonths : [];
-$archiveYearTotal = (float)($archiveYearTotal ?? 0);
+$yearArchives = is_array($yearArchives ?? null) ? $yearArchives : [];
 $monthNames = [1 => 'Jan', 2 => 'Feb', 3 => 'Mar', 4 => 'Apr', 5 => 'May', 6 => 'Jun', 7 => 'Jul', 8 => 'Aug', 9 => 'Sep', 10 => 'Oct', 11 => 'Nov', 12 => 'Dec'];
 $monthFullNames = [1 => 'January', 2 => 'February', 3 => 'March', 4 => 'April', 5 => 'May', 6 => 'June', 7 => 'July', 8 => 'August', 9 => 'September', 10 => 'October', 11 => 'November', 12 => 'December'];
-$ledgerUrl = static function (int $month, int $page = 1) use ($archiveYear, $expenseYear): string {
+$ledgerUrl = static function (int $month, int $page = 1): string {
     $path = '/admin/finance?month=' . $month;
     if ($page > 1) {
         $path .= '&page=' . $page;
     }
-    if ($archiveYear !== $expenseYear) {
-        $path .= '&archive=' . $archiveYear;
-    }
-    return url($path);
-};
-$archiveUrl = static function (int $year) use ($expenseMonth, $expensePage): string {
-    $path = '/admin/finance?month=' . $expenseMonth;
-    if ($expensePage > 1) {
-        $path .= '&page=' . $expensePage;
-    }
-    $path .= '&archive=' . $year;
     return url($path);
 };
 $showingFrom = $expenseTotal > 0 ? (($expensePage - 1) * $expensePerPage) + 1 : 0;
@@ -153,27 +136,48 @@ $showingTo = min($expensePage * $expensePerPage, $expenseTotal);
     </div>
   </div>
 </div>
+<?php foreach ($yearArchives as $block): ?>
+  <?php
+    $blockYear = (int)($block['year'] ?? 0);
+    $blockStored = !empty($block['stored']);
+    $blockTotal = (float)($block['total'] ?? 0);
+    $blockMonths = is_array($block['months'] ?? null) ? $block['months'] : [];
+    $blockTopName = trim((string)($block['topCategoryName'] ?? ''));
+    $blockTopTotal = (float)($block['topCategoryTotal'] ?? 0);
+    $isLiveYear = $blockYear === $expenseYear;
+  ?>
 <div class="panel finance-year-archive">
   <div class="panel-h" style="align-items:flex-start">
     <div>
-      <h3 style="margin:0"><?= (int)$archiveYear ?> month expenses</h3>
+      <h3 style="margin:0"><?= $blockYear ?> month expenses</h3>
       <p class="muted" style="margin:.35rem 0 0;font-size:.85rem">
-        All 12 months stay stored here. When a new year starts, the cards and ledger above reset to zero — previous years remain below.
+        <?php if ($isLiveYear && !$blockStored): ?>
+          This year starts at zero. Saved years stay stored below and are not cleared.
+        <?php elseif ($isLiveYear): ?>
+          Live <?= $blockYear ?> totals. On 1 January the cards and ledger above reset; this <?= $blockYear ?> block stays stored.
+        <?php else: ?>
+          Permanently stored <?= $blockYear ?> record. Not reset when a new year starts.
+        <?php endif; ?>
       </p>
     </div>
-    <span class="chip">Total ₹<?= number_format($archiveYearTotal) ?></span>
+    <span class="chip"><?= $blockStored ? 'Stored' : 'This year' ?> · ₹<?= number_format($blockTotal) ?></span>
   </div>
-  <?php if (count($archiveYears) > 1): ?>
-    <div class="chip-row finance-month-row" role="navigation" aria-label="Stored expense years">
-      <?php foreach ($archiveYears as $y): ?>
-        <a class="chip<?= $archiveYear === (int)$y ? ' active' : '' ?>" href="<?= e($archiveUrl((int)$y)) ?>"><?= (int)$y ?></a>
-      <?php endforeach; ?>
+  <div class="finance-year-summary">
+    <div class="finance-month-total<?= $blockTotal > 0 ? ' has-amount' : '' ?>">
+      <div class="label">Year total</div>
+      <div class="value">₹<?= number_format($blockTotal) ?></div>
+      <div class="hint"><?= $blockYear ?></div>
     </div>
-  <?php endif; ?>
+    <div class="finance-month-total<?= $blockTopName !== '' ? ' has-amount' : '' ?>">
+      <div class="label">Highest category</div>
+      <div class="value"><?= $blockTopName !== '' ? e($blockTopName) : '—' ?></div>
+      <div class="hint"><?= $blockTopName !== '' ? '₹' . number_format($blockTopTotal) . ' · ' . $blockYear : 'No expenses yet' ?></div>
+    </div>
+  </div>
   <div class="finance-month-totals">
     <?php foreach ($monthFullNames as $num => $full): ?>
       <?php
-        $cell = $archiveMonths[$num] ?? ['total' => 0.0, 'entries' => 0];
+        $cell = $blockMonths[$num] ?? ['total' => 0.0, 'entries' => 0];
         $cellTotal = (float)$cell['total'];
         $cellEntries = (int)$cell['entries'];
       ?>
@@ -185,8 +189,9 @@ $showingTo = min($expensePage * $expensePerPage, $expenseTotal);
     <?php endforeach; ?>
   </div>
   <div class="finance-pdf-actions">
-    <a class="btn btn-primary" href="<?= e(url('/admin/finance/pdf?scope=year&year=' . $archiveYear)) ?>">
-      Generate <?= (int)$archiveYear ?> PDF
+    <a class="btn btn-primary" href="<?= e(url('/admin/finance/pdf?scope=year&year=' . $blockYear)) ?>">
+      Generate <?= $blockYear ?> PDF
     </a>
   </div>
 </div>
+<?php endforeach; ?>

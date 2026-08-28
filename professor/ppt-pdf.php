@@ -7,7 +7,7 @@ Auth::requireRole('professor', 'admin', 'student');
 $user = Auth::user();
 $id = (int)get('id');
 $ppt = Database::fetch('SELECT * FROM presentations WHERE id = ?', [$id]);
-$home = ($user['role'] ?? '') === 'student' ? '/student/notes.php' : '/professor/ppt.php';
+$home = ($user['role'] ?? '') === 'student' ? '/student/notes' : '/professor/ppt.php';
 if (!$ppt || !presentation_accessible($user, $ppt)) {
     flash('error', 'Presentation not found.');
     redirect($home);

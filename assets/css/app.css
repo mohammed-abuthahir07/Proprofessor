@@ -1257,6 +1257,12 @@ tr.inline-fb-row:hover td { background: transparent; }
 }
 .finance-year-archive { margin-top: 1rem; }
 .finance-year-archive .panel-h { margin-bottom: .75rem; gap: .75rem; }
+.finance-year-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .55rem;
+  margin-bottom: .75rem;
+}
 .finance-month-totals {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1295,6 +1301,7 @@ tr.inline-fb-row:hover td { background: transparent; }
 }
 @media (max-width: 700px) {
   .finance-month-totals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .finance-year-summary { grid-template-columns: 1fr; }
 }
 @media (max-width: 480px) {
   .finance-month-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1820,6 +1827,109 @@ canvas { display: block; max-width: 100%; }
 .hero-auth { display: none; }
 
 .print-only { display: none; }
+
+/* Professor Settings — fit all device widths */
+.settings-page {
+  width: 100%;
+  max-width: min(640px, 100%);
+  min-width: 0;
+}
+.settings-page .settings-panel {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.settings-page .form-grid {
+  min-width: 0;
+}
+.settings-page .form-row,
+.settings-page input,
+.settings-page select {
+  min-width: 0;
+  max-width: 100%;
+}
+.settings-page .settings-help {
+  font-size: .8rem;
+  margin-top: .25rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.settings-check {
+  display: flex;
+  align-items: flex-start;
+  gap: .55rem;
+  font-size: .88rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+.settings-check input {
+  margin-top: .15rem;
+  flex-shrink: 0;
+}
+.settings-channels {
+  min-width: 0;
+}
+.settings-channels > strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.settings-channel-list {
+  display: grid;
+  gap: .65rem;
+  margin-top: .55rem;
+}
+.settings-channel-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: .75rem .85rem;
+  background: rgba(255, 255, 255, .03);
+  min-width: 0;
+}
+.settings-channel-title {
+  font-weight: 700;
+  font-size: .9rem;
+  margin-bottom: .55rem;
+}
+.settings-channel-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem .85rem;
+}
+.settings-channel-opts label {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.settings-channel-opts input {
+  width: auto;
+  max-width: none;
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .settings-page .settings-panel {
+    padding: .95rem .85rem 1.1rem;
+  }
+  .settings-channel-opts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .45rem .6rem;
+  }
+  .settings-channel-opts label {
+    white-space: normal;
+    min-height: 40px;
+  }
+}
+@media (max-width: 380px) {
+  .settings-channel-opts {
+    grid-template-columns: 1fr;
+  }
+}
 
 .row-flag td { background: rgba(248, 113, 113, 0.12); }
 .heat-wrap { overflow-x: auto; margin-top: .4rem; }

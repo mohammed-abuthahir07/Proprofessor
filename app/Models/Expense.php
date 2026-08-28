@@ -99,12 +99,6 @@ final class Expense extends Model
                 $years[] = $year;
             }
         }
-        $current = (int)date('Y');
-        if (!in_array($current, $years, true)) {
-            array_unshift($years, $current);
-        }
-        $years = array_values(array_unique($years));
-        rsort($years);
         return $years;
     }
 

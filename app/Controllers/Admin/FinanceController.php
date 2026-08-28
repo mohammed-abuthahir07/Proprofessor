@@ -21,10 +21,23 @@ final class FinanceController extends Controller
         if ($month < 1 || $month > 12) {
             $month = (int)date('n');
         }
-        $archiveYears = Expense::yearsWithExpenses($instId);
-        $archiveYear = (int)$this->get('archive', $year);
-        if (!in_array($archiveYear, $archiveYears, true)) {
-            $archiveYear = $year;
+        $storedYears = Expense::yearsWithExpenses($instId);
+        $archiveYears = $storedYears;
+        if (!in_array($year, $archiveYears, true)) {
+            array_unshift($archiveYears, $year);
+        }
+        $yearArchives = [];
+        foreach ($archiveYears as $storedYear) {
+            $storedYear = (int)$storedYear;
+            $archiveTop = Expense::topCategoryForYear($instId, $storedYear);
+            $yearArchives[] = [
+                'year' => $storedYear,
+                'stored' => in_array($storedYear, $storedYears, true),
+                'total' => Expense::totalForYear($instId, $storedYear),
+                'months' => Expense::totalsByMonthForYear($instId, $storedYear),
+                'topCategoryName' => (string)($archiveTop['category'] ?? ''),
+                'topCategoryTotal' => (float)($archiveTop['total'] ?? 0),
+            ];
         }
         $topCategory = Expense::topCategoryForYear($instId, $year);
         $perPage = 4;
@@ -53,10 +66,7 @@ final class FinanceController extends Controller
             'expensePerPage' => $perPage,
             'expenseTotal' => $expenseTotal,
             'expenseTotalPages' => $totalPages,
-            'archiveYear' => $archiveYear,
-            'archiveYears' => $archiveYears,
-            'archiveMonths' => Expense::totalsByMonthForYear($instId, $archiveYear),
-            'archiveYearTotal' => Expense::totalForYear($instId, $archiveYear),
+            'yearArchives' => $yearArchives,
             'depts' => Department::forInstitution($instId),
         ]);
     }

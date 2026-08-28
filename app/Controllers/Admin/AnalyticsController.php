@@ -96,6 +96,14 @@ final class AnalyticsController extends Controller
         $expenseYearTotal += $unassignedYear;
         $expenseMonthTotal += $unassignedMonth;
 
+        $topExpenseDept = null;
+        foreach ($deptExpenses as $row) {
+            if ((float)($row['year_total'] ?? 0) > 0) {
+                $topExpenseDept = $row;
+                break;
+            }
+        }
+
         $this->view('admin/analytics', [
             'title' => 'Institution Analytics',
             'active' => 'analytics',
@@ -121,6 +129,7 @@ final class AnalyticsController extends Controller
             'expenseMonthTotal' => $expenseMonthTotal,
             'expenseUnassignedYear' => $unassignedYear,
             'expenseUnassignedMonth' => $unassignedMonth,
+            'topExpenseDept' => $topExpenseDept,
         ]);
     }
 }

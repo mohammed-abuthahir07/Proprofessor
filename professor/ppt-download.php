@@ -8,7 +8,7 @@ Auth::requireRole('professor', 'admin', 'student');
 $user = Auth::user();
 $id = (int)get('id');
 $ppt = Database::fetch('SELECT * FROM presentations WHERE id = ?', [$id]);
-$home = ($user['role'] ?? '') === 'student' ? '/student/notes.php' : '/professor/ppt.php';
+$home = ($user['role'] ?? '') === 'student' ? '/student/notes' : '/professor/ppt.php';
 if (!$ppt || !presentation_accessible($user, $ppt)) {
     flash('error', 'Presentation not found.');
     redirect($home);
@@ -22,10 +22,13 @@ if (!is_array($slides)) {
 $title = (string)($ppt['title'] ?? 'Presentation');
 $branding = PresentationTools::brandingForPresentation($user, $ppt);
 $filename = PptxExporter::filename($title);
+$viewPath = ($user['role'] ?? '') === 'student'
+    ? '/student/ppt-view?id=' . $id
+    : '/professor/ppt-view.php?id=' . $id;
 $tmp = tempnam(sys_get_temp_dir(), 'ppai_ppt_');
 if ($tmp === false) {
     flash('error', 'Could not create a temporary file for the PPT.');
-    redirect('/professor/ppt-view.php?id=' . $id);
+    redirect($viewPath);
 }
 $pptx = $tmp . '.pptx';
 @unlink($tmp);
@@ -35,14 +38,14 @@ try {
 } catch (Throwable $e) {
     @unlink($pptx);
     flash('error', 'Could not save this PPT: ' . $e->getMessage());
-    redirect('/professor/ppt-view.php?id=' . $id);
+    redirect($viewPath);
 }
 
 $size = filesize($pptx);
 if ($size === false) {
     @unlink($pptx);
     flash('error', 'Saved PPT file is empty.');
-    redirect('/professor/ppt-view.php?id=' . $id);
+    redirect($viewPath);
 }
 
 header('Content-Type: application/vnd.openxmlformats-officedocument.presentationml.presentation');

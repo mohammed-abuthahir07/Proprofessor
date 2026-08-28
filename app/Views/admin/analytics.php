@@ -10,8 +10,7 @@
 /** @var string $expenseMonthLabel */
 /** @var float $expenseYearTotal */
 /** @var float $expenseMonthTotal */
-/** @var float $expenseUnassignedYear */
-/** @var float $expenseUnassignedMonth */
+/** @var array|null $topExpenseDept */
 $roles = $roles ?? ['student' => 0, 'professor' => 0, 'hod' => 0];
 $aiByDept = $aiByDept ?? [];
 $aiDeptTotal = (int)($aiDeptTotal ?? 0);
@@ -22,8 +21,7 @@ $expenseYear = (int)($expenseYear ?? date('Y'));
 $expenseMonthLabel = (string)($expenseMonthLabel ?? date('F Y'));
 $expenseYearTotal = (float)($expenseYearTotal ?? 0);
 $expenseMonthTotal = (float)($expenseMonthTotal ?? 0);
-$expenseUnassignedYear = (float)($expenseUnassignedYear ?? 0);
-$expenseUnassignedMonth = (float)($expenseUnassignedMonth ?? 0);
+$topExpenseDept = $topExpenseDept ?? null;
 $formatMoney = static function (float $amount): string {
     return '₹' . number_format($amount, 2);
 };
@@ -417,7 +415,7 @@ $topDeptCount = (int)($topAiDept['ai_count'] ?? 0);
         <div class="value" style="font-size:1.35rem"><?= e($formatMoney($expenseMonthTotal)) ?></div>
       </div>
     </div>
-    <?php if (!$deptExpenses && $expenseUnassignedYear <= 0 && $expenseUnassignedMonth <= 0): ?>
+    <?php if (!$deptExpenses): ?>
       <div class="empty">No expenses recorded yet. Add them under Finance.</div>
     <?php else: ?>
       <div class="dept-people-grid stagger">
@@ -442,17 +440,25 @@ $topDeptCount = (int)($topAiDept['ai_count'] ?? 0);
             </div>
           </div>
         <?php endforeach; ?>
-        <?php if ($expenseUnassignedYear > 0 || $expenseUnassignedMonth > 0): ?>
+        <?php
+          $topExpTitle = '';
+          $topExpAmt = 0.0;
+          if (is_array($topExpenseDept)) {
+              $topExpCode = trim((string)($topExpenseDept['code'] ?? ''));
+              $topExpName = trim((string)($topExpenseDept['name'] ?? ''));
+              $topExpTitle = $topExpCode !== '' && $topExpName !== ''
+                  ? ($topExpCode . ' · ' . $topExpName)
+                  : ($topExpName !== '' ? $topExpName : $topExpCode);
+              $topExpAmt = (float)($topExpenseDept['year_total'] ?? 0);
+          }
+        ?>
+        <?php if ($topExpTitle !== '' && $topExpAmt > 0): ?>
           <div class="dept-people-card">
-            <h3>Unassigned</h3>
+            <h3>Highest this year</h3>
             <div class="expense-stat-row">
-              <div class="expense-stat">
-                <span class="n"><?= e($formatMoney($expenseUnassignedYear)) ?></span>
-                <span class="l">This year</span>
-              </div>
-              <div class="expense-stat">
-                <span class="n"><?= e($formatMoney($expenseUnassignedMonth)) ?></span>
-                <span class="l">This month</span>
+              <div class="expense-stat" style="grid-column:1 / -1">
+                <span class="n"><?= e($topExpTitle) ?></span>
+                <span class="l"><?= e($formatMoney($topExpAmt)) ?> · <?= (int)$expenseYear ?></span>
               </div>
             </div>
           </div>

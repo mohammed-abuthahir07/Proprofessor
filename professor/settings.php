@@ -44,73 +44,73 @@ $categories = [
 
 render_header('Settings', 'settings', ['subtitle' => 'Profile & workspace']);
 ?>
-<div class="panel" style="max-width:640px">
-  <form method="post" class="form-grid">
-    <?= csrf_field() ?>
-    <div class="form-row"><label>Full name</label><input name="full_name" value="<?= e($user['full_name']) ?>"></div>
-    <div class="form-row"><label>Email</label><input value="<?= e($user['email']) ?>" disabled></div>
-    <div class="form-row"><label>Phone</label><input name="phone" value="<?= e((string)$user['phone']) ?>"></div>
-    <div class="form-row"><label>New password</label><input type="password" name="new_password" placeholder="Leave blank to keep"></div>
+<div class="settings-page">
+  <div class="panel settings-panel">
+    <form method="post" class="form-grid">
+      <?= csrf_field() ?>
+      <div class="form-row"><label>Full name</label><input name="full_name" value="<?= e($user['full_name']) ?>" autocomplete="name"></div>
+      <div class="form-row"><label>Email</label><input value="<?= e($user['email']) ?>" disabled></div>
+      <div class="form-row"><label>Phone</label><input name="phone" value="<?= e((string)$user['phone']) ?>" autocomplete="tel"></div>
+      <div class="form-row"><label>New password</label><input type="password" name="new_password" placeholder="Leave blank to keep" autocomplete="new-password"></div>
 
-    <label><input type="checkbox" name="email_notifications" value="1" <?= !empty($prefs['email_notifications']) ? 'checked' : '' ?>> Email notifications (default for categories)</label>
+      <label class="settings-check">
+        <input type="checkbox" name="email_notifications" value="1" <?= !empty($prefs['email_notifications']) ? 'checked' : '' ?>>
+        <span>Email notifications (default for categories)</span>
+      </label>
 
-    <div class="form-row">
-      <label>Digest mode</label>
-      <select name="digest_mode">
-        <option value="immediate" <?= $prefs['digest_mode'] === 'immediate' ? 'selected' : '' ?>>Immediate</option>
-        <option value="daily" <?= $prefs['digest_mode'] === 'daily' ? 'selected' : '' ?>>Daily Digest</option>
-        <option value="weekly" <?= $prefs['digest_mode'] === 'weekly' ? 'selected' : '' ?>>Weekly Digest</option>
-      </select>
-      <div class="muted" style="font-size:.8rem;margin-top:.25rem">Digest summarizes your feed; individual notifications still appear.</div>
-    </div>
-
-    <div style="margin-top:.5rem">
-      <strong>Delivery preferences by category</strong>
-      <div class="muted" style="font-size:.8rem;margin:.25rem 0 .6rem">
-        WhatsApp: <?= e($providers['whatsapp']['label']) ?> · SMS: <?= e($providers['sms']['label']) ?>
-        <?php if (!$providers['whatsapp']['configured'] || !$providers['sms']['configured']): ?>
-          (enable in server config when ready — no fake sends)
-        <?php endif; ?>
+      <div class="form-row">
+        <label>Digest mode</label>
+        <select name="digest_mode">
+          <option value="immediate" <?= $prefs['digest_mode'] === 'immediate' ? 'selected' : '' ?>>Immediate</option>
+          <option value="daily" <?= $prefs['digest_mode'] === 'daily' ? 'selected' : '' ?>>Daily Digest</option>
+          <option value="weekly" <?= $prefs['digest_mode'] === 'weekly' ? 'selected' : '' ?>>Weekly Digest</option>
+        </select>
+        <div class="muted settings-help">Digest summarizes your feed; individual notifications still appear.</div>
       </div>
-      <div class="table-wrap"><table>
-        <thead>
-          <tr>
-            <th>Category</th>
-            <th>In-App</th>
-            <th>Email</th>
-            <th>WhatsApp</th>
-            <th>SMS</th>
-          </tr>
-        </thead>
-        <tbody>
-        <?php foreach ($categories as $key => $label):
-            $row = $channels[$key] ?? ['in_app' => true, 'email' => false, 'whatsapp' => false, 'sms' => false];
-        ?>
-          <tr>
-            <td><?= e($label) ?></td>
-            <td>
-              <input type="hidden" name="notification_channels[<?= e($key) ?>][in_app]" value="0">
-              <input type="checkbox" name="notification_channels[<?= e($key) ?>][in_app]" value="1" <?= !empty($row['in_app']) ? 'checked' : '' ?>>
-            </td>
-            <td>
-              <input type="hidden" name="notification_channels[<?= e($key) ?>][email]" value="0">
-              <input type="checkbox" name="notification_channels[<?= e($key) ?>][email]" value="1" <?= !empty($row['email']) ? 'checked' : '' ?>>
-            </td>
-            <td>
-              <input type="hidden" name="notification_channels[<?= e($key) ?>][whatsapp]" value="0">
-              <input type="checkbox" name="notification_channels[<?= e($key) ?>][whatsapp]" value="1" <?= !empty($row['whatsapp']) ? 'checked' : '' ?> <?= !$providers['whatsapp']['configured'] ? 'title="Provider not configured"' : '' ?>>
-            </td>
-            <td>
-              <input type="hidden" name="notification_channels[<?= e($key) ?>][sms]" value="0">
-              <input type="checkbox" name="notification_channels[<?= e($key) ?>][sms]" value="1" <?= !empty($row['sms']) ? 'checked' : '' ?> <?= !$providers['sms']['configured'] ? 'title="Provider not configured"' : '' ?>>
-            </td>
-          </tr>
-        <?php endforeach; ?>
-        </tbody>
-      </table></div>
-    </div>
 
-    <button class="btn btn-primary" type="submit">Save</button>
-  </form>
+      <div class="settings-channels">
+        <strong>Delivery preferences by category</strong>
+        <div class="muted settings-help">
+          WhatsApp: <?= e($providers['whatsapp']['label']) ?> · SMS: <?= e($providers['sms']['label']) ?>
+          <?php if (!$providers['whatsapp']['configured'] || !$providers['sms']['configured']): ?>
+            (enable in server config when ready — no fake sends)
+          <?php endif; ?>
+        </div>
+        <div class="settings-channel-list">
+          <?php foreach ($categories as $key => $label):
+              $row = $channels[$key] ?? ['in_app' => true, 'email' => false, 'whatsapp' => false, 'sms' => false];
+          ?>
+            <div class="settings-channel-card">
+              <div class="settings-channel-title"><?= e($label) ?></div>
+              <div class="settings-channel-opts">
+                <label>
+                  <input type="hidden" name="notification_channels[<?= e($key) ?>][in_app]" value="0">
+                  <input type="checkbox" name="notification_channels[<?= e($key) ?>][in_app]" value="1" <?= !empty($row['in_app']) ? 'checked' : '' ?>>
+                  In-App
+                </label>
+                <label>
+                  <input type="hidden" name="notification_channels[<?= e($key) ?>][email]" value="0">
+                  <input type="checkbox" name="notification_channels[<?= e($key) ?>][email]" value="1" <?= !empty($row['email']) ? 'checked' : '' ?>>
+                  Email
+                </label>
+                <label>
+                  <input type="hidden" name="notification_channels[<?= e($key) ?>][whatsapp]" value="0">
+                  <input type="checkbox" name="notification_channels[<?= e($key) ?>][whatsapp]" value="1" <?= !empty($row['whatsapp']) ? 'checked' : '' ?> <?= !$providers['whatsapp']['configured'] ? 'title="Provider not configured"' : '' ?>>
+                  WhatsApp
+                </label>
+                <label>
+                  <input type="hidden" name="notification_channels[<?= e($key) ?>][sms]" value="0">
+                  <input type="checkbox" name="notification_channels[<?= e($key) ?>][sms]" value="1" <?= !empty($row['sms']) ? 'checked' : '' ?> <?= !$providers['sms']['configured'] ? 'title="Provider not configured"' : '' ?>>
+                  SMS
+                </label>
+              </div>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" type="submit">Save</button>
+    </form>
+  </div>
 </div>
 <?php render_footer(); ?>
