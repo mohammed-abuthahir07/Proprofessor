@@ -96,12 +96,25 @@ final class LessonPlanTools
         return $row;
     }
 
+    public static function sessionUnitNumber(array $lesson): int
+    {
+        if (preg_match('/\bunit\s*(\d+)/i', (string)($lesson['title'] ?? ''), $m)) {
+            return (int)$m[1];
+        }
+        $n = (int)($lesson['unit_number'] ?? 0);
+        if ($n > 0) {
+            return $n;
+        }
+        $content = json_decode((string)($lesson['content'] ?? '{}'), true) ?: [];
+        return (int)($content['unit_number'] ?? $content['unit'] ?? 0);
+    }
+
     /**
      * Backfill bloom/unit/methodology/resources without overwriting professor edits.
      *
      * @param list<array<string,mixed>> $units
      */
-    public static function enrichSession(array $lesson, array $plan, array $units = []): array
+    public static function enrichSession(array $lesson, array $plan, array $units = [], bool $persist = true): array
     {
         self::ensureSchema();
         $updates = [];
@@ -154,14 +167,19 @@ final class LessonPlanTools
 
         $resources = json_decode((string)($lesson['resources'] ?? 'null'), true);
         if (!is_array($resources) || $resources === []) {
-            $resources = self::suggestResources(
-                (string)($plan['subject_name'] ?? ''),
-                (string)$lesson['title'],
-                $bloom,
-                $unitNum
-            );
-            $updates['resources'] = json_encode($resources, JSON_UNESCAPED_UNICODE);
-            $lesson['resources'] = $updates['resources'];
+            if ($persist) {
+                $resources = self::suggestResources(
+                    (string)($plan['subject_name'] ?? ''),
+                    (string)$lesson['title'],
+                    $bloom,
+                    $unitNum
+                );
+                $updates['resources'] = json_encode($resources, JSON_UNESCAPED_UNICODE);
+                $lesson['resources'] = $updates['resources'];
+            } else {
+                $resources = [];
+                $lesson['resources'] = '[]';
+            }
         }
 
         if (empty($lesson['session_status'])) {
@@ -173,7 +191,7 @@ final class LessonPlanTools
             $lesson['planned_date'] = $lesson['session_date'];
         }
 
-        if ($updates && !empty($lesson['id'])) {
+        if ($persist && $updates && !empty($lesson['id'])) {
             Database::update('lesson_plans', $updates, 'id = :id', [
                 'id' => (int)$lesson['id'],
             ]);

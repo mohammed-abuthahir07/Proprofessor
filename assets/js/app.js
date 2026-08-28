@@ -154,6 +154,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.error || 'Generation failed');
+        if (data.redirect) {
+          window.location = data.redirect;
+          return;
+        }
         if (out) {
           out.innerHTML = data.html || '<pre class="panel">' + escapeHtml(JSON.stringify(data.data, null, 2)) + '</pre>';
           out.animate(
@@ -161,7 +165,6 @@ document.addEventListener('DOMContentLoaded', () => {
             { duration: 360, easing: 'cubic-bezier(.2,.8,.2,1)' }
           );
         }
-        if (data.redirect) window.location = data.redirect;
       } catch (err) {
         alert(err.message);
       } finally {

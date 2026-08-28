@@ -1579,6 +1579,60 @@ function presentation_accessible(array $user, array $ppt): bool
     return false;
 }
 
+function lesson_topic_is_usable(string $topic): bool
+{
+    $topic = trim($topic);
+    if ($topic === '') {
+        return false;
+    }
+    if (preg_match('/^hours?$/i', $topic)) {
+        return false;
+    }
+    if (preg_match('/^k[1-6]([,\s\/&+|-]+k[1-6])*$/i', $topic)) {
+        return false;
+    }
+    if (preg_match('/^topic\s*\d+(\.\d+)?$/i', $topic)) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Keep one row per unit_number, preferring real syllabus topics over Bloom-only duplicates.
+ *
+ * @param list<array<string,mixed>> $units
+ * @return list<array<string,mixed>>
+ */
+function lesson_dedupe_plan_units(array $units): array
+{
+    $best = [];
+    foreach ($units as $idx => $u) {
+        if (!is_array($u)) {
+            continue;
+        }
+        $num = (int)($u['unit_number'] ?? 0);
+        $key = $num > 0 ? (string)$num : ('row-' . $idx);
+        $topics = array_values(array_filter(lesson_as_list($u['topics'] ?? []), 'lesson_topic_is_usable'));
+        $u['topics'] = $topics;
+        $title = trim((string)($u['title'] ?? ''));
+        $score = (count($topics) * 10) + min(80, strlen($title));
+        if (preg_match('/\bK[1-6]\b/', $title) && count($topics) <= 1) {
+            $score -= 80;
+        }
+        if (!isset($best[$key]) || $score > (int)($best[$key]['_score'] ?? 0)) {
+            $u['_score'] = $score;
+            $best[$key] = $u;
+        }
+    }
+    ksort($best, SORT_NATURAL);
+    $out = [];
+    foreach ($best as $u) {
+        unset($u['_score']);
+        $out[] = $u;
+    }
+    return $out;
+}
+
 function lesson_as_list(mixed $value): array
 {
     if (is_string($value)) {
@@ -1778,9 +1832,10 @@ function lesson_sessions_from_units_by_hours(array $units, string $subject, int 
             continue;
         }
         $hours = (float)($u['hours'] ?? 0);
-        $topics = lesson_as_list($u['topics'] ?? []);
+        $topics = array_values(array_filter(lesson_as_list($u['topics'] ?? []), 'lesson_topic_is_usable'));
         if (!$topics) {
-            $topics = [trim((string)($u['title'] ?? 'Core topic')) ?: 'Core topic'];
+            $titleTopic = trim((string)($u['title'] ?? 'Core topic')) ?: 'Core topic';
+            $topics = lesson_topic_is_usable($titleTopic) ? [$titleTopic] : ['Core topic'];
         }
         $methods = lesson_as_list($u['teaching_methods'] ?? []);
         $outcomes = lesson_as_list($u['outcomes'] ?? []);
@@ -1830,6 +1885,7 @@ function lesson_sessions_from_units_by_hours(array $units, string $subject, int 
             $sessions[] = [
                 'session_number' => $n,
                 'unit_id' => $unitId,
+                'unit_number' => (int)($u['unit_number'] ?? 0) ?: null,
                 'title' => $title,
                 'duration_mins' => $thisMins,
                 'objectives' => $outcomes
@@ -1856,11 +1912,14 @@ function lesson_sessions_cover_plan_hours(array $sessions, array $planRow, int $
 {
     $data = json_decode((string)($planRow['plan_data'] ?? ''), true) ?: [];
     $units = Database::fetchAll(
-        'SELECT hours FROM plan_units WHERE plan_id = ? ORDER BY sort_order, unit_number',
+        'SELECT unit_number, hours, title, topics FROM plan_units WHERE plan_id = ? ORDER BY sort_order, unit_number',
         [(int)($planRow['id'] ?? 0)]
     );
     if (!$units && !empty($data['units']) && is_array($data['units'])) {
         $units = $data['units'];
+    }
+    if (is_array($units) && $units) {
+        $units = lesson_dedupe_plan_units($units);
     }
     $expected = 0;
     foreach ($units as $u) {
@@ -1885,6 +1944,9 @@ function lesson_sessions_from_course_plan(array $planRow): array
     );
     if (!$units && !empty($data['units']) && is_array($data['units'])) {
         $units = $data['units'];
+    }
+    if (is_array($units) && $units) {
+        $units = lesson_dedupe_plan_units($units);
     }
     $weekly = $data['weekly_plan'] ?? [];
     if ((!$weekly || !is_array($weekly)) && !empty($planRow['weekly_plan'])) {

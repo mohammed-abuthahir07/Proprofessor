@@ -896,6 +896,7 @@ try {
 
     if ($module === 'lesson') {
         Auth::requireRole('professor', 'admin');
+        LessonPlanTools::ensureSchema();
         $planId = (int)post('plan_id');
         $plan = load_plan_for_user($planId, $user);
         if (!$plan) json_response(['ok'=>false,'error'=>'Plan not found'], 404);
@@ -935,6 +936,7 @@ try {
                 'plan_id' => $planId,
                 'professor_id' => (int)$user['id'],
                 'unit_id' => $s['unit_id'] ?? null,
+                'unit_number' => ((int)($s['unit_number'] ?? 0) > 0) ? (int)$s['unit_number'] : null,
                 'session_number' => $n,
                 'title' => (string)($s['title'] ?? ('Session ' . $n)),
                 'duration_mins' => (int)($s['duration_mins'] ?? $sessionMins),
@@ -947,7 +949,11 @@ try {
             ]);
         }
         log_ai('lesson', ['plan_id'=>$planId], $result, 'course_plan', $planId);
-        json_response(['ok'=>true,'data'=>['sessions'=>$sessions],'redirect'=>base_url('/professor/lessons.php?plan_id='.$planId)]);
+        json_response([
+            'ok' => true,
+            'data' => ['count' => count($sessions)],
+            'redirect' => base_url('/professor/lessons.php?plan_id=' . $planId),
+        ]);
     }
 
     if ($module === 'questions') {

@@ -122,6 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$plans = [];
 if (in_array((string)$user['role'], ['admin', 'superadmin'], true)) {
     $plans = Database::fetchAll(
         'SELECT id, title, subject_name FROM course_plans WHERE institution_id=? ORDER BY id DESC',
@@ -132,6 +133,10 @@ if (in_array((string)$user['role'], ['admin', 'superadmin'], true)) {
         'SELECT id, title, subject_name FROM course_plans WHERE professor_id=? AND institution_id=? ORDER BY id DESC',
         [$user['id'], $user['institution_id']]
     );
+}
+
+if ($planId < 1 && count($plans) === 1) {
+    $planId = (int)$plans[0]['id'];
 }
 
 $plan = $planId ? LessonPlanTools::loadOwnedPlan($user, $planId) : null;
@@ -145,6 +150,10 @@ $units = [];
 $classRow = null;
 $stats = ['total' => 0, 'planned' => 0, 'completed' => 0, 'delayed' => 0, 'remaining' => 0, 'completion_pct' => 0.0];
 $selectedTitle = '';
+$unitFilter = (int)get('unit');
+$unitNumbers = [];
+$unitKeys = [];
+$visibleLessons = [];
 
 if ($plan) {
     $selectedTitle = (string)($plan['title'] ?: $plan['subject_name']);
@@ -152,19 +161,45 @@ if ($plan) {
         'SELECT * FROM plan_units WHERE plan_id = ? ORDER BY sort_order, unit_number',
         [(int)$plan['id']]
     );
+    if ($units) {
+        $units = lesson_dedupe_plan_units($units);
+    }
     $lessons = Database::fetchAll(
         'SELECT * FROM lesson_plans WHERE plan_id = ? AND professor_id = ? ORDER BY session_number',
         [(int)$plan['id'], (int)$user['id']]
     );
-    // Admin viewing another professor's plan in same institution
-    if (!$lessons && in_array((string)$user['role'], ['admin', 'superadmin'], true)) {
+    if (!$lessons) {
         $lessons = Database::fetchAll(
             'SELECT * FROM lesson_plans WHERE plan_id = ? ORDER BY session_number',
             [(int)$plan['id']]
         );
     }
     foreach ($lessons as $i => $l) {
-        $lessons[$i] = LessonPlanTools::enrichSession($l, $plan, $units);
+        $un = LessonPlanTools::sessionUnitNumber($l);
+        if ($un > 0) {
+            $l['unit_number'] = $un;
+        }
+        $lessons[$i] = LessonPlanTools::enrichSession($l, $plan, $units, false);
+        $lessons[$i]['unit_number'] = LessonPlanTools::sessionUnitNumber($lessons[$i]);
+        $unitNumbers[$lessons[$i]['unit_number']] = true;
+    }
+    ksort($unitNumbers, SORT_NUMERIC);
+    $unitKeys = array_keys($unitNumbers);
+    if ($unitFilter < 1 && $unitKeys !== []) {
+        foreach ($unitKeys as $k) {
+            if ((int)$k > 0) {
+                $unitFilter = (int)$k;
+                break;
+            }
+        }
+        if ($unitFilter < 1) {
+            $unitFilter = (int)$unitKeys[0];
+        }
+    }
+    foreach ($lessons as $l) {
+        if ((int)($l['unit_number'] ?? 0) === $unitFilter) {
+            $visibleLessons[] = $l;
+        }
     }
     $stats = LessonPlanTools::progressStats($lessons);
     $classRow = LessonPlanTools::classContextForPlan($plan);
@@ -212,6 +247,18 @@ render_header('AI Lesson Planner', 'lessons', ['subtitle' => 'Session-by-session
     <span class="chip">Remaining <?= (int)$stats['remaining'] ?></span>
     <span class="chip"><?= e((string)$stats['completion_pct']) ?>% complete</span>
   </div>
+  <?php if (count($unitKeys) > 1): ?>
+    <p style="margin:0 0 .45rem;font-size:.85rem;color:var(--muted)">Showing one unit at a time so sessions stay readable.</p>
+    <div class="chip-row" style="margin-bottom:.85rem">
+      <?php foreach ($unitKeys as $uk):
+        $uk = (int)$uk;
+        $label = $uk > 0 ? ('Unit ' . $uk) : 'Other';
+        $href = base_url('/professor/lessons.php?plan_id=' . (int)$plan['id'] . '&unit=' . $uk);
+      ?>
+        <a class="chip<?= $uk === $unitFilter ? ' active' : '' ?>" href="<?= e($href) ?>"><?= e($label) ?> (<?= count(array_filter($lessons, static fn($row) => (int)($row['unit_number'] ?? 0) === $uk)) ?>)</a>
+      <?php endforeach; ?>
+    </div>
+  <?php endif; ?>
   <div class="table-wrap">
     <table>
       <thead>
@@ -220,17 +267,11 @@ render_header('AI Lesson Planner', 'lessons', ['subtitle' => 'Session-by-session
           <th>Title</th>
           <th>Mins</th>
           <th>Teaching method</th>
-          <th>Classroom activity</th>
-          <th>Formative assessment</th>
-          <th>Engagement</th>
           <th>Status</th>
         </tr>
       </thead>
       <tbody>
-      <?php foreach ($lessons as $l):
-        $acts = lesson_as_list($l['activities'] ?? []);
-        $assess = lesson_as_list($l['formative_assessment'] ?? []);
-        $eng = lesson_as_list($l['engagement'] ?? []);
+      <?php foreach ($visibleLessons as $l):
         $st = LessonPlanTools::sanitizeStatus((string)($l['session_status'] ?? 'planned'));
       ?>
         <tr>
@@ -238,9 +279,6 @@ render_header('AI Lesson Planner', 'lessons', ['subtitle' => 'Session-by-session
           <td><a href="#session-<?= (int)$l['id'] ?>"><?= e($l['title']) ?></a></td>
           <td><?= (int)$l['duration_mins'] ?></td>
           <td><?= e((string)$l['teaching_method']) ?></td>
-          <td><?= e(implode('; ', $acts)) ?></td>
-          <td><?= e(implode('; ', $assess)) ?></td>
-          <td><?= e(implode('; ', $eng)) ?></td>
           <td><span class="chip"><?= e(ucfirst($st)) ?></span></td>
         </tr>
       <?php endforeach; ?>
@@ -249,7 +287,7 @@ render_header('AI Lesson Planner', 'lessons', ['subtitle' => 'Session-by-session
   </div>
 </div>
 <div class="lesson-grid">
-  <?php foreach ($lessons as $l):
+  <?php foreach ($visibleLessons as $l):
     $acts = lesson_as_list($l['activities'] ?? []);
     $assess = lesson_as_list($l['formative_assessment'] ?? []);
     $eng = lesson_as_list($l['engagement'] ?? []);
