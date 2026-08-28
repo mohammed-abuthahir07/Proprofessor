@@ -758,6 +758,39 @@ tr.inline-fb-row:hover td { background: transparent; }
 .plan-row .meta strong { display: block; }
 .plan-row .meta span { color: var(--muted); font-size: .8rem; }
 
+.student-ppt-row {
+  padding: .85rem 0;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.student-ppt-row:last-child { border-bottom: none; }
+.student-ppt-meta { min-width: 0; flex: 1; }
+.student-ppt-course {
+  display: block;
+  font-size: 1.02rem;
+  overflow-wrap: anywhere;
+}
+.student-ppt-title {
+  margin-top: .25rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.student-ppt-slides {
+  color: var(--muted);
+  font-size: .85rem;
+  margin-top: .15rem;
+}
+.student-ppt-by {
+  color: var(--ink-soft);
+  font-size: .88rem;
+  margin-top: .35rem;
+  font-weight: 600;
+}
+.student-ppt-row .btn { flex-shrink: 0; }
+
 .tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .tab {
   border: 1px solid var(--line); background: rgba(15, 12, 35, 0.6);
@@ -1694,6 +1727,8 @@ canvas { display: block; max-width: 100%; }
 }
 @media (max-width: 640px) {
   .student-att-metrics { grid-template-columns: 1fr 1fr; }
+  .student-ppt-row { flex-wrap: wrap; }
+  .student-ppt-row .btn { width: 100%; }
   .grid-4, .grid-3, .module-cards { grid-template-columns: 1fr; }
   .content, .topbar { padding-left: 1rem; padding-right: 1rem; }
   .plan-row { flex-wrap: wrap; }
