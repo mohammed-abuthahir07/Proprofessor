@@ -1223,6 +1223,77 @@ a.chip.active {
   color: #ede9fe;
 }
 
+/* Student My Attendance — one card per current-semester subject */
+.student-att-page { min-width: 0; }
+.student-att-note { margin: 0 0 1rem; font-size: .88rem; max-width: 52rem; }
+.student-att-list { display: grid; gap: 1rem; }
+.student-att-card {
+  padding: 1.2rem 1.25rem 1.15rem;
+  overflow: hidden;
+}
+.student-att-head { margin-bottom: .85rem; }
+.student-att-title {
+  margin: 0;
+  font-size: clamp(1.15rem, 2.2vw, 1.4rem);
+  overflow-wrap: anywhere;
+}
+.student-att-sub { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .4rem; }
+.student-att-prof {
+  margin: .45rem 0 0;
+  color: var(--ink-soft);
+  font-size: .92rem;
+  font-weight: 600;
+}
+.student-att-prof.is-unassigned { color: var(--muted); font-weight: 500; }
+.student-att-metrics {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 1.15fr) repeat(3, minmax(0, 1fr));
+  gap: .75rem;
+}
+.student-att-metrics .stat { margin: 0; }
+.student-att-metrics .stat:hover {
+  transform: none;
+  box-shadow: var(--shadow);
+}
+.student-att-metrics .student-att-pct .value { font-size: clamp(1.7rem, 3vw, 2.15rem); }
+.student-att-progress {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin-top: .95rem;
+  flex-wrap: wrap;
+}
+.student-att-bar { flex: 1 1 12rem; min-width: 0; height: 10px; }
+.student-att-bar.is-below > span { background: linear-gradient(90deg, #ef4444, #f87171); }
+.student-att-bar.is-at_risk > span,
+.student-att-bar.is-approaching > span { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+.student-att-bar.is-ok > span { background: linear-gradient(90deg, var(--success), #4ade80); }
+.student-att-bar.is-none > span { width: 0; }
+.student-att-band.is-below { background: rgba(248, 113, 113, 0.18); color: #fecaca; }
+.student-att-band.is-at_risk,
+.student-att-band.is-approaching { background: rgba(251, 191, 36, 0.16); color: #fde68a; }
+.student-att-band.is-ok { background: rgba(34, 197, 94, 0.16); color: #86efac; }
+.student-att-band.is-none { background: rgba(255, 255, 255, 0.06); color: var(--muted); }
+.student-att-details { margin-top: 1rem; }
+.student-att-details > summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--brand-2);
+  font-size: .9rem;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+}
+.student-att-details > summary::-webkit-details-marker { display: none; }
+.student-att-details > summary::after {
+  content: " ▾";
+  font-size: .75rem;
+  opacity: .75;
+}
+.student-att-details[open] > summary::after { content: " ▴"; }
+.student-att-details .table-wrap { margin-top: .65rem; }
+
 .hod-student-filters .hod-student-year-tabs .chip-row { margin-top: .35rem; }
 
 /* HOD Students — mobile layout (scoped to this module only) */
@@ -1618,8 +1689,11 @@ canvas { display: block; max-width: 100%; }
   .notif-actions { width: 100%; }
   .notif-actions .btn { flex: 1; }
   .review-actions .btn { flex: 1 1 10rem; }
+  .student-att-metrics { grid-template-columns: 1fr 1fr; }
+  .student-att-metrics .student-att-pct { grid-column: 1 / -1; }
 }
 @media (max-width: 640px) {
+  .student-att-metrics { grid-template-columns: 1fr 1fr; }
   .grid-4, .grid-3, .module-cards { grid-template-columns: 1fr; }
   .content, .topbar { padding-left: 1rem; padding-right: 1rem; }
   .plan-row { flex-wrap: wrap; }

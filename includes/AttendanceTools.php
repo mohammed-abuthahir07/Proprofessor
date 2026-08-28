@@ -65,6 +65,108 @@ final class AttendanceTools
         self::$schemaReady = true;
     }
 
+    /**
+     * Student Attendance page: every CURRENT-context subject, independently tallied.
+     * Uses courses_for_student() (dept + year + section/class + semester + UG/PG class)
+     * and existing attendance_records. Does not create, reset, or delete records.
+     * Historical rows outside the current subject set are left untouched for Academic History.
+     *
+     * @return list<array{
+     *   subject_id:int,subject_name:string,subject_code:string,course_type:string,
+     *   professor_name:?string,present:int,absent:int,total:int,percent:float,
+     *   band:array{band:string,label:string,percent:float,min:float},
+     *   sessions:list<array<string,mixed>>
+     * }>
+     */
+    public static function studentCurrentSubjectAttendance(array $user): array
+    {
+        self::ensureSchema();
+        $subjects = courses_for_student($user);
+        if (!$subjects) {
+            return [];
+        }
+
+        $instId = (int)($user['institution_id'] ?? 0);
+        $studentId = (int)($user['id'] ?? 0);
+        $classId = student_class_id($user);
+        $reg = self::studentRegisterNo($user, $classId);
+        $min = institution_attendance_min($instId);
+
+        $ids = [];
+        foreach ($subjects as $sub) {
+            $sid = (int)($sub['id'] ?? 0);
+            if ($sid > 0) {
+                $ids[$sid] = true;
+            }
+        }
+        $subjectIds = array_keys($ids);
+
+        $sessionsBySubject = [];
+        if ($classId > 0 && $instId > 0 && $subjectIds) {
+            $placeholders = implode(',', array_fill(0, count($subjectIds), '?'));
+            $params = [$instId, $classId, $studentId, $reg];
+            foreach ($subjectIds as $sid) {
+                $params[] = $sid;
+            }
+            $rows = Database::fetchAll(
+                "SELECT s.name AS subject_name, r.status, sess.session_date, sess.period,
+                        sess.id AS session_id, sess.subject_id, sess.topic
+                 FROM attendance_records r
+                 JOIN attendance_sessions sess ON sess.id = r.session_id
+                   AND sess.institution_id = ?
+                   AND sess.class_id = ?
+                 JOIN subjects s ON s.id = sess.subject_id
+                 WHERE (r.student_id = ? OR (r.register_no <> '' AND r.register_no = ?))
+                   AND sess.subject_id IN ($placeholders)
+                 ORDER BY sess.session_date DESC, sess.period DESC",
+                $params
+            );
+            foreach ($rows as $r) {
+                $sid = (int)$r['subject_id'];
+                $sessionsBySubject[$sid][] = $r;
+            }
+        }
+
+        $out = [];
+        foreach ($subjects as $sub) {
+            $sid = (int)($sub['id'] ?? 0);
+            if ($sid < 1) {
+                continue;
+            }
+            $sessions = $sessionsBySubject[$sid] ?? [];
+            $total = count($sessions);
+            $present = 0;
+            $absent = 0;
+            foreach ($sessions as $row) {
+                $st = (string)($row['status'] ?? '');
+                if (self::isPresentStatus($st)) {
+                    $present++;
+                }
+                if ($st === 'absent') {
+                    $absent++;
+                }
+            }
+            $pct = $total > 0 ? round($present * 100 / $total, 1) : 0.0;
+            $prof = trim((string)($sub['professor_name'] ?? ''));
+            $out[] = [
+                'subject_id' => $sid,
+                'subject_name' => (string)($sub['name'] ?? ''),
+                'subject_code' => (string)($sub['code'] ?? ''),
+                'course_type' => subject_course_type($sub),
+                'professor_name' => $prof !== '' ? $prof : null,
+                'present' => $present,
+                'absent' => $absent,
+                'total' => $total,
+                'percent' => $pct,
+                'band' => $total > 0
+                    ? self::shortageBand($pct, $min)
+                    : ['band' => 'none', 'label' => 'No classes yet', 'percent' => 0.0, 'min' => $min],
+                'sessions' => $sessions,
+            ];
+        }
+        return $out;
+    }
+
     /** Same formula as existing UI: present + late count toward %. */
     public static function isPresentStatus(string $status): bool
     {
