@@ -79,6 +79,29 @@ final class AssignmentTools
         return null;
     }
 
+    /**
+     * Permanently remove an assignment the professor owns, including student
+     * submissions and extension requests for that assignment. The class will
+     * no longer see it. Does not touch other assignments or modules.
+     *
+     * @return array{ok:bool,error?:string}
+     */
+    public static function deleteOwnedAssignment(array $user, int $id): array
+    {
+        self::ensureSchema();
+        $asg = self::ownedAssignment($user, $id);
+        if (!$asg) {
+            return ['ok' => false, 'error' => 'Assignment not found.'];
+        }
+        Database::query('DELETE FROM assignment_extension_requests WHERE assignment_id = ?', [$id]);
+        Database::query('DELETE FROM assignment_submissions WHERE assignment_id = ?', [$id]);
+        Database::query(
+            'DELETE FROM assignments WHERE id = ? AND institution_id = ?',
+            [$id, (int)$user['institution_id']]
+        );
+        return ['ok' => true];
+    }
+
     public static function ownedSubmission(array $user, int $submissionId): ?array
     {
         if ($submissionId < 1) {

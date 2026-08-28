@@ -1,14 +1,55 @@
 <?php
 /** @var array $expenses */
-/** @var array $byCat */
-/** @var float|int $total */
+/** @var float|int $yearlyTotal */
+/** @var float|int $monthlyTotal */
+/** @var string $topCategoryName */
+/** @var float|int $topCategoryTotal */
+/** @var int $expenseYear */
+/** @var int $expenseMonth */
+/** @var string $expenseMonthLabel */
+/** @var int $expensePage */
+/** @var int $expensePerPage */
+/** @var int $expenseTotal */
+/** @var int $expenseTotalPages */
 /** @var array $depts */
+$yearlyTotal = (float)($yearlyTotal ?? 0);
+$monthlyTotal = (float)($monthlyTotal ?? 0);
+$topCategoryName = trim((string)($topCategoryName ?? ''));
+$topCategoryTotal = (float)($topCategoryTotal ?? 0);
+$expenseYear = (int)($expenseYear ?? date('Y'));
+$expenseMonth = (int)($expenseMonth ?? date('n'));
+$expenseMonthLabel = (string)($expenseMonthLabel ?? date('F Y'));
+$expensePage = max(1, (int)($expensePage ?? 1));
+$expensePerPage = max(1, (int)($expensePerPage ?? 4));
+$expenseTotal = (int)($expenseTotal ?? count($expenses ?? []));
+$expenseTotalPages = max(1, (int)($expenseTotalPages ?? 1));
+$monthNames = [1 => 'Jan', 2 => 'Feb', 3 => 'Mar', 4 => 'Apr', 5 => 'May', 6 => 'Jun', 7 => 'Jul', 8 => 'Aug', 9 => 'Sep', 10 => 'Oct', 11 => 'Nov', 12 => 'Dec'];
+$ledgerUrl = static function (int $month, int $page = 1): string {
+    $path = '/admin/finance?month=' . $month;
+    if ($page > 1) {
+        $path .= '&page=' . $page;
+    }
+    return url($path);
+};
+$showingFrom = $expenseTotal > 0 ? (($expensePage - 1) * $expensePerPage) + 1 : 0;
+$showingTo = min($expensePage * $expensePerPage, $expenseTotal);
 ?>
-<div class="grid grid-4">
-  <div class="stat"><div class="label">Total recorded</div><div class="value">₹<?= number_format((float)$total) ?></div></div>
-  <?php foreach (array_slice($byCat, 0, 3) as $c): ?>
-    <div class="stat"><div class="label"><?= e($c['category']) ?></div><div class="value">₹<?= number_format((float)$c['total']) ?></div></div>
-  <?php endforeach; ?>
+<div class="grid grid-3">
+  <div class="stat">
+    <div class="label">Yearly expense</div>
+    <div class="value">₹<?= number_format($yearlyTotal) ?></div>
+    <div class="hint"><?= (int)$expenseYear ?></div>
+  </div>
+  <div class="stat">
+    <div class="label">Monthly expenses</div>
+    <div class="value">₹<?= number_format($monthlyTotal) ?></div>
+    <div class="hint"><?= e($expenseMonthLabel) ?></div>
+  </div>
+  <div class="stat">
+    <div class="label">Highest this year</div>
+    <div class="value"><?= $topCategoryName !== '' ? e($topCategoryName) : '—' ?></div>
+    <div class="hint"><?= $topCategoryName !== '' ? '₹' . number_format($topCategoryTotal) . ' · ' . (int)$expenseYear : 'No expenses yet' ?></div>
+  </div>
 </div>
 <div class="grid grid-2" style="margin-top:1rem">
   <div class="panel">
@@ -42,7 +83,15 @@
   </div>
   <div class="panel">
     <h3>Ledger</h3>
-    <div class="table-wrap"><table>
+    <div class="chip-row finance-month-row" role="navigation" aria-label="Filter ledger by month">
+      <?php foreach ($monthNames as $num => $label): ?>
+        <a class="chip<?= $expenseMonth === $num ? ' active' : '' ?>" href="<?= e($ledgerUrl($num)) ?>"><?= e($label) ?></a>
+      <?php endforeach; ?>
+    </div>
+    <?php if (!$expenses): ?>
+      <div class="empty" style="margin-top:.75rem">No expenses in <?= e($expenseMonthLabel) ?>.</div>
+    <?php else: ?>
+    <div class="table-wrap" style="margin-top:.75rem"><table>
       <thead><tr><th>Date</th><th>Title</th><th>Category</th><th>Amount</th></tr></thead>
       <tbody>
       <?php foreach ($expenses as $e): ?>
@@ -55,5 +104,24 @@
       <?php endforeach; ?>
       </tbody>
     </table></div>
+    <div class="finance-ledger-pager">
+      <div class="muted" style="font-size:.85rem">
+        Showing <?= (int)$showingFrom ?>–<?= (int)$showingTo ?> of <?= (int)$expenseTotal ?>
+      </div>
+      <div class="chip-row" style="margin:0">
+        <?php if ($expensePage > 1): ?>
+          <a class="btn btn-sm btn-ghost" href="<?= e($ledgerUrl($expenseMonth, $expensePage - 1)) ?>">Previous</a>
+        <?php else: ?>
+          <button class="btn btn-sm btn-ghost" type="button" disabled>Previous</button>
+        <?php endif; ?>
+        <span class="chip">Page <?= (int)$expensePage ?> / <?= (int)$expenseTotalPages ?></span>
+        <?php if ($expensePage < $expenseTotalPages): ?>
+          <a class="btn btn-sm btn-primary" href="<?= e($ledgerUrl($expenseMonth, $expensePage + 1)) ?>">Next</a>
+        <?php else: ?>
+          <button class="btn btn-sm btn-ghost" type="button" disabled>Next</button>
+        <?php endif; ?>
+      </div>
+    </div>
+    <?php endif; ?>
   </div>
 </div>

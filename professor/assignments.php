@@ -64,6 +64,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $action = (string)post('action');
 
+    if ($action === 'delete') {
+        $deleteId = (int)post('assignment_id');
+        $result = AssignmentTools::deleteOwnedAssignment($user, $deleteId);
+        flash(
+            $result['ok'] ? 'success' : 'error',
+            $result['ok'] ? 'Assignment deleted. Students in that class will no longer see it.' : ($result['error'] ?? 'Could not delete.')
+        );
+        redirect('/professor/assignments.php');
+    }
+
     // Existing grade path — preserved (also marks as finalized for marks hand-off).
     if ($action === 'grade') {
         $subId = (int)post('submission_id');
@@ -256,7 +266,15 @@ render_header('Assignment Module', 'assignments', ['subtitle' => 'AI briefs + ru
           <td><?= e(!empty($a['class_id']) ? class_batch_label($a) : '—') ?></td>
           <td><span class="chip"><?= e($a['assignment_type']) ?></span></td>
           <td><?= e((string)$a['max_marks']) ?></td>
-          <td><a class="btn btn-sm btn-ghost" href="?id=<?= (int)$a['id'] ?>">Open</a></td>
+          <td class="ppt-row-actions">
+            <a class="btn btn-sm btn-ghost" href="?id=<?= (int)$a['id'] ?>">Open</a>
+            <form method="post" style="margin:0" onsubmit="return confirm('Delete this assignment? Students in this class will no longer see it.');">
+              <?= csrf_field() ?>
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="assignment_id" value="<?= (int)$a['id'] ?>">
+              <button class="btn btn-sm btn-ghost" type="submit">Delete</button>
+            </form>
+          </td>
         </tr>
       <?php endforeach; ?>
       </tbody>
