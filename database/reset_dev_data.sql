@@ -2,23 +2,26 @@
 -- DESTRUCTIVE — LOCAL DEVELOPMENT DATA RESET ONLY
 -- ============================================================
 --
--- This script DELETES application/demo data from the local
--- `proprofessor` database. It is NOT for production.
+-- Canonical runner (inspects live schema, dry-run, transaction,
+-- preserves College Admin by role, cleans uploads):
 --
--- Preferred runner (enforces extra host/env guards):
+--   php database/reset_dev_data.php
 --   php database/reset_dev_data.php --confirm-local-reset
 --
--- If you run this file directly (mysql / phpMyAdmin):
+-- This .sql file is a phpMyAdmin / mysql fallback. Prefer the PHP
+-- script: it discovers runtime-created tables and foreign keys.
+--
+-- If you run this file directly:
 --   1. Confirm you are on a LOCAL copy of `proprofessor`.
---   2. Confirm users.id = 1 is admin@proprofessor.local.
+--   2. Confirm a College Admin (users.role = 'admin') exists.
 --   3. Do NOT run this against a production host.
 --
 -- Preserves:
---   - users.id = 1 (College Admin) — entire row unchanged
---   - institutions.id = 1 (minimum required FK/dashboard shell)
+--   - users.role IN ('admin','superadmin') — entire auth row unchanged
+--   - institutions linked to those users (including subscription_tier)
 --   - feature_flags (global catalog)
 --   - ai_prompt_templates (global AI catalog)
---   - institution_features for institution 1 (module toggles)
+--   - institution_features for those institutions
 --   - global app_settings (institution_id IS NULL)
 --   - database schema / tables / indexes / foreign keys
 --
@@ -28,17 +31,15 @@ SET NAMES utf8mb4;
 SET @OLD_FOREIGN_KEY_CHECKS = @@FOREIGN_KEY_CHECKS;
 SET FOREIGN_KEY_CHECKS = 0;
 
--- Refuse unless this session is on the local development database.
 SET @ppai_db := DATABASE();
 SET @ppai_admin_ok := (
-  SELECT COUNT(*) FROM `users`
-  WHERE `id` = 1
-    AND `email` = 'admin@proprofessor.local'
-    AND `role` = 'admin'
-    AND `full_name` = 'College Admin'
+  SELECT COUNT(*) FROM `users` WHERE `role` = 'admin'
 );
 
 DROP PROCEDURE IF EXISTS `sp_ppai_dev_reset_guard`;
+DROP PROCEDURE IF EXISTS `sp_ppai_delete_if_exists`;
+DROP PROCEDURE IF EXISTS `sp_ppai_ai_if_exists`;
+
 DELIMITER //
 CREATE PROCEDURE `sp_ppai_dev_reset_guard`()
 BEGIN
@@ -46,136 +47,155 @@ BEGIN
     SIGNAL SQLSTATE '45000'
       SET MESSAGE_TEXT = 'REFUSED: reset_dev_data.sql only runs on database `proprofessor`.';
   END IF;
-  IF @ppai_admin_ok <> 1 THEN
+  IF @ppai_admin_ok < 1 THEN
     SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT = 'REFUSED: protected Admin users.id=1 / admin@proprofessor.local was not found.';
+      SET MESSAGE_TEXT = 'REFUSED: no College Admin (users.role = admin) was found.';
+  END IF;
+END //
+CREATE PROCEDURE `sp_ppai_delete_if_exists`(IN t VARCHAR(64))
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = t AND TABLE_TYPE = 'BASE TABLE'
+  ) THEN
+    SET @ppai_q = CONCAT('DELETE FROM `', t, '`');
+    PREPARE ppai_s FROM @ppai_q;
+    EXECUTE ppai_s;
+    DEALLOCATE PREPARE ppai_s;
+  END IF;
+END //
+CREATE PROCEDURE `sp_ppai_ai_if_exists`(IN t VARCHAR(64))
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = t AND TABLE_TYPE = 'BASE TABLE'
+  ) THEN
+    SET @ppai_q = CONCAT('ALTER TABLE `', t, '` AUTO_INCREMENT = 1');
+    PREPARE ppai_s FROM @ppai_q;
+    EXECUTE ppai_s;
+    DEALLOCATE PREPARE ppai_s;
   END IF;
 END //
 DELIMITER ;
+
 CALL `sp_ppai_dev_reset_guard`();
-DROP PROCEDURE IF EXISTS `sp_ppai_dev_reset_guard`;
 
--- ------------------------------------------------------------
--- 1) Leaf / child application data
--- ------------------------------------------------------------
-DELETE FROM `ai_chat_messages`;
-DELETE FROM `assignment_submissions`;
-DELETE FROM `attendance_records`;
-DELETE FROM `document_chunks`;
-DELETE FROM `questions`;
-DELETE FROM `course_plan_versions`;
-DELETE FROM `plan_units`;
-DELETE FROM `plan_reviews`;
-DELETE FROM `lesson_plans`;
-DELETE FROM `presentations`;
-DELETE FROM `question_banks`;
-DELETE FROM `assignments`;
-DELETE FROM `attendance_sessions`;
-DELETE FROM `internal_marks`;
-DELETE FROM `enrollments`;
-DELETE FROM `subject_assignments`;
-DELETE FROM `students_roster`;
-DELETE FROM `notifications`;
-DELETE FROM `password_resets`;
-DELETE FROM `activity_logs`;
-DELETE FROM `ai_chats`;
-DELETE FROM `ai_generations`;
-DELETE FROM `announcements`;
-DELETE FROM `academic_events`;
-DELETE FROM `documents`;
-DELETE FROM `expenses`;
-DELETE FROM `budgets`;
-DELETE FROM `expense_categories`;
-DELETE FROM `compliance_alerts`;
-DELETE FROM `course_plans`;
-DELETE FROM `marks_formulas`;
+CALL `sp_ppai_delete_if_exists`('ai_chat_messages');
+CALL `sp_ppai_delete_if_exists`('question_attempts');
+CALL `sp_ppai_delete_if_exists`('assignment_submissions');
+CALL `sp_ppai_delete_if_exists`('assignment_extension_requests');
+CALL `sp_ppai_delete_if_exists`('attendance_records');
+CALL `sp_ppai_delete_if_exists`('attendance_regularization_requests');
+CALL `sp_ppai_delete_if_exists`('attendance_qr_tokens');
+CALL `sp_ppai_delete_if_exists`('document_chunks');
+CALL `sp_ppai_delete_if_exists`('questions');
+CALL `sp_ppai_delete_if_exists`('course_plan_versions');
+CALL `sp_ppai_delete_if_exists`('plan_units');
+CALL `sp_ppai_delete_if_exists`('plan_reviews');
+CALL `sp_ppai_delete_if_exists`('lesson_plans');
+CALL `sp_ppai_delete_if_exists`('presentations');
+CALL `sp_ppai_delete_if_exists`('exam_papers');
+CALL `sp_ppai_delete_if_exists`('assignment_templates');
+CALL `sp_ppai_delete_if_exists`('professor_announcements');
+CALL `sp_ppai_delete_if_exists`('admin_hod_announcements');
+CALL `sp_ppai_delete_if_exists`('professor_hod_messages');
+CALL `sp_ppai_delete_if_exists`('question_banks');
+CALL `sp_ppai_delete_if_exists`('assignments');
+CALL `sp_ppai_delete_if_exists`('attendance_sessions');
+CALL `sp_ppai_delete_if_exists`('internal_marks');
+CALL `sp_ppai_delete_if_exists`('enrollments');
+CALL `sp_ppai_delete_if_exists`('subject_assignments');
+CALL `sp_ppai_delete_if_exists`('students_roster');
+CALL `sp_ppai_delete_if_exists`('notifications');
+CALL `sp_ppai_delete_if_exists`('password_resets');
+CALL `sp_ppai_delete_if_exists`('activity_logs');
+CALL `sp_ppai_delete_if_exists`('ai_chats');
+CALL `sp_ppai_delete_if_exists`('ai_generations');
+CALL `sp_ppai_delete_if_exists`('announcements');
+CALL `sp_ppai_delete_if_exists`('academic_events');
+CALL `sp_ppai_delete_if_exists`('documents');
+CALL `sp_ppai_delete_if_exists`('expenses');
+CALL `sp_ppai_delete_if_exists`('budgets');
+CALL `sp_ppai_delete_if_exists`('expense_categories');
+CALL `sp_ppai_delete_if_exists`('compliance_alerts');
+CALL `sp_ppai_delete_if_exists`('course_plans');
+CALL `sp_ppai_delete_if_exists`('marks_formulas');
+CALL `sp_ppai_delete_if_exists`('subjects');
+CALL `sp_ppai_delete_if_exists`('classes');
+CALL `sp_ppai_delete_if_exists`('programs');
 
--- ------------------------------------------------------------
--- 2) Academic structure (demo departments / classes / subjects)
--- ------------------------------------------------------------
-DELETE FROM `subjects`;
-DELETE FROM `classes`;
-DELETE FROM `programs`;
-DELETE FROM `departments`;
+UPDATE `departments` SET `hod_user_id` = NULL;
+CALL `sp_ppai_delete_if_exists`('departments');
 
--- Per-institution settings only (keep global rows where institution_id IS NULL)
 DELETE FROM `app_settings` WHERE `institution_id` IS NOT NULL;
 
--- ------------------------------------------------------------
--- 3) Users — keep ONLY Admin id=1 (row is not updated)
--- ------------------------------------------------------------
-DELETE FROM `users` WHERE `id` <> 1;
+UPDATE `users`
+SET `department_id` = NULL, `class_id` = NULL
+WHERE `role` IN ('admin', 'superadmin')
+  AND (`department_id` IS NOT NULL OR `class_id` IS NOT NULL);
+DELETE FROM `users` WHERE `role` NOT IN ('admin', 'superadmin');
 
--- ------------------------------------------------------------
--- 4) Minimal institution shell required by users.institution_id
---    and the Admin dashboard. Demo college identity is cleared.
---    id remains 1 so Admin FK stays valid.
--- ------------------------------------------------------------
-UPDATE `institutions`
-SET
-  `name` = 'Institution',
-  `code` = NULL,
-  `affiliation_university` = NULL,
-  `naac_grade` = NULL,
-  `nba_status` = NULL,
-  `address` = NULL,
-  `city` = NULL,
-  `state` = NULL,
-  `pincode` = NULL,
-  `phone` = NULL,
-  `email` = NULL,
-  `logo_url` = NULL,
-  `subscription_tier` = 'trial',
-  `licensed_seats` = 60,
-  `academic_year` = NULL,
-  `current_semester` = NULL,
-  `settings` = '{"attendance_min": 75}',
-  `is_active` = 1
-WHERE `id` = 1;
+DELETE FROM `institution_features`
+WHERE `institution_id` NOT IN (
+  SELECT `institution_id` FROM (
+    SELECT DISTINCT `institution_id` FROM `users` WHERE `role` IN ('admin', 'superadmin')
+  ) AS preserved_inst
+);
+DELETE FROM `institutions`
+WHERE `id` NOT IN (
+  SELECT `institution_id` FROM (
+    SELECT DISTINCT `institution_id` FROM `users` WHERE `role` IN ('admin', 'superadmin')
+  ) AS preserved_inst
+);
 
--- ------------------------------------------------------------
--- 5) Reset AUTO_INCREMENT (Admin remains id=1)
--- ------------------------------------------------------------
-ALTER TABLE `ai_chat_messages` AUTO_INCREMENT = 1;
-ALTER TABLE `assignment_submissions` AUTO_INCREMENT = 1;
-ALTER TABLE `attendance_records` AUTO_INCREMENT = 1;
-ALTER TABLE `document_chunks` AUTO_INCREMENT = 1;
-ALTER TABLE `questions` AUTO_INCREMENT = 1;
-ALTER TABLE `course_plan_versions` AUTO_INCREMENT = 1;
-ALTER TABLE `plan_units` AUTO_INCREMENT = 1;
-ALTER TABLE `plan_reviews` AUTO_INCREMENT = 1;
-ALTER TABLE `lesson_plans` AUTO_INCREMENT = 1;
-ALTER TABLE `presentations` AUTO_INCREMENT = 1;
-ALTER TABLE `question_banks` AUTO_INCREMENT = 1;
-ALTER TABLE `assignments` AUTO_INCREMENT = 1;
-ALTER TABLE `attendance_sessions` AUTO_INCREMENT = 1;
-ALTER TABLE `internal_marks` AUTO_INCREMENT = 1;
-ALTER TABLE `enrollments` AUTO_INCREMENT = 1;
-ALTER TABLE `subject_assignments` AUTO_INCREMENT = 1;
-ALTER TABLE `students_roster` AUTO_INCREMENT = 1;
-ALTER TABLE `notifications` AUTO_INCREMENT = 1;
-ALTER TABLE `password_resets` AUTO_INCREMENT = 1;
-ALTER TABLE `activity_logs` AUTO_INCREMENT = 1;
-ALTER TABLE `ai_chats` AUTO_INCREMENT = 1;
-ALTER TABLE `ai_generations` AUTO_INCREMENT = 1;
-ALTER TABLE `announcements` AUTO_INCREMENT = 1;
-ALTER TABLE `academic_events` AUTO_INCREMENT = 1;
-ALTER TABLE `documents` AUTO_INCREMENT = 1;
-ALTER TABLE `expenses` AUTO_INCREMENT = 1;
-ALTER TABLE `budgets` AUTO_INCREMENT = 1;
-ALTER TABLE `expense_categories` AUTO_INCREMENT = 1;
-ALTER TABLE `compliance_alerts` AUTO_INCREMENT = 1;
-ALTER TABLE `course_plans` AUTO_INCREMENT = 1;
-ALTER TABLE `marks_formulas` AUTO_INCREMENT = 1;
-ALTER TABLE `subjects` AUTO_INCREMENT = 1;
-ALTER TABLE `classes` AUTO_INCREMENT = 1;
-ALTER TABLE `programs` AUTO_INCREMENT = 1;
-ALTER TABLE `departments` AUTO_INCREMENT = 1;
-ALTER TABLE `app_settings` AUTO_INCREMENT = 1;
-ALTER TABLE `users` AUTO_INCREMENT = 2;
+CALL `sp_ppai_ai_if_exists`('ai_chat_messages');
+CALL `sp_ppai_ai_if_exists`('question_attempts');
+CALL `sp_ppai_ai_if_exists`('assignment_submissions');
+CALL `sp_ppai_ai_if_exists`('assignment_extension_requests');
+CALL `sp_ppai_ai_if_exists`('attendance_records');
+CALL `sp_ppai_ai_if_exists`('attendance_regularization_requests');
+CALL `sp_ppai_ai_if_exists`('attendance_qr_tokens');
+CALL `sp_ppai_ai_if_exists`('document_chunks');
+CALL `sp_ppai_ai_if_exists`('questions');
+CALL `sp_ppai_ai_if_exists`('course_plan_versions');
+CALL `sp_ppai_ai_if_exists`('plan_units');
+CALL `sp_ppai_ai_if_exists`('plan_reviews');
+CALL `sp_ppai_ai_if_exists`('lesson_plans');
+CALL `sp_ppai_ai_if_exists`('presentations');
+CALL `sp_ppai_ai_if_exists`('exam_papers');
+CALL `sp_ppai_ai_if_exists`('assignment_templates');
+CALL `sp_ppai_ai_if_exists`('professor_announcements');
+CALL `sp_ppai_ai_if_exists`('admin_hod_announcements');
+CALL `sp_ppai_ai_if_exists`('professor_hod_messages');
+CALL `sp_ppai_ai_if_exists`('question_banks');
+CALL `sp_ppai_ai_if_exists`('assignments');
+CALL `sp_ppai_ai_if_exists`('attendance_sessions');
+CALL `sp_ppai_ai_if_exists`('internal_marks');
+CALL `sp_ppai_ai_if_exists`('enrollments');
+CALL `sp_ppai_ai_if_exists`('subject_assignments');
+CALL `sp_ppai_ai_if_exists`('students_roster');
+CALL `sp_ppai_ai_if_exists`('notifications');
+CALL `sp_ppai_ai_if_exists`('password_resets');
+CALL `sp_ppai_ai_if_exists`('activity_logs');
+CALL `sp_ppai_ai_if_exists`('ai_chats');
+CALL `sp_ppai_ai_if_exists`('ai_generations');
+CALL `sp_ppai_ai_if_exists`('announcements');
+CALL `sp_ppai_ai_if_exists`('academic_events');
+CALL `sp_ppai_ai_if_exists`('documents');
+CALL `sp_ppai_ai_if_exists`('expenses');
+CALL `sp_ppai_ai_if_exists`('budgets');
+CALL `sp_ppai_ai_if_exists`('expense_categories');
+CALL `sp_ppai_ai_if_exists`('compliance_alerts');
+CALL `sp_ppai_ai_if_exists`('course_plans');
+CALL `sp_ppai_ai_if_exists`('marks_formulas');
+CALL `sp_ppai_ai_if_exists`('subjects');
+CALL `sp_ppai_ai_if_exists`('classes');
+CALL `sp_ppai_ai_if_exists`('programs');
+CALL `sp_ppai_ai_if_exists`('departments');
 
--- ------------------------------------------------------------
--- 6) Restore foreign-key checks
--- ------------------------------------------------------------
+DROP PROCEDURE IF EXISTS `sp_ppai_dev_reset_guard`;
+DROP PROCEDURE IF EXISTS `sp_ppai_delete_if_exists`;
+DROP PROCEDURE IF EXISTS `sp_ppai_ai_if_exists`;
+
 SET FOREIGN_KEY_CHECKS = @OLD_FOREIGN_KEY_CHECKS;
 SET FOREIGN_KEY_CHECKS = 1;

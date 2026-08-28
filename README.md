@@ -438,6 +438,8 @@ After `php database/seed_e2e_test_data.php --confirm-local-reset`:
 | Student — 4nd Year B | `saairuba@test.com` | Register CSE1111 |
 | Student - 4nd Year C | `navya@test.com` | Register CSE2333
 
+Password@123
+
 Seed also creates ECE, EEE, IT, MECH HODs/professors/students — see script output.
 
 ### CSE subjects (after E2E seed only)
