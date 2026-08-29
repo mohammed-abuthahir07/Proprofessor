@@ -827,3 +827,101 @@ Manual / smoke coverage for today's Professor work included:
 ## License / context
 
 Built for Indian colleges (OBE, NAAC/NBA, CIA internal marks, Bloom's taxonomy). Extend via `feature_flags`, JSON `meta` fields, and institution `settings` without breaking core tenancy.
+
+
+
+<!-- 
+DBMS — Course Context
+
+Course Name: Database Management Systems
+Course Code: CS301
+Department: CSE
+Level: UG
+Credits: 4
+
+UNIT I — INTRODUCTION TO DATABASE SYSTEMS
+Database concepts and characteristics
+File system vs. database system
+Advantages of DBMS
+Database users and administrators
+Database system architecture
+Data models
+Schema and instance
+Data independence
+Three-schema architecture
+Database languages: DDL, DML, DCL
+Entity-Relationship (ER) model
+Entities, attributes and relationships
+ER diagrams and constraints
+UNIT II — RELATIONAL MODEL AND SQL
+Relational model concepts
+Relations, tuples and attributes
+Keys: super key, candidate key, primary key and foreign key
+Integrity constraints
+Relational algebra
+Selection and projection
+Union, intersection and difference
+Cartesian product
+Joins
+SQL fundamentals
+CREATE, ALTER and DROP
+INSERT, UPDATE and DELETE
+SELECT queries
+WHERE, ORDER BY and GROUP BY
+Aggregate functions
+HAVING clause
+Nested queries
+SQL joins
+Views
+UNIT III — DATABASE DESIGN AND NORMALIZATION
+Functional dependencies
+Trivial and non-trivial functional dependencies
+Attribute closure
+Functional dependency inference
+Database anomalies
+Insertion anomaly
+Update anomaly
+Deletion anomaly
+Normalization
+First Normal Form (1NF)
+Second Normal Form (2NF)
+Third Normal Form (3NF)
+Boyce-Codd Normal Form (BCNF)
+Lossless decomposition
+Dependency preservation
+UNIT IV — TRANSACTION MANAGEMENT
+Transaction concepts
+Transaction states
+ACID properties
+Concurrent transactions
+Serial and non-serial schedules
+Serializability
+Conflict serializability
+View serializability
+Concurrency control
+Lock-based protocols
+Two-phase locking (2PL)
+Deadlocks
+Deadlock prevention and detection
+Timestamp-based protocols
+Recovery concepts
+Log-based recovery
+Checkpoints
+UNIT V — STORAGE, INDEXING AND ADVANCED DATABASE CONCEPTS
+File organization
+Storage structures
+Indexing concepts
+Primary and secondary indexes
+Dense and sparse indexes
+Multilevel indexing
+B-Tree
+B+ Tree
+Hashing
+Static and dynamic hashing
+Query processing
+Query optimization
+Distributed databases
+Database security
+Authorization and access control
+Backup and recovery
+Introduction to NoSQL databases -->
