@@ -103,12 +103,12 @@ $changeProvider = $isProfessor && (string)get('ai') === 'change';
 
 render_header('Settings', 'settings', ['subtitle' => 'Profile & workspace']);
 ?>
-<div class="settings-page">
-  <form method="post" class="settings-grid">
+<div class="settings-page settings-grid">
+  <form method="post" class="settings-form-contents">
     <?= csrf_field() ?>
     <div class="panel settings-panel">
       <h3 class="settings-ai-title">Profile</h3>
-      <div class="form-grid settings-profile-grid">
+      <div class="form-grid">
         <div class="form-row"><label>Full name</label><input name="full_name" value="<?= e($user['full_name']) ?>" autocomplete="name"></div>
         <div class="form-row"><label>Email</label><input value="<?= e($user['email']) ?>" disabled></div>
         <div class="form-row"><label>Phone</label><input name="phone" value="<?= e((string)$user['phone']) ?>" autocomplete="tel"></div>
@@ -177,7 +177,6 @@ render_header('Settings', 'settings', ['subtitle' => 'Profile & workspace']);
     $geminiDocs = ProfessorAiSettings::docsUrl('gemini');
     $claudeDocs = ProfessorAiSettings::docsUrl('claude');
   ?>
-  <div class="settings-ai-wrap">
   <div class="panel settings-panel settings-ai-panel">
     <h3 class="settings-ai-title">AI Provider</h3>
     <p class="muted settings-help">Choose your AI provider. Only one provider is active. Changing provider or model does not change existing course plans, lessons, questions, PPTs, or assignments.</p>
@@ -201,7 +200,7 @@ render_header('Settings', 'settings', ['subtitle' => 'Profile & workspace']);
       </div>
     <?php else: ?>
       <p class="muted settings-help"><strong>Status:</strong> No AI provider connected.</p>
-      <form method="post" class="form-grid settings-ai-form" id="ai-provider-form" autocomplete="off">
+      <form method="post" class="form-grid" id="ai-provider-form" autocomplete="off">
         <?= csrf_field() ?>
         <input type="hidden" name="ajax" id="ai_ajax" value="0">
         <div class="form-row">
@@ -323,7 +322,6 @@ render_header('Settings', 'settings', ['subtitle' => 'Profile & workspace']);
         </ol>
       </div>
     </aside>
-  </div>
   <?php endif; ?>
 </div>
 <?php render_footer(); ?>
