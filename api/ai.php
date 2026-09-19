@@ -6,7 +6,10 @@ require_post();
 
 $module = (string)(get('module') ?: post('module'));
 $user = Auth::user();
-$gemini = new Gemini();
+$gemini = professor_ai_engine($user);
+if (($user['role'] ?? '') === 'professor' && $module !== 'syllabus_extract') {
+    ProfessorAi::requireConnected($gemini);
+}
 
 function prompt_template(string $code): ?array
 {
@@ -618,10 +621,12 @@ try {
 
             if ($gemini->isConfigured()) {
                 $result = $gemini->generate($system, $userPrompt);
+                ProfessorAi::abortIfByokFailed($gemini, $result);
                 $plan = $result['json'] ?? null;
                 if (!$plan) {
                     $result['ok'] = false;
                     $result['error'] = $result['error'] ?? 'Model did not return JSON.';
+                    ProfessorAi::abortIfByokFailed($gemini, $result);
                 }
             } else {
                 $plan = Gemini::demoCoursePlan($subject, $syllabus);
@@ -779,7 +784,11 @@ try {
         $payload = $plan['plan_data'];
         if ($gemini->isConfigured()) {
             $result = $gemini->generate($tpl['system_prompt'] ?? 'Map Bloom levels. JSON only.', "Course plan JSON:\n$payload");
+            ProfessorAi::abortIfByokFailed($gemini, $result);
             $data = $result['json'] ?? [];
+            if (professor_ai_is_byok($gemini) && !is_array($data)) {
+                ProfessorAi::abortIfByokUnusable($gemini, 'The AI provider returned unusable Bloom mapping. Please try again.');
+            }
         } else {
             $data = ['bloom_distribution' => json_decode($plan['bloom_data'] ?: '{}', true) ?: ['K1'=>15,'K2'=>20,'K3'=>25,'K4'=>20,'K5'=>12,'K6'=>8], 'demo'=>true];
             $result = ['ok'=>true,'json'=>$data,'latency_ms'=>0];
@@ -799,7 +808,14 @@ try {
         $tpl = prompt_template('ai_review');
         if ($gemini->isConfigured()) {
             $result = $gemini->generate($tpl['system_prompt'] ?? 'Review course plan.', (string)$plan['plan_data']);
-            $data = $result['json'] ?? ['score'=>70,'recommendations'=>['Add more K4-K6 outcomes']];
+            ProfessorAi::abortIfByokFailed($gemini, $result);
+            $data = $result['json'] ?? null;
+            if (!is_array($data)) {
+                if (professor_ai_is_byok($gemini)) {
+                    ProfessorAi::abortIfByokUnusable($gemini, 'The AI provider returned an unusable review. Please try again.');
+                }
+                $data = ['score'=>70,'recommendations'=>['Add more K4-K6 outcomes']];
+            }
         } else {
             $data = [
                 'score' => (float)($plan['ai_score'] ?? 76),
@@ -837,6 +853,7 @@ try {
                 $tpl['system_prompt'] ?? 'Improve plan. Return JSON.',
                 "Instruction: $instruction\nCurrent plan:\n" . $plan['plan_data']
             );
+            ProfessorAi::abortIfByokFailed($gemini, $result);
             $data = $result['json'] ?? null;
         } else {
             $data = json_decode((string)$plan['plan_data'], true) ?: [];
@@ -923,6 +940,7 @@ try {
                 . "multiple sessions for the same topic when needed, with varied teaching method, activity, assessment, and engagement. "
                 . "Subject: " . (string)($plan['subject_name'] ?? '') . "\n\n" . (string)$plan['plan_data'];
             $result = $gemini->generate($system, $userPrompt);
+            ProfessorAi::abortIfByokFailed($gemini, $result);
             $sessions = extract_ai_lesson_sessions(is_array($result['json'] ?? null) ? $result['json'] : null);
         }
         // Fall back when AI under-fills hours or returns unusable content.
@@ -1074,9 +1092,13 @@ try {
 
         if ($gemini->isConfigured()) {
             $result = $gemini->generate($system, $userPrompt);
+            ProfessorAi::abortIfByokFailed($gemini, $result);
             $rawQuestions = is_array($result['json']['questions'] ?? null) ? $result['json']['questions'] : [];
             $questions = normalize_generated_questions($rawQuestions, $type, $klevel, $unit, $count);
             if (!question_bank_is_usable($questions, $type, $count)) {
+                if (professor_ai_is_byok($gemini)) {
+                    ProfessorAi::abortIfByokUnusable($gemini, 'The AI provider returned unusable questions. Please try again.');
+                }
                 $questions = Gemini::demoQuestionBank($subjectName, $type, $klevel, $unit, $count, $context, $unitTopics);
                 $result['demo'] = true;
                 $result['fallback'] = 'ai_unusable';
@@ -1285,9 +1307,13 @@ try {
 
         if ($gemini->isConfigured()) {
             $result = $gemini->generate($system, $userPrompt);
+            ProfessorAi::abortIfByokFailed($gemini, $result);
             $rawSlides = is_array($result['json']['slides'] ?? null) ? $result['json']['slides'] : [];
             $slides = normalize_generated_slides($rawSlides, $unit);
             if (!ppt_slides_are_usable($slides)) {
+                if (professor_ai_is_byok($gemini)) {
+                    ProfessorAi::abortIfByokUnusable($gemini, 'The AI provider returned unusable slides. Please try again.');
+                }
                 $slides = Gemini::demoPresentation($title, $subjectName, $unit, $context, $unitTopics, 12, $brandMeta);
                 $result['demo'] = true;
                 $result['fallback'] = 'ai_unusable';
@@ -1330,6 +1356,9 @@ try {
 
     if ($module === 'assignment') {
         Auth::requireRole('professor', 'admin');
+        if (ob_get_level() === 0) {
+            ob_start();
+        }
         AssignmentTools::ensureSchema();
         $type = (string)post('assignment_type', 'essay');
         $subject = (string)post('subject', '');
@@ -1367,6 +1396,20 @@ try {
         // Use primary class for generation context (first in list / posted class_id).
         $classId = $classId > 0 ? $classId : $bulkIds[0];
 
+        $allowedTypes = [
+            'essay', 'case_study', 'research_review', 'problem_solving',
+            'mini_project', 'mixed', 'lab', 'reflection', 'group_presentation',
+        ];
+        if (!in_array($type, $allowedTypes, true)) {
+            $type = 'essay';
+        }
+        if (is_string($deadline) && $deadline !== '') {
+            $deadline = str_replace('T', ' ', $deadline);
+            if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/', $deadline)) {
+                $deadline .= ':00';
+            }
+        }
+
         $data = null;
         $result = ['ok' => true, 'json' => null, 'latency_ms' => 0];
 
@@ -1387,6 +1430,9 @@ try {
                 $context = (string)$tplRow['context_text'];
             }
             $type = (string)($tplRow['assignment_type'] ?: $type);
+            if (!in_array($type, $allowedTypes, true)) {
+                $type = 'essay';
+            }
             $result = ['ok' => true, 'json' => $data, 'latency_ms' => 0, 'demo' => false];
         } else {
             $plan = null;
@@ -1399,14 +1445,44 @@ try {
             $closHint = AssignmentTools::closForSubject($user, (int)($subjectId ?? 0));
             $cloText = $closHint ? ('Available CLOs: ' . implode(', ', $closHint)) : 'Use CLO1, CLO2, … when appropriate.';
             $tpl = prompt_template('assignment_gen');
+            $system = (is_array($tpl) ? trim((string)($tpl['system_prompt'] ?? '')) : '') ?: 'Assignment JSON.';
             if ($gemini->isConfigured()) {
                 $result = $gemini->generate(
-                    $tpl['system_prompt'] ?? 'Assignment JSON.',
+                    $system,
                     "Type:$type Subject:$subject\nContext:\n$context\n{$cloText}\n"
                     . "Return {title,description,instructions[],rubric[{criterion,description,marks,clo,bloom,levels}],max_marks}. "
                     . "Rubric marks must sum exactly to max_marks. bloom like K2/K3. clo like CLO1."
                 );
-                $data = $result['json'] ?? [];
+                if (ob_get_length()) {
+                    ob_clean();
+                }
+                ProfessorAi::abortIfByokFailed($gemini, $result);
+                $data = is_array($result['json'] ?? null) ? $result['json'] : [];
+                $titleText = '';
+                if (isset($data['title']) && is_scalar($data['title'])) {
+                    $titleText = trim((string)$data['title']);
+                }
+                if ($titleText === '' && !empty($data['questions']) && is_array($data['questions'])) {
+                    $titleText = trim($subject !== '' ? ($subject . ' · Assignment') : (ucwords(str_replace('_', ' ', $type)) . ' Assignment'));
+                    $data['title'] = $titleText;
+                    $qLines = [];
+                    foreach ($data['questions'] as $i => $q) {
+                        $stem = is_array($q) ? trim((string)($q['stem'] ?? $q['question'] ?? $q['title'] ?? '')) : trim((string)$q);
+                        if ($stem !== '') {
+                            $qLines[] = ((int)$i + 1) . '. ' . $stem;
+                        }
+                    }
+                    if ($qLines && trim((string)($data['description'] ?? '')) === '') {
+                        $data['description'] = implode("\n", $qLines);
+                    }
+                    if (empty($data['instructions']) || !is_array($data['instructions'])) {
+                        $data['instructions'] = ['Answer all questions.', 'Show working where required.', 'Submit before the deadline.'];
+                    }
+                }
+                $data['title'] = $titleText !== '' ? $titleText : '';
+                if (professor_ai_is_byok($gemini) && $data['title'] === '') {
+                    ProfessorAi::abortIfByokUnusable($gemini, 'The AI provider returned an unusable assignment. Please try again.');
+                }
             } else {
                 $data = [
                     'title' => ucwords(str_replace('_', ' ', $type)) . ' Assignment · ' . $subject,
@@ -1423,8 +1499,22 @@ try {
                 ];
                 $result = ['ok' => true, 'json' => $data, 'latency_ms' => 0];
             }
+            if (!is_array($data)) {
+                $data = [];
+            }
+            if (!isset($data['title']) || !is_scalar($data['title']) || trim((string)$data['title']) === '') {
+                $data['title'] = trim($subject !== '' ? ($subject . ' Assignment') : 'Assignment');
+            } else {
+                $data['title'] = trim((string)$data['title']);
+            }
+            if (!isset($data['description']) || !is_scalar($data['description'])) {
+                $data['description'] = '';
+            }
+            if (!is_array($data['instructions'] ?? null)) {
+                $data['instructions'] = [];
+            }
             $maxMarks = (float)($data['max_marks'] ?? 25);
-            $data['rubric'] = AssignmentTools::enrichRubricFromPlan($data['rubric'] ?? [], $plan, $maxMarks);
+            $data['rubric'] = AssignmentTools::enrichRubricFromPlan(is_array($data['rubric'] ?? null) ? $data['rubric'] : [], $plan, $maxMarks);
             // Preserve legacy weight-only rubrics by normalizing; if total still off, leave as-is for professor edit.
             $check = AssignmentTools::validateRubricTotal($data['rubric'], $maxMarks);
             if (!$check['ok'] && !empty($data['rubric'])) {
@@ -1435,6 +1525,9 @@ try {
                     $alloc = 0.0;
                     $last = count($data['rubric']) - 1;
                     foreach ($data['rubric'] as $i => $r) {
+                        if (!is_array($r)) {
+                            continue;
+                        }
                         if ($i === $last) {
                             $r['marks'] = round(max(0, $maxMarks - $alloc), 2);
                         } else {
@@ -1449,37 +1542,62 @@ try {
         }
 
         $createdIds = [];
-        foreach ($bulkIds as $cid) {
-            $id = Database::insert('assignments', [
-                'institution_id' => (int)$user['institution_id'],
-                'professor_id' => (int)$user['id'],
-                'subject_id' => $subjectId,
-                'class_id' => $cid,
-                'title' => (string)($data['title'] ?? 'Assignment'),
-                'assignment_type' => $type,
-                'description' => (string)($data['description'] ?? ''),
-                'rubric' => json_encode($data['rubric'] ?? [], JSON_UNESCAPED_UNICODE),
-                'max_marks' => $data['max_marks'] ?? 25,
-                'deadline' => $deadline,
-                'instructions' => json_encode($data['instructions'] ?? [], JSON_UNESCAPED_UNICODE),
-                'ai_generated' => empty($data['from_template']) ? 1 : 0,
-                'status' => 'published',
-                'meta' => json_encode([
-                    'bulk_group' => count($bulkIds) > 1 ? md5(json_encode($bulkIds) . microtime(true)) : null,
-                    'from_template_id' => $templateId > 0 ? $templateId : null,
-                    'context' => $context,
-                ], JSON_UNESCAPED_UNICODE),
-            ]);
-            $createdIds[] = (int)$id;
-            if ($subjectId) {
-                enroll_class_students_in_subject((int)$user['institution_id'], $cid, $subjectId);
+        $asgTitle = is_scalar($data['title'] ?? null) ? trim((string)$data['title']) : 'Assignment';
+        if ($asgTitle === '') {
+            $asgTitle = 'Assignment';
+        }
+        $asgDesc = $data['description'] ?? '';
+        if (is_array($asgDesc)) {
+            $asgDesc = implode("\n", array_map(static fn($v) => is_scalar($v) ? (string)$v : '', $asgDesc));
+        } elseif (!is_scalar($asgDesc)) {
+            $asgDesc = '';
+        }
+        $asgInstructions = is_array($data['instructions'] ?? null) ? $data['instructions'] : [];
+        $asgRubric = is_array($data['rubric'] ?? null) ? $data['rubric'] : [];
+        try {
+            foreach ($bulkIds as $cid) {
+                $id = Database::insert('assignments', [
+                    'institution_id' => (int)$user['institution_id'],
+                    'professor_id' => (int)$user['id'],
+                    'subject_id' => $subjectId,
+                    'class_id' => $cid,
+                    'title' => mb_substr($asgTitle, 0, 255),
+                    'assignment_type' => $type,
+                    'description' => (string)$asgDesc,
+                    'rubric' => json_encode($asgRubric, JSON_UNESCAPED_UNICODE),
+                    'max_marks' => $data['max_marks'] ?? 25,
+                    'deadline' => $deadline ?: null,
+                    'instructions' => json_encode($asgInstructions, JSON_UNESCAPED_UNICODE),
+                    'ai_generated' => empty($data['from_template']) ? 1 : 0,
+                    'status' => 'published',
+                    'meta' => json_encode([
+                        'bulk_group' => count($bulkIds) > 1 ? md5(json_encode($bulkIds) . microtime(true)) : null,
+                        'from_template_id' => $templateId > 0 ? $templateId : null,
+                        'context' => $context,
+                    ], JSON_UNESCAPED_UNICODE),
+                ]);
+                $createdIds[] = (int)$id;
+                if ($subjectId) {
+                    enroll_class_students_in_subject((int)$user['institution_id'], $cid, $subjectId);
+                }
+                log_ai('assignment', compact('type', 'subject') + ['class_id' => $cid], $result, 'assignment', (int)$id);
             }
-            log_ai('assignment', compact('type', 'subject') + ['class_id' => $cid], $result, 'assignment', (int)$id);
+        } catch (Throwable $e) {
+            if (ob_get_length()) {
+                ob_clean();
+            }
+            json_response([
+                'ok' => false,
+                'error' => config('debug') ? $e->getMessage() : 'Could not save the assignment. Please try again.',
+            ], 500);
         }
         $redirectId = $createdIds[0] ?? 0;
+        if (ob_get_length()) {
+            ob_clean();
+        }
         json_response([
             'ok' => true,
-            'data' => $data + ['created_ids' => $createdIds],
+            'data' => (is_array($data) ? $data : []) + ['created_ids' => $createdIds],
             'redirect' => base_url('/professor/assignments.php' . ($redirectId ? ('?id=' . $redirectId) : '')),
         ]);
     }
@@ -1493,6 +1611,7 @@ try {
                 $tpl['system_prompt'] ?? 'Parse marks formula.',
                 "Parse into JSON {name,components:[{code,label,max,weight}],expression,total_max}:\n$text"
             );
+            ProfessorAi::abortIfByokFailed($gemini, $result);
             $data = $result['json'] ?? [];
         } else {
             $data = [
@@ -1646,6 +1765,7 @@ try {
 
             $userPrompt = "Materials:\n{$materials}\n\nQuestion: {$question}\nReturn JSON {answer,citations:[]}";
             $result = $gemini->generate($systemPrompt, $userPrompt);
+            ProfessorAi::abortIfByokFailed($gemini, $result);
             $data = $result['json'] ?? ['answer' => trim((string)($result['text'] ?? ''))];
             if (trim((string)($data['answer'] ?? '')) === '') {
                 json_response(['ok'=>false,'error'=>'The study assistant could not generate an answer. Please try again.'], 500);

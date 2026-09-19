@@ -97,8 +97,11 @@ final class PresentationTools
         }
 
         $newSlide = null;
-        $gemini = class_exists('Gemini') ? new Gemini() : null;
-        $aiConfigured = $gemini && $gemini->isConfigured();
+        $engine = professor_ai_engine($user);
+        if (($user['role'] ?? '') === 'professor' && !professor_ai_is_byok($engine)) {
+            return ['ok' => false, 'error' => 'No AI provider connected. Open Settings → AI Provider and connect a provider before regenerating.'];
+        }
+        $aiConfigured = method_exists($engine, 'isConfigured') && $engine->isConfigured();
         if ($aiConfigured) {
             try {
                 $system = 'You regenerate ONE academic lecture slide as JSON. Return ONLY valid JSON object.';
@@ -108,7 +111,10 @@ final class PresentationTools
                     . ($instruction !== '' ? "Professor instruction: {$instruction}\n" : '')
                     . "Rules: keep academic quality; include speaker_notes; unit_tag must be \"{$unitTag}\"; 3–6 bullets; no placeholders.\n"
                     . "Return: {\"number\":" . ($index + 1) . ",\"title\":\"\",\"bullets\":[\"\"],\"speaker_notes\":\"\",\"unit_tag\":\"{$unitTag}\"}";
-                $result = $gemini->generate($system, $prompt);
+                $result = $engine->generate($system, $prompt);
+                if (empty($result['ok']) && professor_ai_is_byok($engine)) {
+                    return ['ok' => false, 'error' => (string)($result['error'] ?? 'AI regeneration failed. Original slide preserved.')];
+                }
                 $raw = is_array($result['json'] ?? null) ? $result['json'] : null;
                 if (is_array($raw) && isset($raw['slides'][0]) && is_array($raw['slides'][0])) {
                     $raw = $raw['slides'][0];

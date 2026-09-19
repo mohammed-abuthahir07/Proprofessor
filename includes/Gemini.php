@@ -9,6 +9,7 @@ final class Gemini
     private string $apiKey;
     private string $model;
     private string $endpoint;
+    private bool $strictModel;
 
     public function __construct(?array $cfg = null)
     {
@@ -20,6 +21,7 @@ final class Gemini
         $this->apiKey   = (string)($app['api_key'] ?? '');
         $this->model    = self::normalizeModel((string)($app['model'] ?? 'gemini-2.5-flash'));
         $this->endpoint = rtrim((string)($app['endpoint'] ?? 'https://generativelanguage.googleapis.com/v1beta'), '/');
+        $this->strictModel = !empty($app['strict_model']);
     }
 
     public function isConfigured(): bool
@@ -46,7 +48,7 @@ final class Gemini
 
         $tried = [];
         $last = null;
-        foreach (self::modelCandidates($model ?: $this->model) as $modelName) {
+        foreach ($this->modelsToTry($model) as $modelName) {
             if (isset($tried[$modelName])) {
                 continue;
             }
@@ -84,8 +86,21 @@ final class Gemini
             'gemini-2.0-flash' => 'gemini-2.5-flash',
             'gemini-2.0-flash-001' => 'gemini-2.5-flash',
             'gemini-2.0-flash-exp' => 'gemini-2.5-flash',
+            'gemini-2.5-flash-lite' => 'gemini-2.5-flash',
+            'gemini-2.5-flash-lite-preview' => 'gemini-2.5-flash',
+            'gemini-2.5-flash-lite-preview-06-17' => 'gemini-2.5-flash',
         ];
         return $retired[$model] ?? $model;
+    }
+
+    /** @return list<string> */
+    private function modelsToTry(?string $model): array
+    {
+        $preferred = self::normalizeModel($model ?: $this->model);
+        if ($this->strictModel) {
+            return [$preferred];
+        }
+        return self::modelCandidates($preferred);
     }
 
     /** @return list<string> */
@@ -148,13 +163,13 @@ final class Gemini
 
         $latency = (int)((hrtime(true) - $started) / 1e6);
         if ($errno) {
-            return ['ok' => false, 'text' => null, 'json' => null, 'raw' => null, 'error' => $err, 'latency_ms' => $latency];
+            return ['ok' => false, 'text' => null, 'json' => null, 'raw' => null, 'error' => $err, 'latency_ms' => $latency, 'http_code' => $code, 'model' => $modelName, 'provider' => 'gemini'];
         }
 
         $raw = json_decode((string)$body, true);
         if ($code >= 400) {
             $msg = $raw['error']['message'] ?? ('HTTP ' . $code);
-            return ['ok' => false, 'text' => null, 'json' => null, 'raw' => $raw, 'error' => $msg, 'latency_ms' => $latency];
+            return ['ok' => false, 'text' => null, 'json' => null, 'raw' => $raw, 'error' => $msg, 'latency_ms' => $latency, 'http_code' => $code, 'model' => $modelName, 'provider' => 'gemini'];
         }
 
         $text = '';
@@ -174,6 +189,9 @@ final class Gemini
             'json' => is_array($json) ? $json : null,
             'raw' => $raw,
             'latency_ms' => $latency,
+            'http_code' => $code,
+            'model' => $modelName,
+            'provider' => 'gemini',
         ];
     }
 

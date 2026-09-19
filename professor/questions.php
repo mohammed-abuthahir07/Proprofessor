@@ -90,7 +90,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!empty($cfg['subject'])) {
             $subject = (string)$cfg['subject'];
         }
-        $fresh = Gemini::demoQuestionBank($subject, $type, $klevel, $unit, 1);
+        $fresh = [];
+        $engine = professor_ai_engine($user);
+        if (($user['role'] ?? '') === 'professor' && !professor_ai_is_byok($engine)) {
+            flash('error', 'No AI provider connected. Open Settings → AI Provider and connect a provider before regenerating.');
+            redirect('/professor/questions.php?bank_id=' . (int)$q['bank_id']);
+        }
+        if (method_exists($engine, 'isConfigured') && $engine->isConfigured()) {
+            $system = 'You are an expert university question-paper setter. Return ONLY valid JSON.';
+            $userPrompt = "Generate 1 academically rigorous {$type} question.\n"
+                . "Course/Subject: {$subject}\nUnit: {$unit}\nBloom: {$klevel}\n"
+                . "Return JSON: {\"questions\":[{\"stem\":\"\",\"options\":{\"A\":\"\",\"B\":\"\",\"C\":\"\",\"D\":\"\"},\"correct_answer\":\"A\",\"explanation\":\"\",\"marks\":1,\"difficulty\":\"medium\",\"bloom_k_level\":\"{$klevel}\",\"unit_number\":{$unit}}]}";
+            $result = $engine->generate($system, $userPrompt);
+            if (empty($result['ok']) && professor_ai_is_byok($engine)) {
+                flash('error', (string)($result['error'] ?? 'AI regeneration failed.'));
+                redirect('/professor/questions.php?bank_id=' . (int)$q['bank_id']);
+            }
+            $raw = is_array($result['json']['questions'] ?? null) ? $result['json']['questions'] : [];
+            if ($raw !== []) {
+                $fresh = $raw;
+            } elseif (professor_ai_is_byok($engine)) {
+                flash('error', 'The AI provider returned unusable question data. Please try again.');
+                redirect('/professor/questions.php?bank_id=' . (int)$q['bank_id']);
+            }
+        }
+        if ($fresh === []) {
+            $fresh = Gemini::demoQuestionBank($subject, $type, $klevel, $unit, 1);
+        }
         $fresh = QuestionBankTools::enrichGeneratedQuestions(
             $fresh,
             $plan,

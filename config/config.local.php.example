@@ -12,9 +12,12 @@ return [
     // Uncomment only if auto base path detection fails:
     // 'base_url' => '/demo/professor',
 
+    // Optional: encrypt professor AI API keys. Prefer env PPAI_ENCRYPTION_KEY in production.
+    // 'encryption_key' => 'set-a-long-random-string',
+
     'db' => [
         'host' => 'localhost',
-        'port' => 3306,
+        'port' => 3307,
         'name' => 'YOUR_DB_NAME',
         'user' => 'YOUR_DB_USER',
         'pass' => 'YOUR_DB_PASSWORD',

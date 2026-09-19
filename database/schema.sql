@@ -150,6 +150,20 @@ CREATE TABLE IF NOT EXISTS `users` (
   CONSTRAINT `fk_user_inst` FOREIGN KEY (`institution_id`) REFERENCES `institutions`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS `professor_ai_settings` (
+  `id`                 INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `professor_id`       INT UNSIGNED NOT NULL,
+  `provider`           VARCHAR(32) NOT NULL,
+  `model`              VARCHAR(120) NOT NULL,
+  `encrypted_api_key`  TEXT NOT NULL,
+  `is_active`          TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at`         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`         TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uq_prof_ai` (`professor_id`),
+  KEY `idx_prof_ai_active` (`professor_id`, `is_active`),
+  CONSTRAINT `fk_prof_ai_user` FOREIGN KEY (`professor_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS `password_resets` (
   `id`         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `user_id`    INT UNSIGNED NOT NULL,

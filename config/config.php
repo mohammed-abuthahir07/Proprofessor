@@ -39,6 +39,9 @@ return [
         'endpoint' => 'https://generativelanguage.googleapis.com/v1beta',
     ],
 
+    // Used to encrypt professor BYOK API keys at rest. Prefer env PPAI_ENCRYPTION_KEY.
+    'encryption_key' => getenv('PPAI_ENCRYPTION_KEY') ?: '',
+
     'session_name' => 'ppai_session',
     'upload_max_mb'=> 10,
     'attendance_min_pct' => 75,

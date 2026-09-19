@@ -290,16 +290,22 @@ final class AssignmentTools
         $aiScore = null;
         $aiFeedback = null;
         $criterionScores = [];
-        $gemini = class_exists('Gemini') ? new Gemini() : null;
+        $engine = professor_ai_engine($user);
+        if (($user['role'] ?? '') === 'professor' && !professor_ai_is_byok($engine)) {
+            return ['ok' => false, 'error' => 'No AI provider connected. Open Settings → AI Provider and connect a provider before AI grading.'];
+        }
 
-        if ($gemini && $gemini->isConfigured()) {
+        if (method_exists($engine, 'isConfigured') && $engine->isConfigured()) {
             try {
                 $system = 'You are an academic grader assistant. Return ONLY valid JSON. Do not finalize grades — recommend only.';
                 $prompt = "Assignment: {$assignment['title']}\nMax marks: {$max}\n"
                     . "Rubric: " . json_encode($rubric, JSON_UNESCAPED_UNICODE) . "\n"
                     . "Student submission:\n" . mb_substr($text, 0, 6000) . "\n\n"
                     . "Return {\"ai_score\":number,\"ai_feedback\":\"\",\"criterion_scores\":[{\"criterion\":\"\",\"score\":number,\"comment\":\"\"}]}";
-                $result = $gemini->generate($system, $prompt);
+                $result = $engine->generate($system, $prompt);
+                if (empty($result['ok']) && professor_ai_is_byok($engine)) {
+                    return ['ok' => false, 'error' => (string)($result['error'] ?? 'AI grading failed. Manual grade unchanged.')];
+                }
                 $json = is_array($result['json'] ?? null) ? $result['json'] : null;
                 if (is_array($json)) {
                     $aiScore = isset($json['ai_score']) ? (float)$json['ai_score'] : null;
@@ -314,6 +320,9 @@ final class AssignmentTools
         }
 
         if ($aiScore === null) {
+            if (professor_ai_is_byok($engine)) {
+                return ['ok' => false, 'error' => 'AI grading returned unusable data. Manual grade unchanged.'];
+            }
             // Deterministic heuristic when Gemini is not configured (demo-safe, clearly labeled).
             $len = mb_strlen($text);
             $base = min($max, max(0, round($max * min(1, $len / 800), 1)));

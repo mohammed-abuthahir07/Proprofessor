@@ -129,6 +129,7 @@ $applicationTables = [
     'activity_logs',
     'ai_chats',
     'ai_generations',
+    'professor_ai_settings',
     'announcements',
     'academic_events',
     'documents',

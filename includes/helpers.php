@@ -258,6 +258,16 @@ function log_ai(string $module, array $input, array $result, ?string $refType = 
 {
     $user = Auth::user();
     if (!$user) return;
+    unset($input['api_key'], $input['encrypted_api_key'], $input['key'], $input['authorization']);
+    if (!empty($result['provider']) && empty($input['provider'])) {
+        $input['provider'] = (string)$result['provider'];
+    }
+    $model = trim((string)($result['model'] ?? ''));
+    if ($model === '') {
+        $model = class_exists('Gemini')
+            ? Gemini::normalizeModel((string)config('gemini.model', 'gemini-2.5-flash'))
+            : (string)config('gemini.model');
+    }
     Database::insert('ai_generations', [
         'institution_id' => (int)$user['institution_id'],
         'user_id' => (int)$user['id'],
@@ -265,9 +275,7 @@ function log_ai(string $module, array $input, array $result, ?string $refType = 
         'prompt_code' => $module,
         'input_payload' => json_encode($input),
         'output_payload' => json_encode($result['json'] ?? ['text' => $result['text'] ?? null, 'error' => $result['error'] ?? null]),
-        'model' => class_exists('Gemini')
-            ? Gemini::normalizeModel((string)config('gemini.model', 'gemini-2.5-flash'))
-            : config('gemini.model'),
+        'model' => $model,
         'latency_ms' => $result['latency_ms'] ?? null,
         'status' => !empty($result['ok']) ? 'success' : 'error',
         'error_message' => $result['error'] ?? null,
