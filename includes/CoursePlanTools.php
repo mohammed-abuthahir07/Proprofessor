@@ -523,15 +523,16 @@ final class CoursePlanTools
      * Build accreditation package as a downloadable PDF (one file, all selected plans).
      *
      * @param list<array<string,mixed>> $plans
+     * @param array<string,mixed>|null $user authenticated professor (for footer branding)
      * @return array{bytes:string,filename:string,content_type:string}
      */
-    public static function buildAccreditationPackage(array $plans, string $format = 'naac'): array
+    public static function buildAccreditationPackage(array $plans, string $format = 'naac', ?array $user = null): array
     {
         $format = strtolower($format) === 'nba' ? 'nba' : 'naac';
-        if (!class_exists('SimplePdf', false)) {
-            require_once dirname(__DIR__) . '/includes/SimplePdf.php';
+        if (!class_exists('ProfessorPdf', false)) {
+            require_once dirname(__DIR__) . '/includes/ProfessorPdf.php';
         }
-        $bytes = self::buildAccreditationPdf($plans, $format);
+        $bytes = self::buildAccreditationPdf($plans, $format, $user);
         return [
             'bytes' => $bytes,
             'filename' => 'Accreditation_Package_' . strtoupper($format) . '_' . date('Ymd_His') . '.pdf',
@@ -543,61 +544,66 @@ final class CoursePlanTools
      * Styled multi-plan PDF using the same stored course-plan fields as exportHtml().
      *
      * @param list<array<string,mixed>> $plans
+     * @param array<string,mixed>|null $user
      */
-    public static function buildAccreditationPdf(array $plans, string $format = 'naac'): string
+    public static function buildAccreditationPdf(array $plans, string $format = 'naac', ?array $user = null): string
     {
-        if (!class_exists('SimplePdf', false)) {
-            require_once dirname(__DIR__) . '/includes/SimplePdf.php';
+        if (!class_exists('ProfessorPdf', false)) {
+            require_once dirname(__DIR__) . '/includes/ProfessorPdf.php';
         }
         $format = strtolower($format) === 'nba' ? 'nba' : 'naac';
         $label = strtoupper($format);
-        $pdf = new SimplePdf();
+        $ctx = $user ? ProfessorPdf::contextForUser($user) : null;
+        $pdf = ProfessorPdf::newDocument();
 
-        // Cover
-        $pdf->filledRect(0, 0, $pdf->pageWidth(), 118, [15, 23, 56]);
-        $pdf->setFont(11, false);
-        $pdf->textAt(42, 28, 'ProProfessor AI', [196, 181, 253]);
-        $pdf->setFont(22, true);
-        $pdf->textAt(42, 52, $label . ' Accreditation Package', [255, 255, 255]);
-        $pdf->setFont(11, false);
-        $pdf->textAt(42, 82, 'Generated ' . date('d M Y, H:i') . '  ·  ' . count($plans) . ' approved course plan(s)', [203, 213, 225]);
-        $pdf->moveTo(140);
-        $pdf->setFont(13, true);
-        $pdf->writeLine('Included course plans', [30, 41, 79]);
-        $pdf->hRule([99, 102, 241]);
+        ProfessorPdf::drawReportHeader(
+            $pdf,
+            $label . ' Accreditation Package',
+            'Generated ' . date('d M Y, H:i') . '  ·  ' . count($plans) . ' approved course plan(s)',
+            [],
+            $ctx,
+            $user
+        );
+
+        ProfessorPdf::sectionTitle($pdf, 'Included course plans');
         $pdf->setFont(10, false);
         foreach ($plans as $i => $plan) {
             $pdf->writeLine(
                 ($i + 1) . '. ' . (string)$plan['subject_name'] . '  —  ' . (string)$plan['title'] . '  (v' . (int)$plan['version'] . ')',
-                [51, 65, 85]
+                ProfessorPdf::MUTED
             );
         }
-        $pdf->space(10);
+        $pdf->space(8);
         $pdf->setFont(9, false);
         $pdf->writeWrapped(
             'This document is generated from approved course-plan records only. Attainment percentages and fabricated matrices are not included.',
             0,
             12,
-            [100, 116, 139]
+            ProfessorPdf::MUTED
         );
 
         foreach ($plans as $idx => $plan) {
             $pdf->addPage();
-            self::renderPlanPdfPage($pdf, $plan, $format, $idx + 1, count($plans));
+            self::renderPlanPdfPage($pdf, $plan, $format, $idx + 1, count($plans), $ctx, $user);
         }
 
-        $out = $pdf->output();
-        if ($out === '' || !str_starts_with($out, '%PDF')) {
-            throw new RuntimeException('PDF generation failed.');
-        }
-        return $out;
+        return ProfessorPdf::finalize($pdf, $user, strtoupper($format) . ' package');
     }
 
     /**
      * @param array<string,mixed> $plan
+     * @param array<string,mixed>|null $ctx
+     * @param array<string,mixed>|null $user
      */
-    private static function renderPlanPdfPage(SimplePdf $pdf, array $plan, string $format, int $index, int $total): void
-    {
+    private static function renderPlanPdfPage(
+        SimplePdf $pdf,
+        array $plan,
+        string $format,
+        int $index,
+        int $total,
+        ?array $ctx = null,
+        ?array $user = null
+    ): void {
         $units = Database::fetchAll(
             'SELECT * FROM plan_units WHERE plan_id = ? ORDER BY sort_order, unit_number',
             [(int)$plan['id']]
@@ -609,51 +615,71 @@ final class CoursePlanTools
         $lo = is_array($planData['learning_outcomes'] ?? null) ? $planData['learning_outcomes'] : [];
         $title = strtoupper($format) === 'NBA' ? 'NBA Course File' : 'NAAC Course Plan';
 
-        $pdf->filledRect(0, 0, $pdf->pageWidth(), 64, [30, 41, 79]);
-        $pdf->setFont(10, false);
-        $pdf->textAt(42, 16, $title . '  ·  Plan ' . $index . ' of ' . $total, [165, 180, 252]);
-        $pdf->setFont(16, true);
-        $pdf->textAt(42, 34, (string)$plan['subject_name'], [255, 255, 255]);
-        $pdf->moveTo(80);
+        ProfessorPdf::drawPageBand(
+            $pdf,
+            $title . ' — ' . (string)$plan['subject_name'],
+            'Plan ' . $index . ' of ' . $total
+        );
 
         $pdf->setFont(12, true);
-        $pdf->writeLine((string)$plan['title'], [15, 23, 42]);
+        $pdf->writeLine((string)$plan['title'], ProfessorPdf::INK);
         $pdf->setFont(9, false);
         $pdf->writeLine(
             'Status: ' . (string)$plan['status'] . '   ·   Version v' . (int)$plan['version'] . '   ·   Template: ' . $template,
-            [100, 116, 139],
+            ProfessorPdf::MUTED,
             14
         );
-        $pdf->hRule([99, 102, 241]);
 
-        $pdf->setFont(11, true);
-        $pdf->writeLine('Course information', [30, 41, 79]);
+        $metaPairs = [
+            'Subject' => (string)$plan['subject_name'],
+            'Credits' => (string)$plan['credits'],
+            'University' => (string)($plan['university'] ?? '—'),
+            'Semester / Year' => self::planSemesterLabel($plan) ?: '—',
+            'Export format' => strtoupper($format),
+            'Curriculum template' => $template,
+        ];
+        if ($ctx) {
+            if (($ctx['college'] ?? '') !== '') {
+                $metaPairs['Institution'] = (string)$ctx['college'];
+            }
+            if (($ctx['department_name'] ?? '') !== '') {
+                $metaPairs['Department'] = (string)$ctx['department_name'];
+            }
+        }
+        if ($user && trim((string)($user['full_name'] ?? '')) !== '') {
+            $metaPairs['Professor'] = trim((string)$user['full_name']);
+        }
+        ProfessorPdf::drawMetaGrid($pdf, $metaPairs);
+
+        ProfessorPdf::sectionTitle($pdf, 'Course information');
         $infoRows = [
             ['Title', (string)$plan['title']],
             ['Subject', (string)$plan['subject_name']],
             ['Credits', (string)$plan['credits']],
             ['University', (string)($plan['university'] ?? '—')],
             ['Semester / Year', self::planSemesterLabel($plan) ?: '—'],
+            ['Status', (string)$plan['status']],
+            ['Version', 'v' . (int)$plan['version']],
+            ['Curriculum template', $template],
             ['Export format', strtoupper($format)],
         ];
         $pdf->table(['Field', 'Value'], $infoRows, [1.2, 3.2], 9);
 
         if ($lo) {
-            $pdf->space(8);
-            $pdf->setFont(11, true);
-            $pdf->writeLine($format === 'nba' ? 'Learning outcomes / Course outcomes' : 'Learning outcomes', [30, 41, 79]);
+            ProfessorPdf::sectionTitle(
+                $pdf,
+                $format === 'nba' ? 'Learning outcomes / Course outcomes' : 'Learning outcomes'
+            );
             $pdf->setFont(9.5, false);
             $n = 1;
             foreach ($lo as $item) {
                 $text = is_string($item) ? $item : (string)json_encode($item);
-                $pdf->writeWrapped($n . '. ' . $text, 0, 13, [51, 65, 85]);
+                $pdf->writeWrapped($n . '. ' . $text, 0, 13, ProfessorPdf::MUTED);
                 $n++;
             }
         }
 
-        $pdf->space(8);
-        $pdf->setFont(11, true);
-        $pdf->writeLine('Units', [30, 41, 79]);
+        ProfessorPdf::sectionTitle($pdf, 'Units / Modules');
         $unitRows = [];
         foreach ($units as $u) {
             $topics = json_decode((string)($u['topics'] ?? '[]'), true);
@@ -679,9 +705,7 @@ final class CoursePlanTools
             );
         }
 
-        $pdf->space(10);
-        $pdf->setFont(11, true);
-        $pdf->writeLine("Bloom's distribution", [30, 41, 79]);
+        ProfessorPdf::sectionTitle($pdf, "Bloom's distribution");
         $bloomHeaders = array_keys($bloom['distribution']);
         $bloomValues = [];
         foreach ($bloom['distribution'] as $v) {
@@ -689,13 +713,12 @@ final class CoursePlanTools
         }
         $pdf->table($bloomHeaders, [$bloomValues], array_fill(0, count($bloomHeaders), 1), 9);
 
-        $pdf->space(12);
-        $pdf->filledRect(42, $pdf->y(), $pdf->contentWidth(), 36, [255, 247, 237]);
-        $pdf->strokeRect(42, $pdf->y(), $pdf->contentWidth(), 36, [253, 186, 116], 0.8);
-        $pdf->setFont(8.5, false);
-        $pdf->textAt(50, $pdf->y() + 8, 'Note: Export reflects only stored course-plan data. No fabricated attainment or CLO-PO scores.', [146, 64, 14]);
-        $pdf->textAt(50, $pdf->y() + 20, 'Institution-scoped · Approved plans only · ProProfessor AI', [146, 64, 14]);
-        $pdf->moveTo($pdf->y() + 44);
+        $pdf->space(10);
+        ProfessorPdf::noteBox(
+            $pdf,
+            'Note: Export reflects only stored course-plan data. No fabricated attainment or CLO-PO scores.',
+            'Institution-scoped · Approved plans only · ProProfessor AI'
+        );
     }
 
     /**

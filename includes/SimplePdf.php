@@ -10,6 +10,8 @@ final class SimplePdf
     private float $w = 595.28; // A4
     private float $h = 841.89;
     private float $margin = 42.0;
+    /** Extra space reserved at bottom for branded footers / page numbers. */
+    private float $bottomReserve = 42.0;
     private float $y = 0.0;
     private int $page = 0;
     /** @var list<string> */
@@ -59,9 +61,14 @@ final class SimplePdf
         return $this->w - (2 * $this->margin);
     }
 
+    public function setBottomReserve(float $reserve): void
+    {
+        $this->bottomReserve = max($this->margin, $reserve);
+    }
+
     public function ensureSpace(float $needed): void
     {
-        if ($this->y + $needed > $this->h - $this->margin) {
+        if ($this->y + $needed > $this->h - $this->bottomReserve) {
             $this->addPage();
         }
     }
@@ -304,6 +311,46 @@ final class SimplePdf
         $this->ensureSpace(8);
         $this->filledRect($this->margin, $this->y, $this->contentWidth(), 2.2, $rgb);
         $this->y += 10;
+    }
+
+    /**
+     * Stamp left branded footer + right "Page X of Y" on every page (call once before output()).
+     * Used by Professor-side PDFs; Admin/HOD callers may keep stampPageNumbers().
+     */
+    public function stampDocumentFooter(string $leftLabel = 'ProProfessor AI'): void
+    {
+        $this->pages[$this->page - 1] = $this->buf;
+        $total = count($this->pages);
+        $prevSize = $this->fontSize;
+        $prevBold = $this->bold;
+        $this->setFont(7.5, false);
+        $left = $this->sanitize(mb_substr($leftLabel, 0, 110));
+        for ($i = 0; $i < $total; $i++) {
+            $pageLabel = 'Page ' . ($i + 1) . ' of ' . $total;
+            $tw = $this->textWidth($pageLabel);
+            $this->pages[$i] .= sprintf(
+                "0.80 0.84 0.88 RG 0.5 w %.2F %.2F m %.2F %.2F l S 0 G\n",
+                $this->margin,
+                34.0,
+                $this->w - $this->margin,
+                34.0
+            );
+            $this->pages[$i] .= sprintf(
+                "BT /F1 7.5 Tf 0.40 0.45 0.52 rg %.2F %.2F Td (%s) Tj ET 0 g\n",
+                $this->margin,
+                22.0,
+                $this->escape($left)
+            );
+            $this->pages[$i] .= sprintf(
+                "BT /F1 7.5 Tf 0.40 0.45 0.52 rg %.2F %.2F Td (%s) Tj ET 0 g\n",
+                $this->w - $this->margin - $tw,
+                22.0,
+                $this->escape($this->sanitize($pageLabel))
+            );
+        }
+        $this->setFont($prevSize, $prevBold);
+        $this->buf = $this->pages[$this->page - 1];
+        $this->pageNumbersStamped = true;
     }
 
     /** Stamp centered "— N —" page numbers on every page (call once before output()). */

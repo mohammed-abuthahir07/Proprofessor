@@ -144,7 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('/professor/plans.php');
         }
         try {
-            $pkg = CoursePlanTools::buildAccreditationPackage($plans, $format);
+            $pkg = CoursePlanTools::buildAccreditationPackage($plans, $format, $user);
         } catch (Throwable $e) {
             flash('error', $e->getMessage());
             redirect('/professor/plans.php');

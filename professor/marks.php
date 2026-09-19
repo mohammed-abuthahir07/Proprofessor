@@ -276,21 +276,23 @@ if (get('download') === 'mark_statement' && $classId && $subjectId) {
         flash('error', 'Access denied.');
         redirect('/professor/marks.php');
     }
-    require_once dirname(__DIR__) . '/includes/SimplePdf.php';
-    $inst = Database::fetch('SELECT name, affiliation_university, academic_year, current_semester FROM institutions WHERE id=?', [$instId]);
+    require_once dirname(__DIR__) . '/includes/ProfessorPdf.php';
+    $ctx = ProfessorPdf::contextForUser($user);
     $subj = Database::fetch('SELECT name, code, department_id FROM subjects WHERE id=? AND institution_id=?', [$subjectId, $instId]);
-    $dept = $subj ? Database::fetch('SELECT name FROM departments WHERE id=?', [(int)($subj['department_id'] ?? 0)]) : null;
-    $pdf = new SimplePdf();
-    $pdf->setFont(14, true);
-    $pdf->writeLine((string)($inst['name'] ?? 'Institution'));
-    $pdf->setFont(11, false);
-    $pdf->writeLine('Internal Mark Statement');
-    $pdf->writeLine('Department: ' . (string)($dept['name'] ?? '—'));
-    $pdf->writeLine('Class: ' . ($classLabel !== '' ? $classLabel : '—') . ' · Subject: ' . (string)($subj['code'] ?? '') . ' ' . (string)($subj['name'] ?? ''));
-    $pdf->writeLine('Academic year: ' . ($academicYear !== '' ? $academicYear : (string)($inst['academic_year'] ?? '—')) . ' · Semester: ' . (string)($inst['current_semester'] ?? '—'));
-    $pdf->writeLine('Professor: ' . (string)($user['full_name'] ?? ''));
-    $pdf->writeLine('Formula: ' . (string)($formula['expression'] ?? ''));
-    $pdf->hRule();
+    $dept = $subj ? Database::fetch('SELECT name FROM departments WHERE id=? AND institution_id=?', [(int)($subj['department_id'] ?? 0), $instId]) : null;
+    if ($dept && trim((string)($dept['name'] ?? '')) !== '') {
+        $ctx['department_name'] = trim((string)$dept['name']);
+    }
+    $pdf = ProfessorPdf::newDocument();
+    $subjLine = trim(((string)($subj['code'] ?? '')) . ' ' . ((string)($subj['name'] ?? '')));
+    ProfessorPdf::drawLetterhead($pdf, $ctx, 'Internal Mark Statement', $subjLine !== '' ? $subjLine : '');
+    ProfessorPdf::drawMetaGrid($pdf, [
+        'Class' => $classLabel !== '' ? $classLabel : '—',
+        'Academic year' => $academicYear !== '' ? $academicYear : (string)($ctx['year'] ?? '—'),
+        'Semester' => (string)($ctx['semester'] ?? '—'),
+        'Professor' => (string)($user['full_name'] ?? ''),
+        'Formula' => (string)($formula['expression'] ?? ''),
+    ]);
     $headers = ['Reg No', 'Student'];
     foreach ($components as $c) {
         $headers[] = (string)$c['label'];
@@ -332,10 +334,7 @@ if (get('download') === 'mark_statement' && $classId && $subjectId) {
         $tableRows[] = $row;
     }
     $pdf->table($headers, $tableRows, $weights, 8.0);
-    $pdf->space(10);
-    $pdf->setFont(8, false);
-    $pdf->writeLine('Generated ' . date('Y-m-d H:i') . ' · ProProfessor AI');
-    $bytes = $pdf->output();
+    $bytes = ProfessorPdf::finalize($pdf, $user, 'Internal Marks');
     $safe = preg_replace('/[^\p{L}\p{N}._-]+/u', '_', ($subj['code'] ?? 'marks') . '_' . $classLabel) ?: 'mark_statement';
     header('Content-Type: application/pdf');
     header('Content-Disposition: attachment; filename="' . trim($safe, '._-') . '_statement.pdf"');

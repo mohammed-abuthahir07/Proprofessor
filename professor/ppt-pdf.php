@@ -25,7 +25,7 @@ if (!is_array($slides)) {
 }
 $title = (string)($ppt['title'] ?? 'Presentation');
 $branding = PresentationTools::brandingForPresentation($user, $ppt);
-$bytes = PresentationTools::buildDeckPdf($title, $slides, $branding, ($user['role'] ?? '') !== 'student');
+$bytes = PresentationTools::buildDeckPdf($title, $slides, $branding, ($user['role'] ?? '') !== 'student', $user);
 $safe = preg_replace('/[^\p{L}\p{N}._-]+/u', '_', $title) ?: 'presentation';
 $filename = trim($safe, '._-') . '.pdf';
 

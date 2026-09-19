@@ -615,29 +615,16 @@ final class QuestionBankTools
     public static function buildQuestionBankPdf(array $user, array $bank, array $questions): array
     {
         self::ensureSchema();
-        if (!class_exists('SimplePdf', false)) {
-            require_once dirname(__DIR__) . '/includes/SimplePdf.php';
+        if (!class_exists('ProfessorPdf', false)) {
+            require_once dirname(__DIR__) . '/includes/ProfessorPdf.php';
         }
 
-        $instId = (int)($user['institution_id'] ?? 0);
-        $inst = Database::fetch(
-            'SELECT name, address, city, state, pincode, academic_year, current_semester, affiliation_university
-             FROM institutions WHERE id = ?',
-            [$instId]
-        );
-        if (!$inst) {
+        $ctx = ProfessorPdf::contextForUser($user);
+        $inst = $ctx['institution'];
+        if ((int)($inst['id'] ?? 0) <= 0) {
             throw new RuntimeException('Institution not found.');
         }
-
-        $deptName = '';
-        $deptId = (int)($user['department_id'] ?? 0);
-        if ($deptId > 0) {
-            $dept = Database::fetch(
-                'SELECT name FROM departments WHERE id = ? AND institution_id = ?',
-                [$deptId, $instId]
-            );
-            $deptName = trim((string)($dept['name'] ?? ''));
-        }
+        $deptName = (string)($ctx['department_name'] ?? '');
 
         $cfg = json_decode((string)($bank['config'] ?? '{}'), true) ?: [];
         $subject = trim((string)($cfg['subject'] ?? ''));
@@ -646,7 +633,8 @@ final class QuestionBankTools
         $type = strtoupper(trim((string)($cfg['type'] ?? 'MCQ')));
 
         $courseCode = '';
-        $semester = trim((string)($inst['current_semester'] ?? ''));
+        $semester = trim((string)($ctx['semester'] ?? ''));
+        $instId = (int)($user['institution_id'] ?? 0);
         $planId = (int)($bank['plan_id'] ?? 0);
         if ($planId > 0) {
             $plan = Database::fetch(
@@ -674,6 +662,7 @@ final class QuestionBankTools
                                 [(int)$sub['department_id'], $instId]
                             );
                             $deptName = trim((string)($d['name'] ?? ''));
+                            $ctx['department_name'] = $deptName;
                         }
                     }
                 }
@@ -694,81 +683,33 @@ final class QuestionBankTools
             $defaultMarks = (float)($questions[0]['marks'] ?? 1);
         }
 
-        $college = trim((string)($inst['name'] ?? ''));
-        $addrParts = array_filter([
-            trim((string)($inst['address'] ?? '')),
-            trim((string)($inst['city'] ?? '')),
-            trim((string)($inst['state'] ?? '')),
-            trim((string)($inst['pincode'] ?? '')),
-        ], static fn($v) => $v !== '');
-        $addressLine = implode(', ', $addrParts);
-        $year = trim((string)($inst['academic_year'] ?? ''));
+        $year = (string)($ctx['year'] ?? '');
+        $ink = ProfessorPdf::INK;
+        $pdf = ProfessorPdf::newDocument();
 
-        $ink = [20, 20, 20];
-        $pdf = new SimplePdf();
+        ProfessorPdf::drawLetterhead($pdf, $ctx, 'Question Bank', $subject);
 
-        // —— College letterhead (centered) ——
-        $pdf->setFont(16, true);
-        if ($college !== '') {
-            $pdf->writeCenteredWrapped($college, 0, 20, $ink);
-        }
-        $pdf->setFont(9, false);
-        if ($addressLine !== '') {
-            $pdf->writeCenteredWrapped($addressLine, 0, 12, $ink);
-        }
-        if (!empty($inst['affiliation_university'])) {
-            $pdf->writeCentered(
-                'Affiliated to ' . trim((string)$inst['affiliation_university']),
-                $ink,
-                12
-            );
-        }
-        if ($deptName !== '') {
-            $pdf->space(4);
-            $pdf->setFont(11, true);
-            $pdf->writeCentered(strtoupper($deptName), $ink, 14);
-        }
-        $pdf->space(4);
-        $pdf->doubleRule($ink);
-
-        $pdf->setFont(14, true);
-        $pdf->writeCentered('QUESTION BANK', $ink, 18);
-        $pdf->setFont(12, true);
-        $pdf->writeCenteredWrapped($subject, 0, 15, $ink);
-        $pdf->space(2);
-        $pdf->thinRule($ink);
-
-        // —— Meta in two columns ——
-        $pdf->setFont(10, false);
         $metaPairs = [];
-        $push = static function (string $label, string $value) use (&$metaPairs): void {
-            $value = trim($value);
-            if ($value === '') {
-                return;
-            }
-            $metaPairs[] = $label . ': ' . $value;
-        };
-        $push('Course Code', $courseCode);
-        $push('Academic Year', $year);
-        $push('Year / Semester', $semester);
+        if ($courseCode !== '') {
+            $metaPairs['Course Code'] = $courseCode;
+        }
+        if ($year !== '') {
+            $metaPairs['Academic Year'] = $year;
+        }
+        if ($semester !== '') {
+            $metaPairs['Year / Semester'] = $semester;
+        }
         if ($unit > 0) {
-            $push('Unit', (string)$unit);
+            $metaPairs['Unit'] = (string)$unit;
         }
         if (preg_match('/^K[1-6]$/', $klevel)) {
-            $push('Bloom Level', $klevel);
+            $metaPairs['Bloom Level'] = $klevel;
         }
-        $push('Question Type', $type);
-        $push('Total Questions', (string)count($questions));
+        $metaPairs['Question Type'] = $type;
+        $metaPairs['Total Questions'] = (string)count($questions);
+        ProfessorPdf::drawMetaGrid($pdf, $metaPairs);
 
-        for ($i = 0; $i < count($metaPairs); $i += 2) {
-            $left = $metaPairs[$i];
-            $right = $metaPairs[$i + 1] ?? '';
-            $pdf->writeTwoColumn($left, $right, $ink, 14);
-        }
-        $pdf->thinRule($ink);
-
-        $pdf->setFont(10, true);
-        $pdf->writeLine('Instructions', $ink, 14);
+        ProfessorPdf::sectionTitle($pdf, 'Instructions');
         $pdf->setFont(10, false);
         $pdf->writeLine('1. Answer all questions.', $ink, 13);
         $marksLabel = rtrim(rtrim(number_format($defaultMarks, 2, '.', ''), '0'), '.');
@@ -778,10 +719,11 @@ final class QuestionBankTools
             13
         );
         $pdf->writeLine('3. Select the most appropriate answer for objective questions.', $ink, 13);
-        $pdf->space(6);
-        $pdf->thinRule($ink);
+        $pdf->space(4);
+        $pdf->thinRule(ProfessorPdf::RULE, 0.6);
         $pdf->space(4);
 
+        ProfessorPdf::sectionTitle($pdf, 'Questions');
         $n = 0;
         foreach ($questions as $q) {
             $n++;
@@ -801,7 +743,6 @@ final class QuestionBankTools
                 }
             }
 
-            // Keep stem + options together when possible.
             $needed = 36 + (int)(strlen($stem) / 85) * 13 + count($opts) * 15;
             $pdf->ensureSpace((float)$needed);
             $pdf->setFont(10, true);
@@ -821,11 +762,28 @@ final class QuestionBankTools
                     $pdf->writeIndented($lab . '.  ' . $opts[$lab], 22.0, 0, 13, $ink);
                 }
             }
-            $pdf->space(10);
+            // Optional academic tags already stored on the question
+            $tags = [];
+            $qb = strtoupper(trim((string)($q['bloom_k_level'] ?? '')));
+            if ($qb !== '') {
+                $tags[] = 'Bloom: ' . $qb;
+            }
+            $qu = (int)($q['unit_number'] ?? 0);
+            if ($qu > 0) {
+                $tags[] = 'Unit: ' . $qu;
+            }
+            $diff = trim((string)($q['difficulty'] ?? ''));
+            if ($diff !== '') {
+                $tags[] = 'Difficulty: ' . $diff;
+            }
+            if ($tags) {
+                $pdf->setFont(8, false);
+                $pdf->writeLine(implode('  ·  ', $tags), ProfessorPdf::MUTED, 11);
+            }
+            $pdf->space(8);
         }
 
-        $pdf->stampPageNumbers();
-        $bytes = $pdf->output();
+        $bytes = ProfessorPdf::finalize($pdf, $user, 'Question Bank');
 
         $safeSubject = preg_replace('/[^\p{L}\p{N}._-]+/u', '_', $subject) ?: 'Question_Bank';
         $safeSubject = trim($safeSubject, '._-');

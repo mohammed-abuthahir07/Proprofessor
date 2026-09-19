@@ -47,7 +47,6 @@ render_header('PPT Generator', 'ppt', ['subtitle' => 'AI lecture decks with spea
           <td class="ppt-row-actions">
             <a class="btn btn-sm btn-primary" href="<?= e(base_url('/professor/ppt-view.php?id='.$p['id'])) ?>">Open</a>
             <a class="btn btn-sm btn-accent" href="<?= e(base_url('/professor/ppt-download.php?id='.$p['id'])) ?>"><?= icon('download') ?> PPTX</a>
-            <a class="btn btn-sm" href="<?= e(base_url('/professor/ppt-pdf.php?id='.$p['id'])) ?>">PDF</a>
           </td>
         </tr>
       <?php endforeach; ?>

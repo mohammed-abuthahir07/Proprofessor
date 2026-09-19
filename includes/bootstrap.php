@@ -15,6 +15,7 @@ require_once __DIR__ . '/Icons.php';
 require_once __DIR__ . '/HodFeedback.php';
 require_once __DIR__ . '/CoursePlanTools.php';
 require_once __DIR__ . '/SimplePdf.php';
+require_once __DIR__ . '/ProfessorPdf.php';
 require_once __DIR__ . '/LessonPlanTools.php';
 require_once __DIR__ . '/QuestionBankTools.php';
 require_once __DIR__ . '/PresentationTools.php';

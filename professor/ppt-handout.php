@@ -18,7 +18,7 @@ if (!is_array($slides)) {
 }
 $title = (string)($ppt['title'] ?? 'Presentation');
 $branding = PresentationTools::brandingForPresentation($user, $ppt);
-$bytes = PresentationTools::buildHandoutPdf($title, $slides, $branding);
+$bytes = PresentationTools::buildHandoutPdf($title, $slides, $branding, $user);
 
 $meta = json_decode((string)($ppt['meta'] ?? '{}'), true) ?: [];
 $meta['handout'] = [

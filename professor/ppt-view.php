@@ -56,7 +56,6 @@ $slides = json_decode($ppt['slides'] ?: '[]', true) ?: [];
 $branding = PresentationTools::brandingForPresentation($user, $ppt);
 $pptBase = $isStudent ? '/student' : '/professor';
 $saveUrl = base_url($pptBase . ($isStudent ? '/ppt-download?id=' : '/ppt-download.php?id=') . $id);
-$pdfUrl = base_url($pptBase . ($isStudent ? '/ppt-pdf?id=' : '/ppt-pdf.php?id=') . $id);
 $handoutUrl = base_url('/professor/ppt-handout.php?id=' . $id);
 $narrationOk = PresentationTools::narrationConfigured();
 $googleOk = PresentationTools::googleSlidesConfigured();
@@ -75,7 +74,6 @@ render_header($ppt['title'], $isStudent ? 'notes' : 'ppt', [
   </p>
   <div class="deck-toolbar-actions">
     <a class="btn btn-accent" href="<?= e($saveUrl) ?>"><?= icon('download') ?> Export PPTX</a>
-    <a class="btn btn-primary" href="<?= e($pdfUrl) ?>">Export PDF</a>
     <?php if ($isEditor): ?>
       <a class="btn" href="<?= e($handoutUrl) ?>">Student Handout</a>
       <form method="post" style="display:inline;margin:0;">

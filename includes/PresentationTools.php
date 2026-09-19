@@ -214,43 +214,51 @@ final class PresentationTools
      *
      * @param list<array<string,mixed>> $slides
      */
-    public static function buildHandoutPdf(string $title, array $slides, array $branding): string
+    public static function buildHandoutPdf(string $title, array $slides, array $branding, ?array $user = null): string
     {
-        if (!class_exists('SimplePdf', false)) {
-            require_once __DIR__ . '/SimplePdf.php';
+        if (!class_exists('ProfessorPdf', false)) {
+            require_once __DIR__ . '/ProfessorPdf.php';
         }
-        $pdf = new SimplePdf();
-        $pdf->filledRect(0, 0, $pdf->pageWidth(), 90, self::rgb($branding['primary'] ?? '1E3A8A'));
-        $pdf->setFont(11, false);
-        $pdf->textAt(42, 22, (string)($branding['name'] ?? 'Institution'), [255, 255, 255]);
-        $pdf->setFont(18, true);
-        $pdf->textAt(42, 44, 'Student Handout', [255, 255, 255]);
-        $pdf->moveTo(110);
-        $pdf->setFont(14, true);
-        $pdf->writeLine($title, [15, 23, 42]);
-        $pdf->setFont(9, false);
-        $pdf->writeLine('Concise companion notes — not a full transcript of the lecture.', [100, 116, 139], 14);
-        $pdf->hRule(self::rgb($branding['accent'] ?? 'D97706'));
+        $pdf = ProfessorPdf::newDocument();
+        $college = trim((string)($branding['name'] ?? ''));
+        $ctx = $user ? ProfessorPdf::contextForUser($user) : [
+            'college' => $college,
+            'department_name' => '',
+            'institution' => [],
+            'address' => '',
+            'year' => '',
+            'semester' => '',
+        ];
+        if ($college !== '' && ($ctx['college'] ?? '') === '') {
+            $ctx['college'] = $college;
+        }
 
-        $pdf->setFont(12, true);
-        $pdf->writeLine('Key concepts', [30, 41, 79]);
-        $pdf->setFont(10, false);
+        ProfessorPdf::drawReportHeader(
+            $pdf,
+            'Student Handout',
+            $title,
+            ['Institution' => $college],
+            $ctx,
+            $user
+        );
+
+        $pdf->setFont(9, false);
+        $pdf->writeLine('Concise companion notes — not a full transcript of the lecture.', ProfessorPdf::MUTED, 14);
+
+        ProfessorPdf::sectionTitle($pdf, 'Key concepts');
         $count = 0;
         foreach ($slides as $s) {
             if (!is_array($s)) {
                 continue;
             }
             $st = trim((string)($s['title'] ?? ''));
-            if ($st === '' || preg_match('/\b(title|welcome|thank|summary|recap|check|quiz)\b/i', $st)) {
-                // Still include summary lightly
-            }
             $pdf->setFont(10, true);
-            $pdf->writeLine(($s['unit_tag'] ?? '') . ($st !== '' ? ' · ' . $st : ''), [30, 41, 79], 14);
+            $pdf->writeLine(($s['unit_tag'] ?? '') . ($st !== '' ? ' · ' . $st : ''), ProfessorPdf::BAND, 14);
             $pdf->setFont(9.5, false);
             $bullets = $s['bullets'] ?? [];
             if (is_array($bullets)) {
                 foreach (array_slice($bullets, 0, 4) as $b) {
-                    $pdf->writeWrapped('• ' . (is_string($b) ? $b : json_encode($b)), 0, 12, [51, 65, 85]);
+                    $pdf->writeWrapped('• ' . (is_string($b) ? $b : json_encode($b)), 0, 12, ProfessorPdf::MUTED);
                 }
             }
             $count++;
@@ -259,16 +267,16 @@ final class PresentationTools
             }
         }
 
-        $pdf->space(10);
-        $pdf->setFont(11, true);
-        $pdf->writeLine('Study tips', [30, 41, 79]);
+        ProfessorPdf::sectionTitle($pdf, 'Study tips');
         $pdf->setFont(9.5, false);
-        $pdf->writeWrapped('Review definitions before class examples. Attempt one practice problem per topic. Bring questions on unclear bullets to the next session.', 0, 13, [51, 65, 85]);
-        $pdf->space(8);
-        $pdf->setFont(8, false);
-        $pdf->writeLine('Generated for students from the lecture deck. Branding: ' . (string)($branding['name'] ?? ''), [148, 163, 184]);
+        $pdf->writeWrapped(
+            'Review definitions before class examples. Attempt one practice problem per topic. Bring questions on unclear bullets to the next session.',
+            0,
+            13,
+            ProfessorPdf::MUTED
+        );
 
-        return $pdf->output();
+        return ProfessorPdf::finalize($pdf, $user, 'Student Handout');
     }
 
     /**
@@ -276,20 +284,38 @@ final class PresentationTools
      *
      * @param list<array<string,mixed>> $slides
      */
-    public static function buildDeckPdf(string $title, array $slides, array $branding, bool $includeInstructorNotes = true): string
-    {
-        if (!class_exists('SimplePdf', false)) {
-            require_once __DIR__ . '/SimplePdf.php';
+    public static function buildDeckPdf(
+        string $title,
+        array $slides,
+        array $branding,
+        bool $includeInstructorNotes = true,
+        ?array $user = null
+    ): string {
+        if (!class_exists('ProfessorPdf', false)) {
+            require_once __DIR__ . '/ProfessorPdf.php';
         }
-        $pdf = new SimplePdf();
-        $pdf->filledRect(0, 0, $pdf->pageWidth(), 100, self::rgb($branding['secondary'] ?? '0F172A'));
-        $pdf->setFont(11, false);
-        $pdf->textAt(42, 24, (string)($branding['name'] ?? 'Institution'), [253, 230, 138]);
-        $pdf->setFont(20, true);
-        $pdf->textAt(42, 48, $title, [255, 255, 255]);
-        $pdf->setFont(10, false);
-        $pdf->textAt(42, 78, count($slides) . ' slides · PDF export', [203, 213, 225]);
-        $pdf->moveTo(120);
+        $pdf = ProfessorPdf::newDocument();
+        $college = trim((string)($branding['name'] ?? ''));
+        $ctx = $user ? ProfessorPdf::contextForUser($user) : [
+            'college' => $college,
+            'department_name' => '',
+            'institution' => [],
+            'address' => '',
+            'year' => '',
+            'semester' => '',
+        ];
+        if ($college !== '' && ($ctx['college'] ?? '') === '') {
+            $ctx['college'] = $college;
+        }
+
+        ProfessorPdf::drawReportHeader(
+            $pdf,
+            $title,
+            count($slides) . ' slides · PDF export',
+            ['Institution' => $college],
+            $ctx,
+            $user
+        );
 
         foreach ($slides as $i => $s) {
             if (!is_array($s)) {
@@ -297,20 +323,19 @@ final class PresentationTools
             }
             if ($i > 0) {
                 $pdf->addPage();
+                ProfessorPdf::drawPageBand($pdf, $title, 'Slide ' . ($i + 1) . ' of ' . count($slides));
             }
             $pdf->setFont(11, true);
-            $pdf->writeLine('Slide ' . ($i + 1) . ' · ' . (string)($s['title'] ?? ''), [15, 23, 42]);
+            $pdf->writeLine('Slide ' . ($i + 1) . ' · ' . (string)($s['title'] ?? ''), ProfessorPdf::INK);
             if (!empty($s['unit_tag'])) {
                 $pdf->setFont(9, false);
-                $pdf->writeLine((string)$s['unit_tag'], [100, 116, 139], 12);
+                $pdf->writeLine((string)$s['unit_tag'], ProfessorPdf::MUTED, 12);
             }
-            $pdf->hRule(self::rgb($branding['primary'] ?? '1E3A8A'));
+            $pdf->thinRule(ProfessorPdf::RULE, 0.7);
             $pdf->setFont(10, false);
             foreach ((array)($s['bullets'] ?? []) as $b) {
-                $pdf->writeWrapped('• ' . (is_string($b) ? $b : (string)json_encode($b)), 0, 13, [30, 41, 59]);
+                $pdf->writeWrapped('• ' . (is_string($b) ? $b : (string)json_encode($b)), 0, 13, ProfessorPdf::BAND);
             }
-            // Speaker notes are for the instructor — omit from student-facing PDF body;
-            // include a small notes section labeled as instructor-only.
             $notes = trim((string)($s['speaker_notes'] ?? ''));
             if ($includeInstructorNotes && $notes !== '') {
                 $pdf->space(8);
@@ -320,7 +345,7 @@ final class PresentationTools
                 $pdf->writeWrapped($notes, 0, 12, [120, 53, 15]);
             }
         }
-        return $pdf->output();
+        return ProfessorPdf::finalize($pdf, $user, 'Presentation deck');
     }
 
     /** @return array{0:int,1:int,2:int} */
