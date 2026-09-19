@@ -92,9 +92,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $fresh = [];
         $engine = professor_ai_engine($user);
-        if (($user['role'] ?? '') === 'professor' && !professor_ai_is_byok($engine)) {
-            flash('error', 'No AI provider connected. Open Settings → AI Provider and connect a provider before regenerating.');
-            redirect('/professor/questions.php?bank_id=' . (int)$q['bank_id']);
+        if (($user['role'] ?? '') === 'professor') {
+            $block = ProfessorAiSettings::generationBlockMessage((int)$user['id']);
+            if ($block !== null) {
+                flash('error', $block);
+                redirect('/professor/questions.php?bank_id=' . (int)$q['bank_id']);
+            }
         }
         if (method_exists($engine, 'isConfigured') && $engine->isConfigured()) {
             $system = 'You are an expert university question-paper setter. Return ONLY valid JSON.';
@@ -109,12 +112,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $raw = is_array($result['json']['questions'] ?? null) ? $result['json']['questions'] : [];
             if ($raw !== []) {
                 $fresh = $raw;
-            } elseif (professor_ai_is_byok($engine)) {
+            } elseif (professor_ai_is_byok($engine) || ($user['role'] ?? '') === 'professor') {
                 flash('error', 'The AI provider returned unusable question data. Please try again.');
                 redirect('/professor/questions.php?bank_id=' . (int)$q['bank_id']);
             }
+        } elseif (($user['role'] ?? '') === 'professor') {
+            flash('error', 'Please test and connect your AI API key in Settings before generating.');
+            redirect('/professor/questions.php?bank_id=' . (int)$q['bank_id']);
         }
         if ($fresh === []) {
+            if (($user['role'] ?? '') === 'professor') {
+                flash('error', 'AI regeneration failed. Please try again or reconnect your provider in Settings.');
+                redirect('/professor/questions.php?bank_id=' . (int)$q['bank_id']);
+            }
             $fresh = Gemini::demoQuestionBank($subject, $type, $klevel, $unit, 1);
         }
         $fresh = QuestionBankTools::enrichGeneratedQuestions(

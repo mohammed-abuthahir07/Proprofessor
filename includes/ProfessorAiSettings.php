@@ -272,6 +272,142 @@ final class ProfessorAiSettings
         return ['ok' => true, 'message' => self::providerLabel($provider) . ' connected.'];
     }
 
+    /**
+     * Server-side gate before any Professor AI generation.
+     * Does not call the provider — only verifies a stored, active BYOK connection.
+     *
+     * @return array{ok:bool,error?:string,code?:string,settings_url?:string,provider?:string,model?:string}
+     */
+    public static function checkForGeneration(int $professorId): array
+    {
+        $settingsUrl = function_exists('base_url')
+            ? base_url('/professor/settings.php#ai-provider')
+            : '/professor/settings.php#ai-provider';
+
+        $fail = static function (string $code, string $error) use ($settingsUrl): array {
+            return [
+                'ok' => false,
+                'error' => $error,
+                'code' => $code,
+                'settings_url' => $settingsUrl,
+            ];
+        };
+
+        if ($professorId < 1) {
+            return $fail(
+                'AI_PROVIDER_NOT_CONNECTED',
+                'No AI provider is connected. Please connect an AI provider in Settings before generating.'
+            );
+        }
+
+        self::ensureSchema();
+        $row = self::rowForProfessor($professorId);
+
+        if (!$row) {
+            return $fail(
+                'AI_PROVIDER_NOT_CONFIGURED',
+                'Please select an AI provider, model, and API key in Settings before generating.'
+            );
+        }
+
+        if (!(int)($row['is_active'] ?? 0)) {
+            return $fail(
+                'AI_PROVIDER_NOT_CONNECTED',
+                'No AI provider is connected. Please connect an AI provider in Settings before generating.'
+            );
+        }
+
+        $provider = self::normalizeProvider((string)($row['provider'] ?? ''));
+        if ($provider === null) {
+            return $fail(
+                'AI_PROVIDER_NOT_CONFIGURED',
+                'Please select an AI provider in Settings before generating.'
+            );
+        }
+
+        $model = trim((string)($row['model'] ?? ''));
+        if ($model === '') {
+            return $fail(
+                'AI_MODEL_NOT_SELECTED',
+                'Please select an AI model in Settings before generating.'
+            );
+        }
+
+        $modelCheck = self::validateModel($provider, $model);
+        if (empty($modelCheck['ok'])) {
+            return $fail(
+                'AI_MODEL_UNAVAILABLE',
+                'The selected AI model is currently unavailable. Please select a supported model in Settings.'
+            );
+        }
+
+        $encrypted = trim((string)($row['encrypted_api_key'] ?? ''));
+        if ($encrypted === '') {
+            return $fail(
+                'AI_API_KEY_NOT_CONFIGURED',
+                'Please add and connect your AI API key in Settings before generating.'
+            );
+        }
+
+        try {
+            $apiKey = trim(Crypto::decrypt($encrypted));
+        } catch (Throwable $e) {
+            return $fail(
+                'AI_API_KEY_INVALID',
+                'Your AI API key is invalid. Please update your API key and reconnect it in Settings.'
+            );
+        }
+
+        if ($apiKey === '') {
+            return $fail(
+                'AI_API_KEY_NOT_CONFIGURED',
+                'Please add and connect your AI API key in Settings before generating.'
+            );
+        }
+
+        // Row exists + is_active + key decrypts ⇒ connection was established via Connect (tested).
+        return [
+            'ok' => true,
+            'provider' => $provider,
+            'model' => (string)$modelCheck['model'],
+        ];
+    }
+
+    /**
+     * Abort with JSON if the authenticated professor cannot generate.
+     * No-op for non-professor roles (Admin/HOD/Student keep existing behavior).
+     *
+     * @param array<string,mixed> $user
+     */
+    public static function requireForGeneration(array $user): void
+    {
+        if (($user['role'] ?? '') !== 'professor') {
+            return;
+        }
+        $check = self::checkForGeneration((int)($user['id'] ?? 0));
+        if (!empty($check['ok'])) {
+            return;
+        }
+        json_response([
+            'ok' => false,
+            'error' => (string)($check['error'] ?? 'AI provider is not configured.'),
+            'code' => (string)($check['code'] ?? 'AI_PROVIDER_NOT_CONFIGURED'),
+            'settings_url' => (string)($check['settings_url'] ?? base_url('/professor/settings.php#ai-provider')),
+        ], 422);
+    }
+
+    /**
+     * Flash-friendly error string for form POSTs that redirect (not JSON).
+     */
+    public static function generationBlockMessage(int $professorId): ?string
+    {
+        $check = self::checkForGeneration($professorId);
+        if (!empty($check['ok'])) {
+            return null;
+        }
+        return (string)($check['error'] ?? 'Please connect an AI provider in Settings before generating.');
+    }
+
     public static function disconnect(int $professorId): void
     {
         self::ensureSchema();

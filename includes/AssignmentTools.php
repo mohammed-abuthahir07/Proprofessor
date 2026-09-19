@@ -291,8 +291,11 @@ final class AssignmentTools
         $aiFeedback = null;
         $criterionScores = [];
         $engine = professor_ai_engine($user);
-        if (($user['role'] ?? '') === 'professor' && !professor_ai_is_byok($engine)) {
-            return ['ok' => false, 'error' => 'No AI provider connected. Open Settings → AI Provider and connect a provider before AI grading.'];
+        if (($user['role'] ?? '') === 'professor') {
+            $block = ProfessorAiSettings::generationBlockMessage((int)$user['id']);
+            if ($block !== null) {
+                return ['ok' => false, 'error' => $block, 'code' => 'AI_PROVIDER_NOT_CONNECTED'];
+            }
         }
 
         if (method_exists($engine, 'isConfigured') && $engine->isConfigured()) {
@@ -317,10 +320,16 @@ final class AssignmentTools
             } catch (Throwable $e) {
                 return ['ok' => false, 'error' => 'AI grading failed. Manual grade unchanged.'];
             }
+        } elseif (($user['role'] ?? '') === 'professor') {
+            return [
+                'ok' => false,
+                'error' => 'Please test and connect your AI API key in Settings before generating.',
+                'code' => 'AI_PROVIDER_NOT_CONNECTED',
+            ];
         }
 
         if ($aiScore === null) {
-            if (professor_ai_is_byok($engine)) {
+            if (professor_ai_is_byok($engine) || ($user['role'] ?? '') === 'professor') {
                 return ['ok' => false, 'error' => 'AI grading returned unusable data. Manual grade unchanged.'];
             }
             // Deterministic heuristic when Gemini is not configured (demo-safe, clearly labeled).

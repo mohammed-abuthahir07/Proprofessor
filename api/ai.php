@@ -7,8 +7,9 @@ require_post();
 $module = (string)(get('module') ?: post('module'));
 $user = Auth::user();
 $gemini = professor_ai_engine($user);
+// syllabus_extract is local PDF/DOCX text extraction — not an AI generation call.
 if (($user['role'] ?? '') === 'professor' && $module !== 'syllabus_extract') {
-    ProfessorAi::requireConnected($gemini);
+    ProfessorAiSettings::requireForGeneration($user);
 }
 
 function prompt_template(string $code): ?array
@@ -629,6 +630,14 @@ try {
                     ProfessorAi::abortIfByokFailed($gemini, $result);
                 }
             } else {
+                if (($user['role'] ?? '') === 'professor' || professor_ai_is_byok($gemini)) {
+                    json_response([
+                        'ok' => false,
+                        'error' => 'Please test and connect your AI API key in Settings before generating.',
+                        'code' => 'AI_PROVIDER_NOT_CONNECTED',
+                        'settings_url' => base_url('/professor/settings.php#ai-provider'),
+                    ], 422);
+                }
                 $plan = Gemini::demoCoursePlan($subject, $syllabus);
                 $result = ['ok' => true, 'json' => $plan, 'text' => json_encode($plan), 'latency_ms' => 0];
             }
@@ -1096,7 +1105,7 @@ try {
             $rawQuestions = is_array($result['json']['questions'] ?? null) ? $result['json']['questions'] : [];
             $questions = normalize_generated_questions($rawQuestions, $type, $klevel, $unit, $count);
             if (!question_bank_is_usable($questions, $type, $count)) {
-                if (professor_ai_is_byok($gemini)) {
+                if (professor_ai_is_byok($gemini) || ($user['role'] ?? '') === 'professor') {
                     ProfessorAi::abortIfByokUnusable($gemini, 'The AI provider returned unusable questions. Please try again.');
                 }
                 $questions = Gemini::demoQuestionBank($subjectName, $type, $klevel, $unit, $count, $context, $unitTopics);
@@ -1104,6 +1113,14 @@ try {
                 $result['fallback'] = 'ai_unusable';
             }
         } else {
+            if (($user['role'] ?? '') === 'professor' || professor_ai_is_byok($gemini)) {
+                json_response([
+                    'ok' => false,
+                    'error' => 'Please test and connect your AI API key in Settings before generating.',
+                    'code' => 'AI_PROVIDER_NOT_CONNECTED',
+                    'settings_url' => base_url('/professor/settings.php#ai-provider'),
+                ], 422);
+            }
             $questions = Gemini::demoQuestionBank($subjectName, $type, $klevel, $unit, $count, $context, $unitTopics);
             $result = [
                 'ok' => true,
@@ -1311,7 +1328,7 @@ try {
             $rawSlides = is_array($result['json']['slides'] ?? null) ? $result['json']['slides'] : [];
             $slides = normalize_generated_slides($rawSlides, $unit);
             if (!ppt_slides_are_usable($slides)) {
-                if (professor_ai_is_byok($gemini)) {
+                if (professor_ai_is_byok($gemini) || ($user['role'] ?? '') === 'professor') {
                     ProfessorAi::abortIfByokUnusable($gemini, 'The AI provider returned unusable slides. Please try again.');
                 }
                 $slides = Gemini::demoPresentation($title, $subjectName, $unit, $context, $unitTopics, 12, $brandMeta);
@@ -1319,6 +1336,14 @@ try {
                 $result['fallback'] = 'ai_unusable';
             }
         } else {
+            if (($user['role'] ?? '') === 'professor' || professor_ai_is_byok($gemini)) {
+                json_response([
+                    'ok' => false,
+                    'error' => 'Please test and connect your AI API key in Settings before generating.',
+                    'code' => 'AI_PROVIDER_NOT_CONNECTED',
+                    'settings_url' => base_url('/professor/settings.php#ai-provider'),
+                ], 422);
+            }
             $slides = Gemini::demoPresentation($title, $subjectName, $unit, $context, $unitTopics, 12, $brandMeta);
             $result = [
                 'ok' => true,
@@ -1484,6 +1509,14 @@ try {
                     ProfessorAi::abortIfByokUnusable($gemini, 'The AI provider returned an unusable assignment. Please try again.');
                 }
             } else {
+                if (($user['role'] ?? '') === 'professor' || professor_ai_is_byok($gemini)) {
+                    json_response([
+                        'ok' => false,
+                        'error' => 'Please test and connect your AI API key in Settings before generating.',
+                        'code' => 'AI_PROVIDER_NOT_CONNECTED',
+                        'settings_url' => base_url('/professor/settings.php#ai-provider'),
+                    ], 422);
+                }
                 $data = [
                     'title' => ucwords(str_replace('_', ' ', $type)) . ' Assignment · ' . $subject,
                     'description' => "Complete a $type based on the course outcomes. Demonstrate Bloom K3-K5 skills.",

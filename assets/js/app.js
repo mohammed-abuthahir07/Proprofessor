@@ -136,13 +136,26 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // AI forms
+  // AI forms — validate BYOK config before showing "Generating..."
   document.querySelectorAll('[data-ai-form]').forEach((form) => {
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = form.querySelector('[type="submit"]');
       const out = document.querySelector(form.dataset.aiForm);
       const original = btn.innerHTML;
+      const settingsUrl =
+        document.querySelector('meta[name="ai-settings-url"]')?.content ||
+        ((window.PPAI_APP_BASE || '') + '/professor/settings.php#ai-provider');
+      const connectedMeta = document.querySelector('meta[name="ai-connected"]');
+
+      if (connectedMeta && connectedMeta.content !== '1') {
+        const go = window.confirm(
+          'Please select an AI provider, model, and API key in Settings before generating.\n\nOpen AI Settings now?'
+        );
+        if (go) window.location = settingsUrl;
+        return;
+      }
+
       btn.disabled = true;
       btn.innerHTML = '<span class="loader"></span> Generating...';
       try {
@@ -153,7 +166,16 @@ document.addEventListener('DOMContentLoaded', () => {
           body: fd,
         });
         const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || 'Generation failed');
+        if (!res.ok || !data.ok) {
+          const msg = data.error || 'Generation failed';
+          const code = String(data.code || '');
+          if (code.indexOf('AI_') === 0 || /settings|api key|provider|model|connect/i.test(msg)) {
+            const go = window.confirm(msg + '\n\nOpen AI Settings now?');
+            if (go) window.location = data.settings_url || settingsUrl;
+            return;
+          }
+          throw new Error(msg);
+        }
         if (data.redirect) {
           window.location = data.redirect;
           return;

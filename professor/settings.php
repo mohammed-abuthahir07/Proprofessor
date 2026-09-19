@@ -177,7 +177,7 @@ render_header('Settings', 'settings', ['subtitle' => 'Profile & workspace']);
     $geminiDocs = ProfessorAiSettings::docsUrl('gemini');
     $claudeDocs = ProfessorAiSettings::docsUrl('claude');
   ?>
-  <div class="panel settings-panel settings-ai-panel">
+  <div class="panel settings-panel settings-ai-panel" id="ai-provider">
     <h3 class="settings-ai-title">AI Provider</h3>
     <p class="muted settings-help">Choose your AI provider. Only one provider is active. Changing provider or model does not change existing course plans, lessons, questions, PPTs, or assignments.</p>
 

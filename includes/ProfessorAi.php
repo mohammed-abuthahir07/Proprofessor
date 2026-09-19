@@ -189,13 +189,55 @@ final class ProfessorAi
         return $clean;
     }
 
-    public static function requireConnected(object $engine): void
+    public static function requireConnected(object $engine, ?array $user = null): void
     {
+        $user = $user ?? (class_exists('Auth') ? Auth::user() : null);
+        if (is_array($user) && ($user['role'] ?? '') === 'professor') {
+            ProfessorAiSettings::requireForGeneration($user);
+            return;
+        }
         if ($engine instanceof self && !$engine->isByok()) {
             json_response([
                 'ok' => false,
                 'error' => 'No AI provider connected. Open Settings → AI Provider and connect OpenAI, Gemini, or Claude before generating.',
+                'code' => 'AI_PROVIDER_NOT_CONNECTED',
             ], 422);
+        }
+    }
+
+    /**
+     * Map a failed BYOK provider response to a structured generation error when possible.
+     *
+     * @param array<string,mixed> $result
+     */
+    public static function abortIfByokFailed(object $engine, array $result): void
+    {
+        if (!empty($result['ok'])) {
+            return;
+        }
+        if ($engine instanceof self && $engine->isByok()) {
+            $error = (string)($result['error'] ?? 'The AI provider request failed.');
+            $code = 'AI_PROVIDER_ERROR';
+            $l = strtolower($error);
+            if (str_contains($l, 'invalid api key') || str_contains($l, 'api key is invalid') || str_contains($l, 'invalid api')) {
+                $code = 'AI_API_KEY_INVALID';
+                $error = 'Your AI API key is invalid. Please update your API key and reconnect it in Settings.';
+            } elseif (str_contains($l, 'not available') || str_contains($l, 'model')) {
+                if (str_contains($l, 'not available') || str_contains($l, 'not found') || str_contains($l, 'unsupported')) {
+                    $code = 'AI_MODEL_UNAVAILABLE';
+                    $error = 'The selected AI model is currently unavailable. Please select a supported model in Settings.';
+                }
+            } elseif (str_contains($l, 'quota') || str_contains($l, 'billing') || str_contains($l, 'usage limit')) {
+                $code = 'AI_PROVIDER_QUOTA';
+            } elseif (str_contains($l, 'rate limit')) {
+                $code = 'AI_PROVIDER_RATE_LIMIT';
+            }
+            json_response([
+                'ok' => false,
+                'error' => $error,
+                'code' => $code,
+                'settings_url' => base_url('/professor/settings.php#ai-provider'),
+            ], 502);
         }
     }
 
@@ -215,23 +257,16 @@ final class ProfessorAi
         };
     }
 
-    public static function abortIfByokFailed(object $engine, array $result): void
-    {
-        if (!empty($result['ok'])) {
-            return;
-        }
-        if ($engine instanceof self && $engine->isByok()) {
-            json_response([
-                'ok' => false,
-                'error' => (string)($result['error'] ?? 'The AI provider request failed.'),
-            ], 502);
-        }
-    }
-
     public static function abortIfByokUnusable(object $engine, string $message = 'The AI provider returned unusable content. Please try again.'): void
     {
-        if ($engine instanceof self && $engine->isByok()) {
-            json_response(['ok' => false, 'error' => $message], 502);
+        $user = class_exists('Auth') ? Auth::user() : null;
+        $isProfessor = is_array($user) && ($user['role'] ?? '') === 'professor';
+        if (($engine instanceof self && $engine->isByok()) || $isProfessor) {
+            json_response([
+                'ok' => false,
+                'error' => $message,
+                'settings_url' => base_url('/professor/settings.php#ai-provider'),
+            ], 502);
         }
     }
 }

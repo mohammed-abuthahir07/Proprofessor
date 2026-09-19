@@ -98,8 +98,11 @@ final class PresentationTools
 
         $newSlide = null;
         $engine = professor_ai_engine($user);
-        if (($user['role'] ?? '') === 'professor' && !professor_ai_is_byok($engine)) {
-            return ['ok' => false, 'error' => 'No AI provider connected. Open Settings → AI Provider and connect a provider before regenerating.'];
+        if (($user['role'] ?? '') === 'professor') {
+            $block = ProfessorAiSettings::generationBlockMessage((int)$user['id']);
+            if ($block !== null) {
+                return ['ok' => false, 'error' => $block, 'code' => 'AI_PROVIDER_NOT_CONNECTED'];
+            }
         }
         $aiConfigured = method_exists($engine, 'isConfigured') && $engine->isConfigured();
         if ($aiConfigured) {
@@ -131,6 +134,12 @@ final class PresentationTools
             if (!$newSlide) {
                 return ['ok' => false, 'error' => 'AI returned unusable slide data. Original slide preserved.'];
             }
+        } elseif (($user['role'] ?? '') === 'professor') {
+            return [
+                'ok' => false,
+                'error' => 'Please test and connect your AI API key in Settings before generating.',
+                'code' => 'AI_PROVIDER_NOT_CONNECTED',
+            ];
         } else {
             $hint = $instruction !== '' ? $instruction : 'Clarify with a short classroom example.';
             $pack = LectureSlideBuilder::buildDeck(

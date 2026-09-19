@@ -22,6 +22,13 @@ function render_header(string $title, string $active = '', array $opts = []): vo
         'admin', 'superadmin' => '/admin/notifications',
         default => '/professor/notifications',
     };
+    $aiReady = false;
+    $aiSettingsUrl = '';
+    if ($role === 'professor' && is_array($user) && class_exists('ProfessorAiSettings', false)) {
+        $aiCheck = ProfessorAiSettings::checkForGeneration((int)($user['id'] ?? 0));
+        $aiReady = !empty($aiCheck['ok']);
+        $aiSettingsUrl = base_url('/professor/settings.php#ai-provider');
+    }
     ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -35,6 +42,10 @@ function render_header(string $title, string $active = '', array $opts = []): vo
   <meta name="theme-color" content="#0b091c">
   <meta name="app-base" content="<?= e(app_base_path()) ?>">
   <meta name="asset-base" content="<?= e(rtrim(base_url('/assets'), '/')) ?>">
+  <?php if ($role === 'professor'): ?>
+  <meta name="ai-connected" content="<?= $aiReady ? '1' : '0' ?>">
+  <meta name="ai-settings-url" content="<?= e($aiSettingsUrl) ?>">
+  <?php endif; ?>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="<?= e(base_url('/assets/css/app.css')) ?>">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
