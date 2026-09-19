@@ -147,18 +147,33 @@ final class ProfessorAi
             || str_contains($l, 'is not found')
             || str_contains($l, 'no longer available')
             || str_contains($l, 'does not exist')
-            || (str_contains($l, 'model') && str_contains($l, 'not found'));
+            || str_contains($l, 'invalid model')
+            || (str_contains($l, 'model') && str_contains($l, 'not found'))
+            || (str_contains($l, 'model') && str_contains($l, 'not available'));
         if ($modelMissing) {
             return 'The selected model is not available for this API account. Please select another supported model.';
         }
 
-        $rate = $http === 429 && (str_contains($l, 'rate') || str_contains($l, 'too many'));
-        $quota = $http === 429
-            || str_contains($l, 'insufficient_quota')
-            || str_contains($l, 'quota')
-            || str_contains($l, 'resource_exhausted')
+        // Claude Sonnet 5+ rejects custom temperature/top_p/top_k.
+        if (
+            $http === 400
+            && (
+                str_contains($l, 'temperature')
+                || str_contains($l, 'top_p')
+                || str_contains($l, 'top_k')
+                || str_contains($l, 'sampling')
+            )
+        ) {
+            return 'This Claude model does not allow custom sampling settings. Please try Connect again (the app will use provider defaults).';
+        }
+
+        $rate = $http === 429 && (str_contains($l, 'rate') || str_contains($l, 'too many') || str_contains($l, 'rate_limit'));
+        $quota = str_contains($l, 'insufficient_quota')
             || str_contains($l, 'credit balance')
-            || str_contains($l, 'billing');
+            || str_contains($l, 'billing')
+            || str_contains($l, 'resource_exhausted')
+            || ($http === 429 && (str_contains($l, 'quota') || str_contains($l, 'usage limit') || str_contains($l, 'billing')))
+            || (str_contains($l, 'quota') && !str_contains($l, 'rate'));
         if ($rate && !$quota) {
             return 'The provider is temporarily rate limiting requests. Please try again shortly.';
         }

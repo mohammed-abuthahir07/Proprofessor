@@ -62,12 +62,13 @@ final class ClaudeClient
         $payload = [
             'model' => $model,
             'max_tokens' => 8192,
-            'temperature' => 0.4,
             'system' => $system,
             'messages' => [
                 ['role' => 'user', 'content' => $userPrompt],
             ],
         ];
+        // Do not send temperature/top_p/top_k.
+        // Claude Sonnet 5 / Opus 5 reject non-default sampling params (HTTP 400).
 
         $ch = curl_init($this->endpoint . '/messages');
         curl_setopt_array($ch, [
