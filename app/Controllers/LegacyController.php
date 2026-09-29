@@ -33,7 +33,7 @@ final class LegacyController extends Controller
     {
         $this->requireRole('hod', 'admin');
         $this->serve('hod', $page, [
-            'approvals', 'faculty', 'students', 'subjects', 'analytics', 'compliance', 'reports', 'timeline',
+            'approvals', 'faculty', 'students', 'subjects', 'analytics', 'compliance', 'reports', 'timeline', 'settings',
         ]);
     }
 

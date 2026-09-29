@@ -84,7 +84,9 @@ $hodSentHistory = $hodSentHistory ?? [];
 </div>
 <?php endif; ?>
 
-<?php if (!$canMessageHods): ?>
+<?php if (!$canMessageHods && ($rolePrefix ?? '') === 'hod'): ?>
+<?php require __DIR__ . '/../hod/notifications.php'; ?>
+<?php elseif (!$canMessageHods): ?>
 <div class="panel">
   <div class="panel-h">
     <div class="chip-row">

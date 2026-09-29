@@ -57,7 +57,9 @@ final class Gemini
             if (!empty($last['ok'])) {
                 return $last;
             }
-            if (!self::isRetiredModelError((string)($last['error'] ?? ''))) {
+            // Busy or retired models should not block the course plan.
+            // Try the next supported Gemini model before giving up.
+            if (!self::isRetryableModelError($last)) {
                 return $last;
             }
         }
@@ -98,9 +100,30 @@ final class Gemini
     {
         $preferred = self::normalizeModel($model ?: $this->model);
         if ($this->strictModel) {
-            return [$preferred];
+            return self::capacityFallbacks($preferred);
         }
         return self::modelCandidates($preferred);
+    }
+
+    /**
+     * Selected model first, then the other current Gemini models from config.
+     *
+     * @return list<string>
+     */
+    private static function capacityFallbacks(string $preferred): array
+    {
+        $models = [$preferred];
+        $file = dirname(__DIR__) . '/config/ai_models.php';
+        if (is_file($file)) {
+            $catalog = require $file;
+            foreach (($catalog['gemini']['models'] ?? []) as $model) {
+                $name = self::normalizeModel((string)$model);
+                if ($name !== '') {
+                    $models[] = $name;
+                }
+            }
+        }
+        return array_values(array_unique($models));
     }
 
     /** @return list<string> */
@@ -123,6 +146,25 @@ final class Gemini
         return str_contains($message, 'no longer available')
             || str_contains($message, 'is not found')
             || (str_contains($message, 'model') && str_contains($message, 'not found'));
+    }
+
+    /**
+     * @param array<string,mixed> $result
+     */
+    private static function isRetryableModelError(array $result): bool
+    {
+        if (self::isRetiredModelError((string)($result['error'] ?? ''))) {
+            return true;
+        }
+        $http = (int)($result['http_code'] ?? 0);
+        $message = strtolower((string)($result['error'] ?? ''));
+        if (in_array($http, [500, 502, 503, 504], true)) {
+            return true;
+        }
+        return str_contains($message, 'high demand')
+            || str_contains($message, 'overloaded')
+            || str_contains($message, 'temporarily unavailable')
+            || str_contains($message, 'unavailable');
     }
 
     /**
@@ -151,7 +193,10 @@ final class Gemini
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST           => true,
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'x-goog-api-key: ' . $this->apiKey,
+            ],
             CURLOPT_POSTFIELDS     => json_encode($payload),
             CURLOPT_TIMEOUT        => 90,
         ]);

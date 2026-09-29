@@ -36,12 +36,11 @@ final class NavService
                 ]],
                 ['label' => 'INSIGHTS', 'items' => [
                     ['key' => 'analytics', 'label' => 'Analytics', 'href' => '/hod/analytics', 'icon' => 'trend', 'feature' => 'dept_analytics'],
-                    ['key' => 'compliance', 'label' => 'Complaints', 'href' => '/hod/compliance', 'icon' => 'mail'],
-                    ['key' => 'timeline', 'label' => 'Timeline', 'href' => '/hod/timeline', 'icon' => 'clock'],
-                ]],
-                ['label' => 'REPORTS', 'items' => [
-                    ['key' => 'reports', 'label' => 'NAAC Reports', 'href' => '/hod/reports', 'icon' => 'file', 'feature' => 'naac_reports'],
+                    ['key' => 'reports', 'label' => 'Compliance', 'href' => '/hod/reports', 'icon' => 'file', 'feature' => 'naac_reports'],
                     ['key' => 'notifications', 'label' => 'Notifications', 'href' => '/hod/notifications', 'icon' => 'bell'],
+                ]],
+                ['label' => 'SYSTEM', 'items' => [
+                    ['key' => 'settings', 'label' => 'Settings', 'href' => '/hod/settings', 'icon' => 'settings'],
                 ]],
             ],
             'admin', 'superadmin' => [
@@ -78,7 +77,6 @@ final class NavService
                     ['key' => 'attendance', 'label' => 'Attendance', 'href' => '/professor/attendance', 'icon' => 'calendar', 'feature' => 'attendance'],
                     ['key' => 'marks', 'label' => 'Internal Marks', 'href' => '/professor/marks', 'icon' => 'chart', 'feature' => 'internal_marks'],
                     ['key' => 'messages', 'label' => 'Message Students', 'href' => '/professor/messages', 'icon' => 'mail'],
-                    ['key' => 'message-hod', 'label' => 'Message HOD', 'href' => '/professor/message-hod', 'icon' => 'users'],
                     ['key' => 'settings', 'label' => 'Settings', 'href' => '/professor/settings', 'icon' => 'settings'],
                     ['key' => 'notifications', 'label' => 'Notifications', 'href' => '/professor/notifications', 'icon' => 'bell', 'feature' => 'notifications'],
                 ]],

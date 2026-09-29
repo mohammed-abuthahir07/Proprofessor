@@ -260,7 +260,7 @@ final class ProfessorHodMessageTools
             'announcement',
             $title,
             $notifyBody,
-            '/hod/compliance',
+            '/hod/notifications',
             [
                 'priority' => NotificationService::PRIORITY_MEDIUM,
                 'category' => 'system',
@@ -378,7 +378,7 @@ final class ProfessorHodMessageTools
             'announcement',
             $replyTitle,
             $message . "\n\nFrom: " . $hodName . ' (HOD)',
-            '/professor/message-hod',
+            '/professor/notifications',
             [
                 'priority' => NotificationService::PRIORITY_MEDIUM,
                 'category' => 'system',

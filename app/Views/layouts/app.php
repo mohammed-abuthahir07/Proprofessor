@@ -99,8 +99,10 @@ $cta = match ($role) {
     <header class="topbar">
       <button class="icon-btn" id="menuToggle" type="button" aria-label="Menu" aria-controls="sidebar" aria-expanded="false"><?= icon('menu') ?></button>
       <div class="topbar-title">
-        <h1><?= e($title) ?></h1>
-        <?php if ($subtitle !== ''): ?><p><?= e($subtitle) ?></p><?php endif; ?>
+        <?php if (empty($dashboardHero)): ?>
+          <h1><?= e($title) ?></h1>
+          <?php if ($subtitle !== ''): ?><p><?= e($subtitle) ?></p><?php endif; ?>
+        <?php endif; ?>
       </div>
       <div class="topbar-actions">
         <span class="proto-badge">Interactive Prototype v1.0</span>

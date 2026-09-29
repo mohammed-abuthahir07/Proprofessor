@@ -100,8 +100,10 @@ function render_header(string $title, string $active = '', array $opts = []): vo
     <header class="topbar">
       <button class="icon-btn" id="menuToggle" type="button" aria-label="Menu" aria-controls="sidebar" aria-expanded="false"><?= icon('menu') ?></button>
       <div class="topbar-title">
-        <h1><?= e($title) ?></h1>
-        <p><?= e($opts['subtitle'] ?? '') ?></p>
+        <?php if (empty($opts['compactTitle'])): ?>
+          <h1><?= e($title) ?></h1>
+          <p><?= e($opts['subtitle'] ?? '') ?></p>
+        <?php endif; ?>
       </div>
       <div class="topbar-actions">
         <?php if (!empty($opts['actions'])): ?>

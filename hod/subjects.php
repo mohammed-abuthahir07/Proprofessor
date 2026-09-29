@@ -160,55 +160,62 @@ foreach ($allSubjects as $s) {
     }
 }
 
-render_header('Department Courses', 'subjects');
+$catalogCount = count($subjects);
+$catalogWord = $courseType === 'lab'
+    ? ($catalogCount === 1 ? '1 lab' : $catalogCount . ' labs')
+    : ($catalogCount === 1 ? '1 course' : $catalogCount . ' courses');
+$deptName = trim((string)($dept['name'] ?? 'Department'));
+$heroLine = $deptName . ' · ' . $catalogWord . ' · ' . subject_year_label($year) . ' · ' . $semesterLabel;
+
+render_header('Department Courses', 'subjects', ['compactTitle' => true]);
 ?>
 <?php if (!$isAdmin && $deptId < 1): ?>
 <div class="panel">
   <div class="alert alert-warn">Your HOD account is not linked to a department. Contact the College Admin.</div>
 </div>
 <?php else: ?>
-<section class="welcome-banner reveal">
-  <div>
-    <h2><?= e((string)($dept['name'] ?? 'Department')) ?> courses</h2>
-    <p>Manage courses and labs by academic year and semester. Assign professors to classes/sections so students receive only the courses for their year.</p>
+<div class="hod-crs">
+<section class="hod-hero">
+  <div class="hod-hero-copy">
+    <h2><?= icon('folder', 'icon-inline') ?> Department Courses</h2>
+    <p><?= e($heroLine) ?></p>
   </div>
 </section>
 
-<div class="panel reveal hod-course-nav">
-  <div class="form-row">
-    <label>Academic year</label>
-    <div class="chip-row" role="navigation" aria-label="Academic year">
-      <?php foreach ([1 => '1st Year', 2 => '2nd Year', 3 => '3rd Year', 4 => '4th Year'] as $yVal => $yLabel): ?>
-        <a class="chip<?= $year === $yVal ? ' active' : '' ?>" href="<?= e(hod_subjects_query(['year' => $yVal, 'semester' => $semesterKey, 'type' => $courseType])) ?>"><?= e($yLabel) ?></a>
-      <?php endforeach; ?>
+<section class="hod-panel hod-crs-filters">
+  <div class="hod-crs-groups">
+    <div class="hod-crs-group">
+      <span>Academic year</span>
+      <div class="hod-crs-pills" role="navigation" aria-label="Academic year">
+        <?php foreach ([1 => '1st Year', 2 => '2nd Year', 3 => '3rd Year', 4 => '4th Year'] as $yVal => $yLabel): ?>
+          <a class="hod-crs-pill<?= $year === $yVal ? ' is-on' : '' ?>" href="<?= e(hod_subjects_query(['year' => $yVal, 'semester' => $semesterKey, 'type' => $courseType])) ?>"><?= e($yLabel) ?></a>
+        <?php endforeach; ?>
+      </div>
+    </div>
+    <div class="hod-crs-group">
+      <span>Semester</span>
+      <div class="hod-crs-pills" role="navigation" aria-label="Semester">
+        <a class="hod-crs-pill<?= $semesterKey === 'odd' ? ' is-on' : '' ?>" href="<?= e(hod_subjects_query(['year' => $year, 'semester' => 'odd', 'type' => $courseType])) ?>">Odd Semester</a>
+        <a class="hod-crs-pill<?= $semesterKey === 'even' ? ' is-on' : '' ?>" href="<?= e(hod_subjects_query(['year' => $year, 'semester' => 'even', 'type' => $courseType])) ?>">Even Semester</a>
+      </div>
+    </div>
+    <div class="hod-crs-group">
+      <span>Catalog</span>
+      <div class="hod-crs-pills" role="navigation" aria-label="Course type">
+        <a class="hod-crs-pill<?= $courseType === 'theory' ? ' is-on' : '' ?>" href="<?= e(hod_subjects_query(['year' => $year, 'semester' => $semesterKey, 'type' => 'theory'])) ?>">Courses</a>
+        <a class="hod-crs-pill<?= $courseType === 'lab' ? ' is-on' : '' ?>" href="<?= e(hod_subjects_query(['year' => $year, 'semester' => $semesterKey, 'type' => 'lab'])) ?>">Labs</a>
+      </div>
     </div>
   </div>
-  <div class="form-row">
-    <label>Semester</label>
-    <div class="chip-row" role="navigation" aria-label="Semester">
-      <a class="chip<?= $semesterKey === 'odd' ? ' active' : '' ?>" href="<?= e(hod_subjects_query(['year' => $year, 'semester' => 'odd', 'type' => $courseType])) ?>">Odd Semester</a>
-      <a class="chip<?= $semesterKey === 'even' ? ' active' : '' ?>" href="<?= e(hod_subjects_query(['year' => $year, 'semester' => 'even', 'type' => $courseType])) ?>">Even Semester</a>
-    </div>
-  </div>
-  <div class="form-row">
-    <label>Catalog</label>
-    <div class="chip-row" role="navigation" aria-label="Course type">
-      <a class="chip<?= $courseType === 'theory' ? ' active' : '' ?>" href="<?= e(hod_subjects_query(['year' => $year, 'semester' => $semesterKey, 'type' => 'theory'])) ?>">Courses</a>
-      <a class="chip<?= $courseType === 'lab' ? ' active' : '' ?>" href="<?= e(hod_subjects_query(['year' => $year, 'semester' => $semesterKey, 'type' => 'lab'])) ?>">Labs</a>
-    </div>
-  </div>
-  <p class="hod-course-context">
-    <strong><?= e(subject_year_label($year)) ?></strong>
-    · <?= e($semesterLabel) ?>
-    · <?= $courseType === 'lab' ? 'Labs' : 'Courses' ?>
-    · <?= count($subjects) ?> item(s)
+  <p class="hod-crs-context">
+    <?= e(subject_year_label($year)) ?> · <?= e($semesterLabel) ?> · <?= $courseType === 'lab' ? 'Labs' : 'Courses' ?> · <?= (int)$catalogCount ?> item<?= $catalogCount === 1 ? '' : 's' ?>
   </p>
-</div>
+</section>
 
-<div class="grid grid-2" style="margin-top:1.25rem">
-  <div class="panel reveal">
+<div class="hod-crs-forms">
+  <section class="hod-panel">
     <h3><?= $courseType === 'lab' ? 'Add lab' : 'Add course' ?></h3>
-    <p class="cell-sub" style="margin-top:0">Saved under <?= e(subject_year_label($year)) ?> · <?= e($semesterLabel) ?> · <?= $courseType === 'lab' ? 'Lab' : 'Theory' ?>.</p>
+    <p class="cell-sub">Saved under <?= e(subject_year_label($year)) ?> · <?= e($semesterLabel) ?> · <?= $courseType === 'lab' ? 'Lab' : 'Theory' ?>.</p>
     <form method="post" class="form-grid">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="add_subject">
@@ -226,11 +233,11 @@ render_header('Department Courses', 'subjects');
       <div class="form-row"><label>Syllabus (optional)</label><textarea name="syllabus_text" placeholder="Unit-wise syllabus for professors to use in course plans"></textarea></div>
       <button class="btn btn-primary" type="submit"><?= $courseType === 'lab' ? 'Save lab' : 'Save course' ?></button>
     </form>
-  </div>
+  </section>
 
-  <div class="panel reveal">
+  <section class="hod-panel">
     <h3>Assign professor</h3>
-    <p class="cell-sub" style="margin-top:0">Assign within <?= e(subject_year_label($year)) ?> · <?= e($semesterLabel) ?>. Class list is limited to this year.</p>
+    <p class="cell-sub">Assign within <?= e(subject_year_label($year)) ?> · <?= e($semesterLabel) ?>. Class list is limited to this year.</p>
     <form method="post" class="form-grid">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="assign_professor">
@@ -267,15 +274,15 @@ render_header('Department Courses', 'subjects');
       <?php if (!$classes): ?>
         <p class="alert alert-warn" style="margin:0">No <?= e(subject_year_label($year)) ?> classes found in your department. Ask Admin to create classes for this year.</p>
       <?php endif; ?>
-      <p style="color:var(--muted);font-size:.85rem;margin:0">Students in the selected class are auto-enrolled for the current academic year.</p>
+      <p class="hod-crs-note">Students in the selected class are auto-enrolled for the current academic year.</p>
       <button class="btn btn-primary" type="submit"<?= !$assignSubjects || !$classes ? ' disabled' : '' ?>>Assign professor</button>
     </form>
-  </div>
+  </section>
 </div>
 
-<div class="panel reveal" style="margin-top:1rem">
-  <div class="panel-h">
-    <h2><?= $courseType === 'lab' ? 'Labs' : 'Courses' ?> · <?= e(subject_year_label($year)) ?> · <?= e($semesterLabel) ?></h2>
+<section class="hod-panel">
+  <div class="hod-panel-h">
+    <h2><?= icon('book', 'icon-inline') ?> <?= $courseType === 'lab' ? 'Labs' : 'Courses' ?> · <?= e(subject_year_label($year)) ?> · <?= e($semesterLabel) ?></h2>
   </div>
   <?php if (!$subjects): ?>
     <div class="empty">No <?= $courseType === 'lab' ? 'labs' : 'courses' ?> yet for this year and semester. Add as many as you need above.</div>
@@ -301,10 +308,12 @@ render_header('Department Courses', 'subjects');
       </table>
     </div>
   <?php endif; ?>
-</div>
+</section>
 
-<div class="panel reveal" style="margin-top:1rem">
-  <h3>Professor assignments · <?= e(subject_year_label($year)) ?> · <?= e($semesterLabel) ?> · <?= $courseType === 'lab' ? 'Labs' : 'Courses' ?></h3>
+<section class="hod-panel">
+  <div class="hod-panel-h">
+    <h2>Professor assignments · <?= e(subject_year_label($year)) ?> · <?= e($semesterLabel) ?> · <?= $courseType === 'lab' ? 'Labs' : 'Courses' ?></h2>
+  </div>
   <?php if (!$contextAssignments): ?>
     <div class="empty">No professor assignments yet for this academic context.</div>
   <?php else: ?>
@@ -338,7 +347,7 @@ render_header('Department Courses', 'subjects');
                   <input type="hidden" name="year" value="<?= $year ?>">
                   <input type="hidden" name="semester" value="<?= e($semesterKey) ?>">
                   <input type="hidden" name="course_type" value="<?= e($courseType) ?>">
-                  <button class="btn btn-ghost" type="submit">Remove</button>
+                  <button class="btn btn-sm btn-ghost hod-crs-remove" type="submit">Remove</button>
                 </form>
               </td>
             </tr>
@@ -347,11 +356,13 @@ render_header('Department Courses', 'subjects');
       </table>
     </div>
   <?php endif; ?>
-</div>
+</section>
 
 <?php if ($unscopedCount > 0): ?>
-<div class="panel reveal" style="margin-top:1rem">
-  <h3>Legacy courses without year</h3>
+<section class="hod-panel">
+  <div class="hod-panel-h">
+    <h2>Legacy courses without year</h2>
+  </div>
   <p class="cell-sub"><?= (int)$unscopedCount ?> course(s) were created before year/semester structure. Re-save them from the correct year tab to place them in the catalog.</p>
   <div class="table-wrap">
     <table>
@@ -370,7 +381,8 @@ render_header('Department Courses', 'subjects');
       </tbody>
     </table>
   </div>
-</div>
+</section>
 <?php endif; ?>
+</div>
 <?php endif; ?>
 <?php render_footer(); ?>

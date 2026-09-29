@@ -129,6 +129,9 @@ final class NotificationService
         $prefs = self::preferencesFromUser($recipient);
 
         $channelsWanted = self::channelsForCategory($prefs, $category);
+        if (!self::allowHodAlert($recipient, $type, $title, $body, $channelsWanted)) {
+            return 0;
+        }
         $delivery = [
             'in_app' => ['status' => 'skipped', 'at' => null],
             'email' => ['status' => 'skipped', 'at' => null],
@@ -481,6 +484,73 @@ final class NotificationService
             'notification_channels' => $normalized,
             'theme' => $prefs['theme'] ?? 'light',
         ];
+    }
+
+    /**
+     * HOD Settings toggles. Defaults apply only for display until the HOD saves them.
+     *
+     * @return array{plan_approved:bool,plan_rejected:bool,weekly_summary:bool,ai_complete:bool}
+     */
+    public static function hodAlertsFromUser(array $user): array
+    {
+        $prefs = json_decode((string)($user['preferences'] ?? ''), true);
+        $stored = is_array($prefs) && is_array($prefs['hod_alerts'] ?? null) ? $prefs['hod_alerts'] : [];
+        return self::normalizeHodAlerts($stored);
+    }
+
+    /** @param array<string,mixed> $stored
+     *  @return array{plan_approved:bool,plan_rejected:bool,weekly_summary:bool,ai_complete:bool}
+     */
+    public static function normalizeHodAlerts(array $stored): array
+    {
+        $defaults = [
+            'plan_approved' => true,
+            'plan_rejected' => true,
+            'weekly_summary' => false,
+            'ai_complete' => true,
+        ];
+        $out = [];
+        foreach ($defaults as $key => $default) {
+            $out[$key] = array_key_exists($key, $stored) ? self::prefFlag($stored[$key]) : $default;
+        }
+        return $out;
+    }
+
+    /**
+     * Apply saved HOD Settings only after that HOD has stored hod_alerts.
+     * In-app approval notices stay in the Notifications page. These toggles
+     * limit matching email, the weekly digest flag, and AI-complete notices.
+     *
+     * @param array<string,bool> $channelsWanted
+     */
+    private static function allowHodAlert(array $recipient, string $type, string $title, string $body, array &$channelsWanted): bool
+    {
+        if ((string)($recipient['role'] ?? '') !== 'hod') {
+            return true;
+        }
+        $raw = json_decode((string)($recipient['preferences'] ?? ''), true);
+        if (!is_array($raw) || !is_array($raw['hod_alerts'] ?? null)) {
+            return true;
+        }
+        $flags = self::normalizeHodAlerts($raw['hod_alerts']);
+        $hay = strtolower($type . ' ' . $title . ' ' . $body);
+        $aiDone = $type === 'ai'
+            || str_contains($hay, 'generation complete')
+            || str_contains($hay, 'finished generating');
+        if ($aiDone && !$flags['ai_complete']) {
+            return false;
+        }
+        $rejected = str_contains($hay, 'returned')
+            || str_contains($hay, 'rejected')
+            || str_contains($hay, 'needs revision');
+        $approved = !$rejected && str_contains($hay, 'approved');
+        if ($approved && !$flags['plan_approved']) {
+            $channelsWanted['email'] = false;
+        }
+        if ($rejected && !$flags['plan_rejected']) {
+            $channelsWanted['email'] = false;
+        }
+        return true;
     }
 
     /**

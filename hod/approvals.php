@@ -11,14 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $planId = (int)post('plan_id');
     $action = (string)post('action');
-    $packed = HodFeedback::fromPost(
-        is_array($_POST['points'] ?? null) ? $_POST['points'] : [],
-        is_array($_POST['flags'] ?? null) ? $_POST['flags'] : [],
-        is_array($_POST['labels'] ?? null) ? $_POST['labels'] : [],
-        (string)post('overall', '')
-    );
-    $encoded = HodFeedback::encode($packed);
-    $summary = HodFeedback::summary($packed);
+    $postedFeedback = array_key_exists('overall', $_POST) || isset($_POST['points']);
     $status = match ($action) {
         'approve' => 'approved',
         'reject' => 'returned',
@@ -43,6 +36,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('/hod/approvals.php?id=' . $planId);
     }
     if ($plan) {
+        if ($postedFeedback) {
+            $packed = HodFeedback::fromPost(
+                is_array($_POST['points'] ?? null) ? $_POST['points'] : [],
+                is_array($_POST['flags'] ?? null) ? $_POST['flags'] : [],
+                is_array($_POST['labels'] ?? null) ? $_POST['labels'] : [],
+                (string)post('overall', '')
+            );
+            $encoded = HodFeedback::encode($packed);
+            $summary = HodFeedback::summary($packed);
+        } else {
+            $encoded = trim((string)($plan['hod_comments'] ?? ''));
+            if ($encoded === '') {
+                $encoded = HodFeedback::encode(['overall' => '', 'points' => []]);
+            }
+            $summary = HodFeedback::summary(HodFeedback::parse($encoded));
+        }
         Database::update('course_plans', [
             'status' => $status,
             'hod_comments' => $encoded,
@@ -68,14 +77,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'action' => ['type' => 'VIEW_PLAN', 'record_id' => $planId],
             ]
         );
-        flash('success', 'Point-by-point feedback saved.');
+        flash('success', match ($action) {
+            'approve' => 'Plan approved.',
+            'reject', 'request_changes' => 'Plan returned for revision.',
+            default => 'Feedback saved.',
+        });
     }
-    redirect('/hod/approvals.php?id=' . $planId);
+    if ((string)post('back') === 'queue') {
+        $backQuery = [];
+        $backStatus = (string)post('status_filter');
+        if (in_array($backStatus, ['pending', 'approved', 'returned'], true)) {
+            $backQuery['status'] = $backStatus;
+        }
+        $backQ = trim((string)post('q'));
+        if ($backQ !== '') {
+            $backQuery['q'] = $backQ;
+        }
+        redirect('/hod/approvals.php' . ($backQuery ? '?' . http_build_query($backQuery) : ''));
+    }
+    $tabBack = (string)post('tab');
+    $tabExtra = in_array($tabBack, ['details', 'bloom', 'ai', 'feedback'], true) ? '&tab=' . $tabBack : '';
+    redirect('/hod/approvals.php?id=' . $planId . $tabExtra);
 }
 
 $viewId = (int)get('id');
-$queueSql = 'SELECT p.*, u.full_name AS professor_name FROM course_plans p
-     JOIN users u ON u.id=p.professor_id
+$statusFilter = (string)get('status', 'all');
+if (!in_array($statusFilter, ['all', 'pending', 'approved', 'returned'], true)) {
+    $statusFilter = 'all';
+}
+$search = trim((string)get('q', ''));
+$queueSql = 'SELECT p.*, u.full_name AS professor_name,
+        c.name AS class_name, c.section AS class_section, c.year AS class_year
+     FROM course_plans p
+     JOIN users u ON u.id = p.professor_id
+     LEFT JOIN classes c ON c.id = p.class_id
      WHERE p.institution_id=? AND p.status IN ("submitted","under_review","returned","approved")';
 $queueParams = [(int)$user['institution_id']];
 if (!$isAdmin) {
@@ -85,10 +120,140 @@ if (!$isAdmin) {
 $queueSql .= ' ORDER BY FIELD(p.status,"submitted","under_review","returned","draft","approved"), p.submitted_at DESC';
 $queue = Database::fetchAll($queueSql, $queueParams);
 
+$bucketOf = static function (string $status): string {
+    return match ($status) {
+        'approved' => 'approved',
+        'returned' => 'returned',
+        default => 'pending',
+    };
+};
+$fmtNum = static function (?float $n): string {
+    if ($n === null) {
+        return '—';
+    }
+    $rounded = round($n, 2);
+    $text = number_format($rounded, 2, '.', '');
+    return rtrim(rtrim($text, '0'), '.');
+};
+$fmtWhen = static function (?string $value): string {
+    $value = trim((string)$value);
+    if ($value === '') {
+        return '';
+    }
+    $ts = strtotime($value);
+    return $ts ? date('d M Y, g:i A', $ts) : $value;
+};
+$initialsOf = static function (string $name): string {
+    $parts = preg_split('/\s+/', trim($name)) ?: [];
+    $parts = array_values(array_filter($parts, static fn(string $part): bool => $part !== ''));
+    if (!$parts) {
+        return 'F';
+    }
+    $first = strtoupper(mb_substr($parts[0], 0, 1));
+    $last = count($parts) > 1 ? strtoupper(mb_substr($parts[count($parts) - 1], 0, 1)) : '';
+    return $first . $last;
+};
+$k46Of = static function (array $row): ?float {
+    $bloom = json_decode((string)($row['bloom_data'] ?? ''), true);
+    if (!is_array($bloom) || $bloom === []) {
+        return null;
+    }
+    return round((float)($bloom['K4'] ?? 0) + (float)($bloom['K5'] ?? 0) + (float)($bloom['K6'] ?? 0), 1);
+};
+$aiTone = static function ($score): string {
+    if ($score === null || $score === '') {
+        return 'none';
+    }
+    $n = (float)$score;
+    if ($n >= 75) {
+        return 'ok';
+    }
+    if ($n >= 50) {
+        return 'warn';
+    }
+    return 'bad';
+};
+$statusMeta = static function (string $status): array {
+    return match ($status) {
+        'approved' => ['Approved', 'ok'],
+        'returned' => ['Returned', 'bad'],
+        'under_review' => ['In review', 'warn'],
+        default => ['Pending', 'warn'],
+    };
+};
+$asList = static function (mixed $value): array {
+    if (is_string($value)) {
+        $decoded = json_decode($value, true);
+        $value = is_array($decoded) ? $decoded : (trim($value) === '' ? [] : [$value]);
+    }
+    if (!is_array($value)) {
+        return [];
+    }
+    $out = [];
+    foreach ($value as $item) {
+        if (is_string($item) || is_numeric($item)) {
+            $text = trim((string)$item);
+        } elseif (is_array($item)) {
+            $text = trim((string)($item['details'] ?? $item['title'] ?? $item['focus'] ?? ''));
+            $type = trim((string)($item['type'] ?? ''));
+            if ($type !== '' && $text !== '') {
+                $text = $type . ': ' . $text;
+            }
+            if ($text === '') {
+                $text = trim((string)json_encode($item, JSON_UNESCAPED_UNICODE));
+            }
+        } else {
+            $text = '';
+        }
+        if ($text !== '') {
+            $out[] = $text;
+        }
+    }
+    return $out;
+};
+$queueLink = static function (string $status, string $q = '') : string {
+    $params = [];
+    if ($status !== 'all') {
+        $params['status'] = $status;
+    }
+    if ($q !== '') {
+        $params['q'] = $q;
+    }
+    $query = http_build_query($params);
+    return '?' . $query;
+};
+
+$counts = ['all' => count($queue), 'pending' => 0, 'approved' => 0, 'returned' => 0];
+foreach ($queue as $row) {
+    $counts[$bucketOf((string)($row['status'] ?? ''))]++;
+}
+$visible = [];
+$needle = mb_strtolower($search);
+foreach ($queue as $row) {
+    if ($statusFilter !== 'all' && $bucketOf((string)($row['status'] ?? '')) !== $statusFilter) {
+        continue;
+    }
+    if ($needle !== '') {
+        $hay = mb_strtolower(trim(
+            (string)($row['professor_name'] ?? '') . ' '
+            . (string)($row['subject_name'] ?? '') . ' '
+            . (string)($row['title'] ?? '')
+        ));
+        if (!str_contains($hay, $needle)) {
+            continue;
+        }
+    }
+    $visible[] = $row;
+}
+
 $view = null;
 if ($viewId) {
     $view = Database::fetch(
-        'SELECT p.*, u.full_name AS professor_name FROM course_plans p JOIN users u ON u.id=p.professor_id WHERE p.id=? AND p.institution_id=?',
+        'SELECT p.*, u.full_name AS professor_name, c.name AS class_name, c.section AS class_section, c.year AS class_year
+         FROM course_plans p
+         JOIN users u ON u.id = p.professor_id
+         LEFT JOIN classes c ON c.id = p.class_id
+         WHERE p.id=? AND p.institution_id=?',
         [$viewId, (int)$user['institution_id']]
     );
     if ($view && !$isAdmin && (int)$view['department_id'] !== (int)$deptId) {
@@ -106,156 +271,4 @@ if (!$units && !empty($planData['units']) && is_array($planData['units'])) {
     $units = $planData['units'];
 }
 $fb = $view ? HodFeedback::parse($view['hod_comments'] ?? null) : ['overall' => '', 'points' => []];
-
-render_header('Pending Approvals', 'approvals', ['subtitle' => 'Review · comment · approve']);
-?>
-<div class="grid grid-2 hod-approvals">
-  <div class="panel">
-    <div class="table-wrap"><table>
-      <thead><tr><th>Plan</th><th>Faculty</th><th>Status</th><th>AI</th></tr></thead>
-      <tbody>
-      <?php if (!$queue): ?>
-        <tr><td colspan="4" class="empty">No plans in the queue.</td></tr>
-      <?php endif; ?>
-      <?php foreach ($queue as $q): ?>
-        <tr class="click-row <?= $viewId === (int)$q['id'] ? 'is-selected' : '' ?>" data-href="?id=<?= (int)$q['id'] ?>">
-          <td><a href="?id=<?= (int)$q['id'] ?>"><?= e($q['title']) ?></a></td>
-          <td><?= e($q['professor_name']) ?></td>
-          <td><?= status_badge($q['status']) ?></td>
-          <td><?= e((string)($q['ai_score'] ?? '-')) ?></td>
-        </tr>
-      <?php endforeach; ?>
-      </tbody>
-    </table></div>
-  </div>
-  <div class="panel review-pane">
-    <?php if (!$view): ?><div class="empty">Select a plan to review.</div><?php else: ?>
-      <div class="review-head">
-        <h2><?= e($view['title']) ?></h2>
-        <p><?= e($view['professor_name']) ?> · <?= e($view['subject_name']) ?> · Score <?= e((string)$view['ai_score']) ?></p>
-      </div>
-      <form method="post" class="form-grid review-form">
-        <?= csrf_field() ?>
-        <input type="hidden" name="plan_id" value="<?= (int)$view['id'] ?>">
-
-        <section class="review-point">
-          <div class="review-point-h">
-            <strong>Course overview</strong>
-            <span class="chip"><?= e((string)$view['credits']) ?> credits</span>
-          </div>
-          <p class="review-copy"><?= e((string)($view['university'] ?? '')) ?><?= $view['university'] ? ' · ' : '' ?>v<?= (int)$view['version'] ?></p>
-          <?php if (!empty($view['syllabus_input'])): ?>
-            <p class="review-copy"><?= e(mb_strimwidth((string)$view['syllabus_input'], 0, 420, '…')) ?></p>
-          <?php endif; ?>
-          <?php HodFeedback::renderEditor($fb, 'overview', 'Course overview'); ?>
-        </section>
-
-        <section class="review-point">
-          <div class="review-point-h"><strong>Learning outcomes</strong></div>
-          <?php if (!$outcomes): ?>
-            <p class="review-copy">No outcomes listed.</p>
-          <?php else: ?>
-            <ol class="review-list">
-              <?php foreach ($outcomes as $o): ?>
-                <li><?= e(is_string($o) ? $o : json_encode($o)) ?></li>
-              <?php endforeach; ?>
-            </ol>
-          <?php endif; ?>
-          <?php HodFeedback::renderEditor($fb, 'outcomes', 'Learning outcomes'); ?>
-        </section>
-
-        <?php foreach ($units as $u): ?>
-          <?php
-            $num = (int)($u['unit_number'] ?? 0);
-            $unitTitle = (string)($u['title'] ?? '');
-            $topics = $u['topics'] ?? [];
-            $unitOut = $u['outcomes'] ?? [];
-            if (is_string($topics)) {
-                $topics = json_decode($topics, true) ?: [];
-            }
-            if (is_string($unitOut)) {
-                $unitOut = json_decode($unitOut, true) ?: [];
-            }
-            $label = 'Unit ' . $num . ($unitTitle !== '' ? ' · ' . $unitTitle : '');
-          ?>
-          <section class="review-point">
-            <div class="review-point-h">
-              <strong>Unit <?= $num ?> · <?= e($unitTitle) ?></strong>
-              <span class="chip"><?= e((string)($u['bloom_k_level'] ?? '')) ?> · <?= e((string)($u['hours'] ?? '')) ?>h</span>
-            </div>
-            <?php if ($topics): ?>
-              <p class="review-copy"><strong>Topics:</strong> <?= e(is_array($topics) ? implode(', ', $topics) : (string)$topics) ?></p>
-            <?php endif; ?>
-            <?php if ($unitOut): ?>
-              <p class="review-copy"><strong>Outcomes:</strong> <?= e(is_array($unitOut) ? implode('; ', $unitOut) : (string)$unitOut) ?></p>
-            <?php endif; ?>
-            <?php HodFeedback::renderEditor($fb, 'unit:' . $num, $label); ?>
-          </section>
-        <?php endforeach; ?>
-
-        <section class="review-point">
-          <div class="review-point-h"><strong>Bloom's mapping</strong></div>
-          <canvas id="bloomHod" height="140"></canvas>
-          <?php HodFeedback::renderEditor($fb, 'bloom', "Bloom's mapping"); ?>
-        </section>
-
-        <section class="review-point">
-          <div class="review-point-h"><strong>Weekly plan</strong></div>
-          <?php if (!$weekly): ?>
-            <p class="review-copy">No weekly plan.</p>
-          <?php else: ?>
-            <ul class="review-list">
-              <?php foreach (array_slice($weekly, 0, 8) as $w): ?>
-                <li>Week <?= e((string)($w['week'] ?? '')) ?> — <?= e((string)($w['focus'] ?? json_encode($w))) ?></li>
-              <?php endforeach; ?>
-            </ul>
-          <?php endif; ?>
-          <?php HodFeedback::renderEditor($fb, 'weekly', 'Weekly plan'); ?>
-        </section>
-
-        <section class="review-point">
-          <div class="review-point-h"><strong>Resources</strong></div>
-          <?php if (!$resources): ?>
-            <p class="review-copy">No resources listed.</p>
-          <?php else: ?>
-            <ul class="review-list">
-              <?php foreach ($resources as $r): ?>
-                <li><?= e(is_string($r) ? $r : json_encode($r)) ?></li>
-              <?php endforeach; ?>
-            </ul>
-          <?php endif; ?>
-          <?php HodFeedback::renderEditor($fb, 'resources', 'Resources'); ?>
-        </section>
-
-        <section class="review-point">
-          <div class="review-point-h"><strong>Expert advice</strong></div>
-          <?php if (!$advice): ?>
-            <p class="review-copy">No expert advice.</p>
-          <?php else: ?>
-            <ul class="review-list">
-              <?php foreach ($advice as $a): ?>
-                <li><?= e(is_string($a) ? $a : json_encode($a)) ?></li>
-              <?php endforeach; ?>
-            </ul>
-          <?php endif; ?>
-          <?php HodFeedback::renderEditor($fb, 'advice', 'Expert advice'); ?>
-        </section>
-
-        <section class="review-point">
-          <div class="review-point-h"><strong>Overall decision note</strong></div>
-          <textarea name="overall" rows="3" placeholder="Summary the professor will see at the top of the plan…"><?= e($fb['overall']) ?></textarea>
-        </section>
-
-        <div class="review-actions">
-          <button class="btn btn-ghost" name="action" value="comment" type="submit">Save comments</button>
-          <button class="btn btn-primary" name="action" value="approve" type="submit">Approve</button>
-          <button class="btn btn-ghost" name="action" value="request_changes" type="submit">Request changes</button>
-          <button class="btn btn-accent" name="action" value="reject" type="submit">Return</button>
-          <a class="btn btn-ghost" href="<?= e(base_url('/professor/plan-view.php?id='.$view['id'])) ?>">Full view</a>
-        </div>
-      </form>
-      <script>document.addEventListener('DOMContentLoaded',()=>PPAI.renderBloomChart('bloomHod', <?= json_encode($bloom) ?>));</script>
-    <?php endif; ?>
-  </div>
-</div>
-<?php render_footer(); ?>
+require __DIR__ . '/../app/Views/hod/approvals_page.php';

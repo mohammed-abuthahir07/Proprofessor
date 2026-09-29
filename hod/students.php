@@ -106,82 +106,81 @@ function hod_year_label(int $year): string
     };
 }
 
-render_header('Department Students', 'students');
+$studentCount = count($students);
+$deptName = trim((string)($dept['name'] ?? 'Department'));
+$countLine = $studentCount === 1 ? '1 active student' : ($studentCount . ' active students');
+$heroLine = $deptName . ' · ' . $countLine . ($year > 0 ? (' · ' . hod_year_label($year)) : '');
+
+render_header('Department Students', 'students', ['compactTitle' => true]);
 ?>
 <?php if (!$isAdmin && $deptId < 1): ?>
 <div class="panel">
   <div class="alert alert-warn">Your HOD account is not linked to a department. Contact the College Admin.</div>
 </div>
 <?php else: ?>
-<div class="hod-students-page">
-<section class="welcome-banner reveal">
-  <div>
-    <h2><?= e((string)($dept['name'] ?? 'Department')) ?> students</h2>
-    <p><?= count($students) ?> active student(s) in your department<?= $year > 0 ? ' · Year ' . $year : '' ?>.</p>
+<div class="hod-stu">
+<section class="hod-hero">
+  <div class="hod-hero-copy">
+    <h2><?= icon('users', 'icon-inline') ?> Department Students</h2>
+    <p><?= e($heroLine) ?></p>
   </div>
 </section>
 
-<div class="panel reveal hod-students-filters-panel">
-  <form method="get" class="form-grid hod-student-filters">
-    <div class="form-row hod-student-year-tabs">
-      <label>Year</label>
-      <div class="chip-row">
-        <?php foreach ([0 => 'All Years', 1 => '1st Year', 2 => '2nd Year', 3 => '3rd Year', 4 => '4th Year'] as $yearValue => $yearLabel): ?>
-          <a class="chip<?= $year === $yearValue ? ' active' : '' ?>" href="<?= e(hod_students_query(['year' => $yearValue, 'page' => 1])) ?>"><?= e($yearLabel) ?></a>
-        <?php endforeach; ?>
-      </div>
-    </div>
-    <div class="form-row two">
-      <div>
-        <label>Section</label>
-        <select name="section" onchange="this.form.submit()">
-          <option value="">All sections</option>
-          <?php foreach (array_keys($sections) as $sec): ?>
-            <option value="<?= e($sec) ?>"<?= $section === $sec ? ' selected' : '' ?>><?= e($sec) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div>
-        <label>Class</label>
-        <select name="class_id" onchange="this.form.submit()">
-          <option value="">All classes</option>
-          <?php foreach ($classes as $classRow): ?>
-            <option value="<?= (int)$classRow['id'] ?>"<?= $classId === (int)$classRow['id'] ? ' selected' : '' ?>>
-              <?= e(class_batch_label($classRow)) ?>
-            </option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-    </div>
-    <div class="form-row two">
-      <div>
-        <label>Program</label>
-        <select name="program_level" onchange="this.form.submit()">
-          <option value="">All programs</option>
-          <option value="UG"<?= $programLevel === 'UG' ? ' selected' : '' ?>>UG</option>
-          <option value="PG"<?= $programLevel === 'PG' ? ' selected' : '' ?>>PG</option>
-        </select>
-      </div>
-      <div>
-        <label>Search</label>
-        <input type="search" name="q" value="<?= e($search) ?>" placeholder="Name, email, or roll number">
-      </div>
-    </div>
+<section class="hod-panel hod-stu-filters">
+  <div class="hod-stu-years" aria-label="Year">
+    <?php foreach ([0 => 'All Years', 1 => '1st Year', 2 => '2nd Year', 3 => '3rd Year', 4 => '4th Year'] as $yearValue => $yearLabel): ?>
+      <a class="hod-stu-year<?= $year === $yearValue ? ' is-on' : '' ?>" href="<?= e(hod_students_query(['year' => $yearValue, 'page' => 1])) ?>"><?= e($yearLabel) ?></a>
+    <?php endforeach; ?>
+  </div>
+  <form method="get" class="hod-stu-form">
     <?php if ($year > 0): ?>
       <input type="hidden" name="year" value="<?= $year ?>">
     <?php endif; ?>
-    <div class="filters hod-students-filter-actions">
-      <button class="btn btn-primary" type="submit">Apply filters</button>
+    <label class="hod-stu-field">
+      <span>Section</span>
+      <select name="section" aria-label="Section" onchange="this.form.submit()">
+        <option value="">All sections</option>
+        <?php foreach (array_keys($sections) as $sec): ?>
+          <option value="<?= e($sec) ?>"<?= $section === $sec ? ' selected' : '' ?>><?= e($sec) ?></option>
+        <?php endforeach; ?>
+      </select>
+    </label>
+    <label class="hod-stu-field">
+      <span>Class</span>
+      <select name="class_id" aria-label="Class" onchange="this.form.submit()">
+        <option value="">All classes</option>
+        <?php foreach ($classes as $classRow): ?>
+          <option value="<?= (int)$classRow['id'] ?>"<?= $classId === (int)$classRow['id'] ? ' selected' : '' ?>>
+            <?= e(class_batch_label($classRow)) ?>
+          </option>
+        <?php endforeach; ?>
+      </select>
+    </label>
+    <label class="hod-stu-field">
+      <span>Program</span>
+      <select name="program_level" aria-label="Program" onchange="this.form.submit()">
+        <option value="">All programs</option>
+        <option value="UG"<?= $programLevel === 'UG' ? ' selected' : '' ?>>UG</option>
+        <option value="PG"<?= $programLevel === 'PG' ? ' selected' : '' ?>>PG</option>
+      </select>
+    </label>
+    <label class="hod-stu-field hod-stu-search">
+      <span>Search</span>
+      <input type="search" name="q" value="<?= e($search) ?>" placeholder="Name, email, or roll number" aria-label="Search students">
+    </label>
+    <div class="hod-stu-actions">
+      <button class="btn btn-primary" type="submit">Apply</button>
       <a class="btn btn-ghost" href="<?= e(url('/hod/students')) ?>">Reset</a>
     </div>
   </form>
-</div>
+</section>
 
-<div class="panel reveal hod-students-list-panel" style="margin-top:1.25rem">
+<section class="hod-panel hod-stu-list">
   <?php if (!$students): ?>
     <div class="empty">No students match the current filters in this department.</div>
   <?php else: ?>
-    <div class="panel-h" style="margin-bottom:.75rem;align-items:center">
+    <div class="hod-stu-list-h">
+      <h2><?= icon('users', 'icon-inline') ?> Students</h2>
       <span class="chip"><?= (int)$showingFrom ?>–<?= (int)$showingTo ?> of <?= (int)$studentTotal ?> · 10 per page</span>
     </div>
     <div class="students-tree">
@@ -228,9 +227,9 @@ render_header('Department Students', 'students');
       <?php endforeach; ?>
     </div>
     <?php if ($studentTotalPages > 1): ?>
-    <div class="panel-h" style="margin-top:1rem;align-items:center">
+    <div class="hod-stu-pager">
       <span class="chip">Page <?= (int)$studentPage ?> / <?= (int)$studentTotalPages ?></span>
-      <div style="display:flex;gap:.4rem">
+      <div class="hod-stu-pager-actions">
         <?php if ($studentPage > 1): ?>
           <a class="btn btn-sm btn-ghost" href="<?= e(hod_students_query(['page' => $studentPage - 1])) ?>">Previous</a>
         <?php else: ?>
@@ -245,7 +244,7 @@ render_header('Department Students', 'students');
     </div>
     <?php endif; ?>
   <?php endif; ?>
-</div>
+</section>
 </div>
 <?php endif; ?>
 <?php render_footer(); ?>
