@@ -17,7 +17,7 @@ final class LegacyController extends Controller
         $this->serve('professor', $page, [
             'generate-plan', 'plans', 'plan-view', 'plan-compare', 'plan-export',
             'lessons', 'questions', 'question-paper',
-            'ppt', 'ppt-view', 'ppt-download', 'ppt-pdf', 'ppt-handout', 'assignments', 'attendance', 'marks', 'messages', 'message-hod', 'settings',
+            'ppt', 'ppt-view', 'ppt-download', 'ppt-pdf', 'ppt-handout', 'assignments', 'notes', 'attendance', 'marks', 'messages', 'message-hod', 'settings',
         ]);
     }
 
@@ -25,7 +25,7 @@ final class LegacyController extends Controller
     {
         $this->requireRole('student');
         $this->serve('student', $page, [
-            'courses', 'notes', 'ppt-view', 'ppt-download', 'ppt-pdf', 'assignments', 'attendance', 'attendance-qr', 'marks', 'academic-history', 'calendar', 'ask-ai',
+            'courses', 'notes', 'materials', 'ppt-view', 'ppt-download', 'ppt-pdf', 'assignments', 'attendance', 'attendance-qr', 'marks', 'academic-history', 'calendar', 'ask-ai',
         ]);
     }
 

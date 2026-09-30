@@ -47,86 +47,164 @@ if ($classId > 0) {
     $marks = Database::fetchAll($sql, $params);
 }
 
-render_header('Internal Marks', 'marks', [
-    'subtitle' => $classLabel !== '' ? $classLabel : 'Your subject-wise marks',
-]);
+$fmtNum = static function ($n): string {
+    return rtrim(rtrim(number_format((float)$n, 2, '.', ''), '0'), '.');
+};
+$rows = [];
+$columns = [];
+$scoreSum = 0.0;
+$maxSum = 0.0;
+$hasScore = false;
+$pcts = [];
+$formulaNames = [];
+$showGrade = false;
+foreach ($marks as $m) {
+    $md = json_decode((string)($m['marks_data'] ?? '{}'), true) ?: [];
+    $meta = json_decode((string)($m['meta'] ?? '{}'), true) ?: [];
+    $compDefs = MarksFormula::normalizeComponents($meta['components'] ?? ($m['formula_components'] ?? []));
+    $totalMax = (float)($meta['total_max'] ?? $m['formula_total_max'] ?? 0);
+    $total = $m['computed_total'];
+    $cells = [];
+    if ($compDefs) {
+        foreach ($compDefs as $c) {
+            $code = strtolower((string)$c['code']);
+            if (!isset($columns[$code])) {
+                $columns[$code] = (string)$c['label'];
+            }
+            $val = null;
+            foreach ($md as $k => $v) {
+                if (strcasecmp((string)$k, (string)$c['code']) === 0) {
+                    $val = $v;
+                    break;
+                }
+            }
+            $cells[$code] = [
+                'value' => $val,
+                'max' => (float)$c['max'],
+            ];
+        }
+    } else {
+        foreach ($md as $k => $v) {
+            $code = strtolower((string)$k);
+            if (!isset($columns[$code])) {
+                $columns[$code] = (string)$k;
+            }
+            $cells[$code] = ['value' => $v, 'max' => 0.0];
+        }
+    }
+    $pct = null;
+    if ($total !== null && $total !== '' && $totalMax > 0) {
+        $pct = round(((float)$total * 100) / $totalMax, 1);
+        $pcts[] = $pct;
+        $scoreSum += (float)$total;
+        $maxSum += $totalMax;
+        $hasScore = true;
+    }
+    $formula = trim((string)($meta['formula_name'] ?? $m['formula_name'] ?? ''));
+    if ($formula !== '') {
+        $formulaNames[$formula] = true;
+    }
+    if (!empty($m['grade_letter'])) {
+        $showGrade = true;
+    }
+    $rows[] = [
+        'name' => (string)$m['subject_name'],
+        'code' => (string)($m['subject_code'] ?? ''),
+        'cells' => $cells,
+        'total' => $total,
+        'total_max' => $totalMax,
+        'pct' => $pct,
+        'grade' => (string)($m['grade_letter'] ?? ''),
+    ];
+}
+$avgPct = $pcts !== [] ? round(array_sum($pcts) / count($pcts), 1) : null;
+$formulaNote = count($formulaNames) === 1 ? (string)array_key_first($formulaNames) : '';
+
+render_header('Internal Marks', 'marks', ['compactTitle' => true]);
 ?>
-<div class="panel">
+<div class="stu-marks">
+  <section class="stu-marks-head">
+    <h2><?= icon('chart', 'icon-inline') ?> My Marks</h2>
+    <p>Internal marks<?= $classLabel !== '' ? ' · ' . e($classLabel) : '' ?><?= $academicYear !== '' ? ' · ' . e($academicYear) : '' ?></p>
+  </section>
   <?php if ($classId < 1): ?>
     <div class="empty">Your account is not assigned to a class. Ask College Admin to put you in the correct year and section.</div>
   <?php elseif (!$marks): ?>
     <div class="empty">Marks for <?= e($classLabel !== '' ? $classLabel : 'your class') ?> are not published yet<?= $academicYear !== '' ? ' for ' . e($academicYear) : '' ?>.</div>
   <?php else: ?>
-    <div class="form-grid" style="gap:1rem">
-    <?php foreach ($marks as $m):
-      $md = json_decode((string)($m['marks_data'] ?? '{}'), true) ?: [];
-      $meta = json_decode((string)($m['meta'] ?? '{}'), true) ?: [];
-      $compDefs = MarksFormula::normalizeComponents($meta['components'] ?? ($m['formula_components'] ?? []));
-      $totalMax = (float)($meta['total_max'] ?? $m['formula_total_max'] ?? 25);
-      $total = $m['computed_total'];
-      $labels = [];
-      foreach ($compDefs as $c) {
-          $labels[strtolower($c['code'])] = $c['label'];
-      }
-    ?>
-      <article class="panel" style="margin:0;padding:1rem 1.1rem">
-        <h3 style="margin:0 0 .75rem;font-size:1.05rem">
-          <?= e((string)$m['subject_name']) ?>
-          <?php if (!empty($m['subject_code'])): ?>
-            <span style="opacity:.65;font-weight:500;font-size:.9rem"> · <?= e((string)$m['subject_code']) ?></span>
-          <?php endif; ?>
-        </h3>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Component</th><th style="text-align:right">Marks</th></tr></thead>
+    <div class="stu-marks-kpis">
+      <div class="stu-marks-kpi is-avg">
+        <strong><?= $avgPct === null ? '—' : e($fmtNum($avgPct)) . '%' ?></strong>
+        <span>Average score</span>
+      </div>
+      <div class="stu-marks-kpi is-scored">
+        <strong><?= $hasScore ? e($fmtNum($scoreSum)) : '—' ?></strong>
+        <span>Total marks scored</span>
+      </div>
+      <div class="stu-marks-kpi is-max">
+        <strong><?= $maxSum > 0 ? e($fmtNum($maxSum)) : '—' ?></strong>
+        <span>Max internal marks</span>
+      </div>
+    </div>
+    <div class="panel stu-marks-table">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Subject</th>
+              <?php foreach ($columns as $label): ?>
+                <th><?= e($label) ?></th>
+              <?php endforeach; ?>
+              <th>Total</th>
+              <th>%</th>
+              <?php if ($showGrade): ?><th>Grade</th><?php endif; ?>
+            </tr>
+          </thead>
           <tbody>
-          <?php if ($compDefs): ?>
-            <?php foreach ($compDefs as $c):
-              $val = null;
-              foreach ($md as $k => $v) {
-                  if (strcasecmp((string)$k, $c['code']) === 0) {
-                      $val = $v;
-                      break;
-                  }
-              }
-              $max = (float)$c['max'];
-            ?>
-              <tr>
-                <td><?= e($c['label']) ?></td>
-                <td style="text-align:right">
-                  <?= $val === null || $val === '' ? '—' : e((string)$val) ?>
-                  <?php if ($max > 0 && $val !== null && $val !== ''): ?>
-                    <span style="opacity:.6"> / <?= e(rtrim(rtrim(number_format($max, 2, '.', ''), '0'), '.')) ?></span>
+          <?php foreach ($rows as $row): ?>
+            <tr>
+              <td>
+                <strong><?= e($row['name']) ?></strong>
+                <?php if ($row['code'] !== ''): ?><span class="stu-marks-code"><?= e($row['code']) ?></span><?php endif; ?>
+              </td>
+              <?php foreach ($columns as $code => $label):
+                $cell = $row['cells'][$code] ?? null;
+                $val = $cell['value'] ?? null;
+                $max = (float)($cell['max'] ?? 0);
+              ?>
+                <td>
+                  <?php if ($val === null || $val === ''): ?>
+                    —
+                  <?php else: ?>
+                    <?= e($fmtNum($val)) ?><?php if ($max > 0): ?><span class="stu-marks-of">/<?= e($fmtNum($max)) ?></span><?php endif; ?>
                   <?php endif; ?>
                 </td>
-              </tr>
-            <?php endforeach; ?>
-          <?php else: ?>
-            <?php foreach ($md as $k => $v): ?>
-              <tr>
-                <td><?= e($labels[strtolower((string)$k)] ?? (string)$k) ?></td>
-                <td style="text-align:right"><?= e((string)$v) ?></td>
-              </tr>
-            <?php endforeach; ?>
-          <?php endif; ?>
-            <tr>
-              <td><strong>Internal</strong></td>
-              <td style="text-align:right"><strong>
-                <?= $total === null || $total === '' ? '—' : e(rtrim(rtrim(number_format((float)$total, 2, '.', ''), '0'), '.')) ?>
-                <?php if ($total !== null && $total !== '' && $totalMax > 0): ?>
-                  / <?= e(rtrim(rtrim(number_format($totalMax, 2, '.', ''), '0'), '.')) ?>
+              <?php endforeach; ?>
+              <td>
+                <?php if ($row['total'] === null || $row['total'] === ''): ?>
+                  —
+                <?php else: ?>
+                  <strong><?= e($fmtNum($row['total'])) ?></strong><?php if ($row['total_max'] > 0): ?><span class="stu-marks-of">/<?= e($fmtNum($row['total_max'])) ?></span><?php endif; ?>
                 <?php endif; ?>
-              </strong></td>
+              </td>
+              <td>
+                <?php if ($row['pct'] === null): ?>
+                  —
+                <?php else: ?>
+                  <span class="stu-marks-pct"><?= e($fmtNum($row['pct'])) ?>%</span>
+                <?php endif; ?>
+              </td>
+              <?php if ($showGrade): ?>
+                <td><?= $row['grade'] !== '' ? e($row['grade']) : '—' ?></td>
+              <?php endif; ?>
             </tr>
-            <?php if (!empty($m['grade_letter'])): ?>
-            <tr>
-              <td>Grade</td>
-              <td style="text-align:right"><strong><?= e((string)$m['grade_letter']) ?></strong></td>
-            </tr>
-            <?php endif; ?>
+          <?php endforeach; ?>
           </tbody>
-        </table></div>
-      </article>
-    <?php endforeach; ?>
+        </table>
+      </div>
+      <?php if ($formulaNote !== ''): ?>
+        <p class="stu-marks-note"><?= e($formulaNote) ?></p>
+      <?php endif; ?>
     </div>
   <?php endif; ?>
 </div>

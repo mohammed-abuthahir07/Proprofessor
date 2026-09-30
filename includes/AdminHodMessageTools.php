@@ -10,6 +10,48 @@ final class AdminHodMessageTools
 
     public const ATTACHMENT_MAX_BYTES = 10485760; // 10 MB
 
+    /** @var array<string,string> */
+    public const AUDIENCES = [
+        'ALL_HODS' => 'All HODs',
+        'ALL_PROFESSORS' => 'All Professors',
+        'ALL_STUDENTS' => 'All Students',
+        'YEAR_1' => 'First Year Students',
+        'YEAR_2' => 'Second Year Students',
+        'YEAR_3' => 'Third Year Students',
+        'YEAR_4' => 'Fourth Year Students',
+    ];
+
+    public static function normalizeAudience(string $audience): ?string
+    {
+        $audience = strtoupper(trim($audience));
+        return isset(self::AUDIENCES[$audience]) ? $audience : null;
+    }
+
+    public static function audienceLabel(?string $audience): string
+    {
+        $audience = strtoupper(trim((string)$audience));
+        return self::AUDIENCES[$audience] ?? self::AUDIENCES['ALL_HODS'];
+    }
+
+    /** @var array<string,string> */
+    public const NOTICE_TYPES = [
+        'IMPORTANT' => 'Important',
+        'ACADEMIC' => 'Academic',
+        'EVENT' => 'Event',
+    ];
+
+    public static function normalizeNoticeType(string $noticeType): ?string
+    {
+        $noticeType = strtoupper(trim($noticeType));
+        return isset(self::NOTICE_TYPES[$noticeType]) ? $noticeType : null;
+    }
+
+    public static function noticeTypeLabel(?string $noticeType): string
+    {
+        $noticeType = strtoupper(trim((string)$noticeType));
+        return self::NOTICE_TYPES[$noticeType] ?? '';
+    }
+
     public static function ensureSchema(): void
     {
         if (self::$schemaReady) {
@@ -56,6 +98,68 @@ final class AdminHodMessageTools
                AND u.is_active = 1
              ORDER BY d.name, u.full_name',
             [$instId]
+        );
+    }
+
+    /**
+     * Active users in this institution who match the selected audience.
+     * Year targets use the same year field as the rest of the app:
+     * users.academic_year_level, falling back to the student's class year.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function findRecipients(array $admin, string $audience): array
+    {
+        $audience = self::normalizeAudience($audience);
+        if ($audience === null) {
+            return [];
+        }
+        if ($audience === 'ALL_HODS') {
+            return self::findHodRecipients($admin);
+        }
+        $instId = (int)($admin['institution_id'] ?? 0);
+        if ($instId < 1) {
+            return [];
+        }
+        if ($audience === 'ALL_PROFESSORS') {
+            return Database::fetchAll(
+                'SELECT u.id, u.full_name, u.role
+                 FROM users u
+                 WHERE u.institution_id = ? AND u.role = "professor" AND u.is_active = 1
+                 ORDER BY u.full_name',
+                [$instId]
+            );
+        }
+        if ($audience === 'ALL_STUDENTS') {
+            return Database::fetchAll(
+                'SELECT u.id, u.full_name, u.role
+                 FROM users u
+                 WHERE u.institution_id = ? AND u.role = "student" AND u.is_active = 1
+                 ORDER BY u.full_name',
+                [$instId]
+            );
+        }
+        $year = (int)substr($audience, 5);
+        if ($year < 1 || $year > 4) {
+            return [];
+        }
+        ensure_student_academic_schema();
+        return Database::fetchAll(
+            'SELECT u.id, u.full_name, u.role
+             FROM users u
+             LEFT JOIN classes c ON c.id = u.class_id
+             WHERE u.institution_id = ?
+               AND u.role = "student"
+               AND u.is_active = 1
+               AND (
+                 (u.academic_year_level BETWEEN 1 AND 4 AND u.academic_year_level = ?)
+                 OR (
+                   (u.academic_year_level IS NULL OR u.academic_year_level < 1 OR u.academic_year_level > 4)
+                   AND c.year = ?
+                 )
+               )
+             ORDER BY u.full_name',
+            [$instId, $year, $year]
         );
     }
 
@@ -168,9 +272,9 @@ final class AdminHodMessageTools
 
     /**
      * @param array<string,mixed>|null $uploadFile
-     * @return array{ok:bool,error?:string,recipient_count?:int,announcement_id?:int}
+     * @return array{ok:bool,error?:string,recipient_count?:int,announcement_id?:int,audience?:string}
      */
-    public static function send(array $admin, string $message, string $title = '', ?array $uploadFile = null): array
+    public static function send(array $admin, string $message, string $title = '', ?array $uploadFile = null, string $audience = '', string $noticeType = ''): array
     {
         self::ensureSchema();
         $role = (string)($admin['role'] ?? '');
@@ -196,9 +300,20 @@ final class AdminHodMessageTools
         }
         $title = mb_substr($title, 0, 200);
 
-        $recipients = self::findHodRecipients($admin);
+        $audience = self::normalizeAudience($audience) ?? '';
+        if ($audience === '') {
+            return ['ok' => false, 'error' => 'Select a target audience.'];
+        }
+        $audienceLabel = self::audienceLabel($audience);
+
+        $noticeType = self::normalizeNoticeType($noticeType) ?? '';
+        if ($noticeType === '') {
+            return ['ok' => false, 'error' => 'Select a category: Important, Academic, or Event.'];
+        }
+
+        $recipients = self::findRecipients($admin, $audience);
         if (!$recipients) {
-            return ['ok' => false, 'error' => 'No active HODs found in this institution.'];
+            return ['ok' => false, 'error' => 'No active recipients found for ' . $audienceLabel . '.'];
         }
 
         $attachment = null;
@@ -227,45 +342,54 @@ final class AdminHodMessageTools
             'attachment_size' => isset($attachment['size']) ? (int)$attachment['size'] : null,
             'meta' => json_encode([
                 'sender_name' => $senderName,
+                'audience' => $audience,
+                'notice_type' => $noticeType,
                 'has_attachment' => !empty($attachment['path']),
                 'attachment_original_name' => $attachment['original_name'] ?? null,
             ], JSON_UNESCAPED_UNICODE),
         ]);
 
+        $kind = $audience === 'ALL_HODS' ? 'admin_hod_message' : 'admin_audience_message';
+        $inboxUrl = match ($audience) {
+            'ALL_HODS' => '/hod/notifications',
+            'ALL_PROFESSORS' => '/professor/notifications',
+            default => '/student/notifications',
+        };
+        $yearTarget = str_starts_with($audience, 'YEAR_') ? (int)substr($audience, 5) : 0;
+
         $sent = 0;
-        foreach ($recipients as $hod) {
-            $uid = (int)($hod['id'] ?? 0);
-            if ($uid < 1) {
+        foreach ($recipients as $recipient) {
+            $uid = (int)($recipient['id'] ?? 0);
+            if ($uid < 1 || !self::recipientStillMatches($uid, $instId, $audience, $yearTarget)) {
                 continue;
             }
-            $check = Database::fetch(
-                'SELECT id FROM users WHERE id = ? AND institution_id = ? AND role = "hod" AND is_active = 1',
-                [$uid, $instId]
-            );
-            if (!$check) {
-                continue;
-            }
-            notify_user(
+            $nid = NotificationService::notify(
                 $uid,
                 'announcement',
                 $title,
                 $body,
-                '/hod/notifications',
+                $inboxUrl,
                 [
-                    'priority' => NotificationService::PRIORITY_MEDIUM,
+                    'priority' => $noticeType === 'IMPORTANT'
+                        ? NotificationService::PRIORITY_HIGH
+                        : NotificationService::PRIORITY_MEDIUM,
                     'category' => 'system',
                     'action' => ['type' => 'OPEN_NOTIFICATIONS'],
                     'meta' => [
                         'announcement_id' => $annId,
                         'admin_id' => (int)$admin['id'],
-                        'kind' => 'admin_hod_message',
+                        'kind' => $kind,
+                        'audience' => $audience,
+                        'notice_type' => $noticeType,
                         'has_attachment' => !empty($attachment['path']),
                         'attachment_original_name' => $attachment['original_name'] ?? null,
                         'sender_name' => $senderName,
                     ],
                 ]
             );
-            $sent++;
+            if ($nid > 0) {
+                $sent++;
+            }
         }
 
         if ($sent !== count($recipients)) {
@@ -278,14 +402,52 @@ final class AdminHodMessageTools
             if (!empty($attachment['path'])) {
                 self::deleteAttachmentFile((string)$attachment['path']);
             }
-            return ['ok' => false, 'error' => 'Could not deliver to any HODs.'];
+            Database::query('DELETE FROM admin_hod_announcements WHERE id = ? AND institution_id = ?', [$annId, $instId]);
+            return ['ok' => false, 'error' => 'Could not deliver to any recipients.'];
         }
 
         return [
             'ok' => true,
             'recipient_count' => $sent,
             'announcement_id' => $annId,
+            'audience' => $audience,
+            'notice_type' => $noticeType,
         ];
+    }
+
+    private static function recipientStillMatches(int $userId, int $instId, string $audience, int $yearTarget): bool
+    {
+        if ($audience === 'ALL_HODS') {
+            $row = Database::fetch(
+                'SELECT id FROM users WHERE id = ? AND institution_id = ? AND role = "hod" AND is_active = 1',
+                [$userId, $instId]
+            );
+            return (bool)$row;
+        }
+        if ($audience === 'ALL_PROFESSORS') {
+            $row = Database::fetch(
+                'SELECT id FROM users WHERE id = ? AND institution_id = ? AND role = "professor" AND is_active = 1',
+                [$userId, $instId]
+            );
+            return (bool)$row;
+        }
+        if ($audience === 'ALL_STUDENTS') {
+            $row = Database::fetch(
+                'SELECT id FROM users WHERE id = ? AND institution_id = ? AND role = "student" AND is_active = 1',
+                [$userId, $instId]
+            );
+            return (bool)$row;
+        }
+        if ($yearTarget < 1 || $yearTarget > 4) {
+            return false;
+        }
+        $row = Database::fetch(
+            'SELECT id, role, academic_year_level, class_id, institution_id
+             FROM users
+             WHERE id = ? AND institution_id = ? AND role = "student" AND is_active = 1',
+            [$userId, $instId]
+        );
+        return $row && student_academic_year_level($row) === $yearTarget;
     }
 
     /**
@@ -333,6 +495,31 @@ final class AdminHodMessageTools
         return $hod ? $ann : null;
     }
 
+    /**
+     * Professor or student may download only when this announcement was delivered to them.
+     */
+    public static function announcementForAudienceAttachment(array $user, int $announcementId): ?array
+    {
+        $role = (string)($user['role'] ?? '');
+        if (!in_array($role, ['professor', 'student'], true)) {
+            return null;
+        }
+        $ann = self::getAnnouncement($announcementId, (int)($user['institution_id'] ?? 0));
+        if (!$ann || trim((string)($ann['attachment_path'] ?? '')) === '') {
+            return null;
+        }
+        $hit = Database::fetch(
+            'SELECT id FROM notifications
+             WHERE user_id = ?
+               AND type = ?
+               AND JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) = ?
+               AND CAST(JSON_UNQUOTE(JSON_EXTRACT(meta, "$.announcement_id")) AS UNSIGNED) = ?
+             LIMIT 1',
+            [(int)$user['id'], 'announcement', 'admin_audience_message', $announcementId]
+        );
+        return $hit ? $ann : null;
+    }
+
     /** Admin may download their own institution's announcement attachment. */
     public static function announcementForAdminAttachment(array $user, int $announcementId): ?array
     {
@@ -368,13 +555,12 @@ final class AdminHodMessageTools
             return ['ok' => false, 'error' => 'Message not found.'];
         }
 
-        // Remove from every HOD notification feed that references this announcement.
         Database::query(
             'DELETE FROM notifications
              WHERE type = ?
-               AND JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) = ?
+               AND JSON_UNQUOTE(JSON_EXTRACT(meta, "$.kind")) IN (?, ?)
                AND CAST(JSON_UNQUOTE(JSON_EXTRACT(meta, "$.announcement_id")) AS UNSIGNED) = ?',
-            ['announcement', 'admin_hod_message', $announcementId]
+            ['announcement', 'admin_hod_message', 'admin_audience_message', $announcementId]
         );
 
         self::deleteAttachmentFile((string)($ann['attachment_path'] ?? ''));

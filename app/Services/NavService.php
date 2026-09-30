@@ -11,11 +11,11 @@ final class NavService
             'student' => [
                 ['label' => 'MAIN', 'items' => [
                     ['key' => 'dash', 'label' => 'Dashboard', 'href' => '/student/dashboard', 'icon' => 'home'],
-                    ['key' => 'courses', 'label' => 'My Courses', 'href' => '/student/courses', 'icon' => 'book', 'feature' => 'student_portal'],
-                    ['key' => 'notes', 'label' => 'Course PPT', 'href' => '/student/notes', 'icon' => 'folder'],
+                    ['key' => 'courses', 'label' => 'My Subjects', 'href' => '/student/courses', 'icon' => 'book', 'feature' => 'student_portal'],
                 ]],
                 ['label' => 'LEARNING', 'items' => [
                     ['key' => 'assignments', 'label' => 'Assignments', 'href' => '/student/assignments', 'icon' => 'edit'],
+                    ['key' => 'materials', 'label' => 'Study Materials', 'href' => '/student/materials', 'icon' => 'file'],
                     ['key' => 'ask', 'label' => 'Ask AI', 'href' => '/student/ask-ai', 'icon' => 'ai', 'feature' => 'ask_ai'],
                     ['key' => 'calendar', 'label' => 'Calendar', 'href' => '/student/calendar', 'icon' => 'calendar'],
                 ]],
@@ -23,7 +23,7 @@ final class NavService
                     ['key' => 'attendance', 'label' => 'Attendance', 'href' => '/student/attendance', 'icon' => 'calendar'],
                     ['key' => 'marks', 'label' => 'Internal Marks', 'href' => '/student/marks', 'icon' => 'chart'],
                     ['key' => 'history', 'label' => 'Academic History', 'href' => '/student/academic-history', 'icon' => 'clock'],
-                    ['key' => 'notifications', 'label' => 'Notifications', 'href' => '/student/notifications', 'icon' => 'bell'],
+                    ['key' => 'notifications', 'label' => 'Notices', 'href' => '/student/notifications', 'icon' => 'bell'],
                 ]],
             ],
             'hod' => [
@@ -74,6 +74,7 @@ final class NavService
                 ]],
                 ['label' => 'ACADEMIC', 'items' => [
                     ['key' => 'assignments', 'label' => 'Assignments', 'href' => '/professor/assignments', 'icon' => 'edit', 'feature' => 'assignment_ai'],
+                    ['key' => 'notes', 'label' => 'Notes', 'href' => '/professor/notes', 'icon' => 'file'],
                     ['key' => 'attendance', 'label' => 'Attendance', 'href' => '/professor/attendance', 'icon' => 'calendar', 'feature' => 'attendance'],
                     ['key' => 'marks', 'label' => 'Internal Marks', 'href' => '/professor/marks', 'icon' => 'chart', 'feature' => 'internal_marks'],
                     ['key' => 'messages', 'label' => 'Message Students', 'href' => '/professor/messages', 'icon' => 'mail'],

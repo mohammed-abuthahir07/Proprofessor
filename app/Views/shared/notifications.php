@@ -9,6 +9,8 @@
 /** @var bool $canMessageHods */
 /** @var int $hodRecipientCount */
 /** @var array $hodSentHistory */
+/** @var array<string,string> $audienceOptions */
+/** @var array<string,int> $audienceCounts */
 $typeFilter = $typeFilter ?? null;
 $priorityFilter = $priorityFilter ?? null;
 $providers = $providers ?? \NotificationService::allProviderStatuses();
@@ -17,49 +19,72 @@ $digestPreview = $digestPreview ?? null;
 $canMessageHods = !empty($canMessageHods);
 $hodRecipientCount = (int)($hodRecipientCount ?? 0);
 $hodSentHistory = $hodSentHistory ?? [];
+$audienceOptions = $audienceOptions ?? \AdminHodMessageTools::AUDIENCES;
+$audienceCounts = $audienceCounts ?? [];
 ?>
 <?php if ($canMessageHods): ?>
 <div class="grid grid-2" style="margin-bottom:1rem;align-items:start">
   <div class="panel">
     <div class="panel-h">
-      <h2 style="margin:0;font-size:1.05rem">Message all HODs</h2>
-      <span class="chip"><?= (int)$hodRecipientCount ?> HOD<?= $hodRecipientCount === 1 ? '' : 's' ?></span>
+      <h2 style="margin:0;font-size:1.05rem">Send announcement</h2>
+      <span class="chip" id="audienceCount">Choose audience</span>
     </div>
-    <p class="muted" style="font-size:.85rem;margin:.35rem 0 .85rem">Send a message (and optional PDF/DOCX) to every active HOD in this institution.</p>
-    <form method="post" enctype="multipart/form-data" class="form-grid">
+    <p class="muted" style="font-size:.85rem;margin:.35rem 0 .85rem">Send a message (and optional PDF/DOCX) to the audience you select.</p>
+    <form method="post" enctype="multipart/form-data" class="form-grid" id="audienceForm">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="send_hod_message">
       <div class="form-row">
+        <label for="audience">Target audience</label>
+        <select name="audience" id="audience" required>
+          <option value="">Select target audience</option>
+          <?php foreach ($audienceOptions as $code => $label): ?>
+            <option value="<?= e($code) ?>" data-count="<?= (int)($audienceCounts[$code] ?? 0) ?>"><?= e($label) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="notice_type">Category</label>
+        <select name="notice_type" id="notice_type" required>
+          <option value="">Select category</option>
+          <?php foreach (\AdminHodMessageTools::NOTICE_TYPES as $code => $label): ?>
+            <option value="<?= e($code) ?>"><?= e($label) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="form-row">
         <label for="hod_title">Title <span class="muted">(optional)</span></label>
-        <input type="text" name="title" id="hod_title" maxlength="200" placeholder="Message from College Admin" <?= $hodRecipientCount < 1 ? 'disabled' : '' ?>>
+        <input type="text" name="title" id="hod_title" maxlength="200" placeholder="Message from College Admin">
       </div>
       <div class="form-row">
         <label for="hod_message">Message</label>
-        <textarea name="message" id="hod_message" rows="5" maxlength="4000" required placeholder="Write your message to all HODs…" <?= $hodRecipientCount < 1 ? 'disabled' : '' ?>></textarea>
+        <textarea name="message" id="hod_message" rows="5" maxlength="4000" required placeholder="Write your announcement…"></textarea>
         <div class="muted" style="font-size:.8rem;margin-top:.25rem">Max 4000 characters.</div>
       </div>
       <div class="form-row">
         <label for="hod_attachment">Attachment <span class="muted">(optional)</span></label>
-        <input type="file" name="attachment" id="hod_attachment" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" <?= $hodRecipientCount < 1 ? 'disabled' : '' ?>>
+        <input type="file" name="attachment" id="hod_attachment" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
         <div class="muted" style="font-size:.8rem;margin-top:.25rem">Supported: PDF, DOCX · Max 10 MB.</div>
       </div>
-      <button class="btn btn-primary" type="submit" <?= $hodRecipientCount < 1 ? 'disabled' : '' ?>>Send to all HODs</button>
+      <button class="btn btn-primary" type="submit" id="audienceSend">Send announcement</button>
     </form>
   </div>
   <div class="panel" style="max-height:min(70vh, 640px);overflow:auto">
-    <div class="panel-h"><strong>Sent to HODs</strong></div>
+    <div class="panel-h"><strong>Sent announcements</strong></div>
     <?php if (!$hodSentHistory): ?>
-      <div class="empty">No HOD messages sent yet.</div>
+      <div class="empty">No announcements sent yet.</div>
     <?php else: ?>
       <?php foreach ($hodSentHistory as $h):
         $hasAtt = trim((string)($h['attachment_path'] ?? '')) !== '';
         $attName = (string)($h['attachment_original_name'] ?? '');
         $attExt = strtolower(pathinfo($attName, PATHINFO_EXTENSION));
+        $hMeta = json_decode((string)($h['meta'] ?? ''), true) ?: [];
+        $targetLabel = \AdminHodMessageTools::audienceLabel((string)($hMeta['audience'] ?? 'ALL_HODS'));
+        $noticeLabel = \AdminHodMessageTools::noticeTypeLabel((string)($hMeta['notice_type'] ?? ''));
       ?>
         <div style="padding:.85rem 0;border-bottom:1px solid var(--line)">
           <div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start">
             <strong><?= e((string)$h['title']) ?></strong>
-            <form method="post" style="margin:0;flex-shrink:0" onsubmit="return confirm('Delete this message for admin and all HODs?');">
+            <form method="post" style="margin:0;flex-shrink:0" onsubmit="return confirm('Delete this message for the admin and its recipients?');">
               <?= csrf_field() ?>
               <input type="hidden" name="action" value="delete_hod_message">
               <input type="hidden" name="announcement_id" value="<?= (int)$h['id'] ?>">
@@ -74,6 +99,8 @@ $hodSentHistory = $hodSentHistory ?? [];
             </div>
           <?php endif; ?>
           <div class="chip-row" style="margin-top:.35rem">
+            <?php if ($noticeLabel !== ''): ?><span class="chip"><?= e($noticeLabel) ?></span><?php endif; ?>
+            <span class="chip">Target: <?= e($targetLabel) ?></span>
             <span class="chip">Recipients: <?= (int)$h['recipient_count'] ?></span>
             <span class="chip"><?= e((string)$h['created_at']) ?></span>
           </div>
@@ -82,10 +109,32 @@ $hodSentHistory = $hodSentHistory ?? [];
     <?php endif; ?>
   </div>
 </div>
+<script>
+(function () {
+  var sel = document.getElementById('audience');
+  var chip = document.getElementById('audienceCount');
+  var btn = document.getElementById('audienceSend');
+  if (!sel || !chip || !btn) return;
+  function sync() {
+    var opt = sel.options[sel.selectedIndex];
+    if (!sel.value) {
+      chip.textContent = 'Choose audience';
+      btn.disabled = false;
+      return;
+    }
+    var n = parseInt(opt.getAttribute('data-count') || '0', 10) || 0;
+    chip.textContent = n + (n === 1 ? ' recipient' : ' recipients');
+    btn.disabled = n < 1;
+  }
+  sel.addEventListener('change', sync);
+})();
+</script>
 <?php endif; ?>
 
 <?php if (!$canMessageHods && ($rolePrefix ?? '') === 'hod'): ?>
 <?php require __DIR__ . '/../hod/notifications.php'; ?>
+<?php elseif (!$canMessageHods && ($rolePrefix ?? '') === 'student'): ?>
+<?php require __DIR__ . '/../student/notifications.php'; ?>
 <?php elseif (!$canMessageHods): ?>
 <div class="panel">
   <div class="panel-h">
@@ -145,7 +194,7 @@ $hodSentHistory = $hodSentHistory ?? [];
     $hasAction = !empty($n['action_type']) || !empty($n['action_url']);
     $btnLabel = \NotificationService::actionLabel($n['action_type'] ?? null, !empty($n['action_url']) ? 'Open' : null);
     $adminHodAtt = null;
-    if (($nmeta['kind'] ?? '') === 'admin_hod_message' && !empty($nmeta['announcement_id']) && !empty($nmeta['has_attachment'])) {
+    if (in_array(($nmeta['kind'] ?? ''), ['admin_hod_message', 'admin_audience_message'], true) && !empty($nmeta['announcement_id']) && !empty($nmeta['has_attachment'])) {
         $adminHodAtt = [
             'id' => (int)$nmeta['announcement_id'],
             'name' => (string)($nmeta['attachment_original_name'] ?? 'attachment'),
@@ -184,6 +233,8 @@ $hodSentHistory = $hodSentHistory ?? [];
             </div>
           <?php endif; ?>
           <div class="chip-row" style="margin-top:.35rem">
+            <?php $rowNotice = \AdminHodMessageTools::noticeTypeLabel((string)($nmeta['notice_type'] ?? '')); ?>
+            <?php if ($rowNotice !== ''): ?><span class="chip"><?= e($rowNotice) ?></span><?php endif; ?>
             <span class="chip"><?= e($n['type']) ?></span>
             <span class="chip"><?= e($n['created_at']) ?></span>
           </div>

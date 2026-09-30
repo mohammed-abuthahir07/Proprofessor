@@ -164,6 +164,7 @@ $priorities = [
           $prio = strtolower((string)($n['priority'] ?? 'medium'));
           $hasAction = !empty($n['action_type']) || !empty($n['action_url']);
           $btnLabel = NotificationService::actionLabel($n['action_type'] ?? null, !empty($n['action_url']) ? 'Open' : null);
+          $noticeLabel = AdminHodMessageTools::noticeTypeLabel((string)((json_decode((string)($n['meta'] ?? ''), true) ?: [])['notice_type'] ?? ''));
         ?>
         <article class="hod-notes-card is-unread">
           <span class="hod-notes-ico <?= e($tone) ?>"><?= icon($iconName) ?></span>
@@ -177,6 +178,7 @@ $priorities = [
               <p><?= e((string)$n['body']) ?></p>
             <?php endif; ?>
             <div class="hod-notes-meta">
+              <?php if ($noticeLabel !== ''): ?><span><?= e($noticeLabel) ?></span><?php endif; ?>
               <span><?= e(ucfirst($bucket === 'other' ? (string)$n['type'] : $bucket)) ?></span>
               <span><?= e($when((string)$n['created_at'])) ?></span>
             </div>
@@ -209,6 +211,7 @@ $priorities = [
           $prio = strtolower((string)($n['priority'] ?? 'medium'));
           $hasAction = !empty($n['action_type']) || !empty($n['action_url']);
           $btnLabel = NotificationService::actionLabel($n['action_type'] ?? null, !empty($n['action_url']) ? 'Open' : null);
+          $noticeLabel = AdminHodMessageTools::noticeTypeLabel((string)((json_decode((string)($n['meta'] ?? ''), true) ?: [])['notice_type'] ?? ''));
         ?>
         <article class="hod-notes-card">
           <span class="hod-notes-ico <?= e($tone) ?>"><?= icon($iconName) ?></span>
@@ -221,6 +224,7 @@ $priorities = [
               <p><?= e((string)$n['body']) ?></p>
             <?php endif; ?>
             <div class="hod-notes-meta">
+              <?php if ($noticeLabel !== ''): ?><span><?= e($noticeLabel) ?></span><?php endif; ?>
               <span><?= e(ucfirst($bucket === 'other' ? (string)$n['type'] : $bucket)) ?></span>
               <span><?= e($when((string)$n['created_at'])) ?></span>
             </div>

@@ -40,6 +40,7 @@ final class MessageAttachmentController extends Controller
             AdminHodMessageTools::ensureSchema();
             $ann = match ($role) {
                 'hod' => AdminHodMessageTools::announcementForHodAttachment($user, $announcementId),
+                'professor', 'student' => AdminHodMessageTools::announcementForAudienceAttachment($user, $announcementId),
                 'admin', 'superadmin' => AdminHodMessageTools::announcementForAdminAttachment($user, $announcementId),
                 default => null,
             };

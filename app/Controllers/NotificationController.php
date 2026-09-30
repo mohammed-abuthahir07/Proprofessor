@@ -66,13 +66,16 @@ final class NotificationController extends Controller
                 $user,
                 (string)post('message'),
                 (string)post('title'),
-                isset($_FILES['attachment']) && is_array($_FILES['attachment']) ? $_FILES['attachment'] : null
+                isset($_FILES['attachment']) && is_array($_FILES['attachment']) ? $_FILES['attachment'] : null,
+                (string)post('audience'),
+                (string)post('notice_type')
             );
             if (!$result['ok']) {
                 flash('error', $result['error'] ?? 'Unable to send message.');
             } else {
                 $n = (int)($result['recipient_count'] ?? 0);
-                flash('success', 'Message sent to ' . $n . ' HOD' . ($n === 1 ? '' : 's') . '.');
+                $label = \AdminHodMessageTools::audienceLabel((string)($result['audience'] ?? ''));
+                flash('success', 'Message sent to ' . $n . ' recipient' . ($n === 1 ? '' : 's') . ' (' . $label . ').');
             }
             $this->redirect('/admin/notifications');
         }
@@ -88,16 +91,22 @@ final class NotificationController extends Controller
             if (!$result['ok']) {
                 flash('error', $result['error'] ?? 'Unable to delete message.');
             } else {
-                flash('success', 'Message deleted for admin and all HODs.');
+                flash('success', 'Message deleted for the admin and its recipients.');
             }
             $this->redirect('/admin/notifications');
         }
 
         $hodRecipientCount = 0;
         $hodSentHistory = [];
+        $audienceOptions = [];
+        $audienceCounts = [];
         if (in_array($role, ['admin', 'superadmin'], true)) {
             \AdminHodMessageTools::ensureSchema();
-            $hodRecipientCount = count(\AdminHodMessageTools::findHodRecipients($user));
+            $audienceOptions = \AdminHodMessageTools::AUDIENCES;
+            foreach ($audienceOptions as $code => $label) {
+                $audienceCounts[$code] = count(\AdminHodMessageTools::findRecipients($user, $code));
+            }
+            $hodRecipientCount = (int)($audienceCounts['ALL_HODS'] ?? 0);
             $hodSentHistory = \AdminHodMessageTools::sentHistory($user, 15);
         }
 
@@ -125,13 +134,17 @@ final class NotificationController extends Controller
         }
 
         $canMessageHods = in_array($role, ['admin', 'superadmin'], true);
+        $isStudent = $prefix === 'student';
 
         $this->view('shared/notifications', [
-            'title' => 'Notifications',
+            'title' => $isStudent ? 'Notices' : 'Notifications',
             'active' => 'notifications',
-            'subtitle' => $canMessageHods
-                ? 'Send messages & files to all department HODs'
-                : 'Approvals, AI completions & system events',
+            'dashboardHero' => $isStudent,
+            'subtitle' => $isStudent
+                ? ''
+                : ($canMessageHods
+                    ? 'Send announcements to HODs, professors, or students'
+                    : 'Approvals, AI completions & system events'),
             'rows' => $rows,
             'rolePrefix' => $prefix,
             'typeFilter' => $type,
@@ -142,6 +155,8 @@ final class NotificationController extends Controller
             'canMessageHods' => $canMessageHods,
             'hodRecipientCount' => $hodRecipientCount,
             'hodSentHistory' => $hodSentHistory,
+            'audienceOptions' => $audienceOptions,
+            'audienceCounts' => $audienceCounts,
         ]);
     }
 

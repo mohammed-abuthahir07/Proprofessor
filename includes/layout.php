@@ -47,7 +47,7 @@ function render_header(string $title, string $active = '', array $opts = []): vo
   <meta name="ai-settings-url" content="<?= e($aiSettingsUrl) ?>">
   <?php endif; ?>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="<?= e(base_url('/assets/css/app.css')) ?>">
+  <link rel="stylesheet" href="<?= e(base_url('/assets/css/app.css')) ?>?v=<?= (int)@filemtime(dirname(__DIR__) . '/assets/css/app.css') ?>">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
 </head>
 <body class="app-body" data-effects="on">

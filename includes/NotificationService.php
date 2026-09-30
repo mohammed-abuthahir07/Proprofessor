@@ -117,9 +117,12 @@ final class NotificationService
             return 0;
         }
 
-        // Hard guard: Admin→HOD messages must never land on non-HOD accounts.
+        // Admin broadcasts stay inside the selected audience.
         $metaEarly = is_array($options['meta'] ?? null) ? $options['meta'] : [];
         if (($metaEarly['kind'] ?? '') === 'admin_hod_message' && (string)($recipient['role'] ?? '') !== 'hod') {
+            return 0;
+        }
+        if (($metaEarly['kind'] ?? '') === 'admin_audience_message' && !self::recipientMatchesAdminAudience($recipient, (string)($metaEarly['audience'] ?? ''))) {
             return 0;
         }
 
@@ -523,6 +526,27 @@ final class NotificationService
      *
      * @param array<string,bool> $channelsWanted
      */
+    /** Professor and student admin announcements may only reach the selected role and year. */
+    private static function recipientMatchesAdminAudience(array $recipient, string $audience): bool
+    {
+        $role = (string)($recipient['role'] ?? '');
+        if ($audience === 'ALL_PROFESSORS') {
+            return $role === 'professor';
+        }
+        if ($audience === 'ALL_STUDENTS') {
+            return $role === 'student';
+        }
+        if (!preg_match('/^YEAR_([1-4])$/', $audience, $match) || $role !== 'student') {
+            return false;
+        }
+        $row = Database::fetch(
+            'SELECT id, academic_year_level, class_id, institution_id FROM users WHERE id = ? AND is_active = 1',
+            [(int)($recipient['id'] ?? 0)]
+        );
+        return $row && function_exists('student_academic_year_level')
+            && student_academic_year_level($row) === (int)$match[1];
+    }
+
     private static function allowHodAlert(array $recipient, string $type, string $title, string $body, array &$channelsWanted): bool
     {
         if ((string)($recipient['role'] ?? '') !== 'hod') {

@@ -75,9 +75,26 @@ if ($academic['section'] !== '') {
 $subtitleParts[] = $academic['semester_label'] . ' Semester';
 $subtitle = implode(' · ', $subtitleParts);
 
-render_header('My Attendance', 'attendance', [
-    'subtitle' => $subtitle,
-]);
+$sumPresent = 0;
+$sumAbsent = 0;
+$sumTotal = 0;
+$minPct = 75.0;
+foreach ($cards as $card) {
+    $sumPresent += (int)$card['present'];
+    $sumAbsent += (int)$card['absent'];
+    $sumTotal += (int)$card['total'];
+    $minPct = (float)($card['band']['min'] ?? $minPct);
+}
+$overallPct = $sumTotal > 0 ? round($sumPresent * 100 / $sumTotal, 1) : 0.0;
+$overallBand = $sumTotal > 0
+    ? AttendanceTools::shortageBand($overallPct, $minPct)
+    : ['band' => 'none', 'label' => 'No classes yet', 'percent' => 0.0, 'min' => $minPct];
+$fmtPct = static function (float $n): string {
+    $text = rtrim(rtrim(number_format($n, 1, '.', ''), '0'), '.');
+    return ($text === '' ? '0' : $text) . '%';
+};
+
+render_header('My Attendance', 'attendance', ['compactTitle' => true]);
 ?>
 <div class="student-att-page">
 <?php if ($classId < 1): ?>
@@ -85,53 +102,57 @@ render_header('My Attendance', 'attendance', [
 <?php elseif (!$cards): ?>
   <div class="empty">No subjects for <?= e($subtitle) ?> yet. Past attendance stays in Academic History.</div>
 <?php else: ?>
-  <p class="student-att-note muted">Only your records for the current year and semester. Classmates’ attendance is not shown. Previous terms remain in Academic History. Use a professor QR link to check in.</p>
+  <section class="hod-hero">
+    <div class="hod-hero-copy">
+      <h2><?= icon('calendar', 'icon-inline') ?> My Attendance</h2>
+      <p><?= e($subtitle) ?></p>
+      <p class="student-att-summary">Overall: <?= e($fmtPct($overallPct)) ?> · Classes attended: <?= (int)$sumPresent ?> / <?= (int)$sumTotal ?></p>
+    </div>
+  </section>
+  <div class="student-att-kpis">
+    <div class="student-att-kpi is-<?= e((string)$overallBand['band']) ?>">
+      <strong><?= e($fmtPct($overallPct)) ?></strong>
+      <span>Overall</span>
+    </div>
+    <div class="student-att-kpi is-present">
+      <strong><?= (int)$sumPresent ?></strong>
+      <span>Present</span>
+    </div>
+    <div class="student-att-kpi is-absent">
+      <strong><?= (int)$sumAbsent ?></strong>
+      <span>Absent</span>
+    </div>
+  </div>
+  <h3 class="student-att-section">Subject-wise breakdown</h3>
   <div class="student-att-list">
   <?php foreach ($cards as $card):
     $sid = (int)$card['subject_id'];
     $pct = (float)$card['percent'];
     $band = $card['band'];
     $prof = trim((string)($card['professor_name'] ?? ''));
+    $held = (int)$card['total'];
     $barWidth = max(0, min(100, $pct));
+    $who = $prof !== '' ? $prof : 'Professor not assigned';
+    $heldLabel = $held === 1 ? '1 class held' : $held . ' classes held';
   ?>
     <article class="student-att-card panel" id="att-subject-<?= $sid ?>">
-      <div class="student-att-head">
-        <div>
-          <h2 class="student-att-title"><?= e((string)$card['subject_name']) ?></h2>
-          <div class="student-att-sub">
-            <?php if ((string)$card['subject_code'] !== ''): ?>
-              <span class="chip"><?= e((string)$card['subject_code']) ?></span>
-            <?php endif; ?>
-            <?php if (($card['course_type'] ?? '') === 'lab'): ?>
-              <span class="chip">Lab</span>
-            <?php endif; ?>
-          </div>
-          <p class="student-att-prof<?= $prof === '' ? ' is-unassigned' : '' ?>"><?= $prof !== '' ? 'Professor: ' . e($prof) : 'Professor Not Assigned' ?></p>
-        </div>
+      <div class="student-att-main">
+        <h2 class="student-att-title"><?= e((string)$card['subject_name']) ?></h2>
+        <p class="student-att-meta<?= $prof === '' ? ' is-unassigned' : '' ?>">
+          <?php if ((string)$card['subject_code'] !== ''): ?><?= e((string)$card['subject_code']) ?> · <?php endif; ?>
+          <?= e($who) ?> · <?= e($heldLabel) ?>
+          <?php if (($card['course_type'] ?? '') === 'lab'): ?> · Lab<?php endif; ?>
+        </p>
+        <p class="student-att-counts"><?= (int)$card['present'] ?> present · <?= (int)$card['absent'] ?> absent</p>
       </div>
-      <div class="student-att-metrics">
-        <div class="stat student-att-pct">
-          <div class="label">Attendance</div>
-          <div class="value"><?= e(rtrim(rtrim(number_format($pct, 1, '.', ''), '0'), '.') ?: '0') ?>%</div>
-        </div>
-        <div class="stat">
-          <div class="label">Present</div>
-          <div class="value"><?= (int)$card['present'] ?></div>
-        </div>
-        <div class="stat">
-          <div class="label">Absent</div>
-          <div class="value"><?= (int)$card['absent'] ?></div>
-        </div>
-        <div class="stat">
-          <div class="label">Total Classes</div>
-          <div class="value"><?= (int)$card['total'] ?></div>
-        </div>
-      </div>
-      <div class="student-att-progress">
+      <div class="student-att-track">
         <div class="bar student-att-bar is-<?= e((string)$band['band']) ?>" role="progressbar" aria-valuenow="<?= e((string)$barWidth) ?>" aria-valuemin="0" aria-valuemax="100" aria-label="Attendance <?= e((string)$pct) ?> percent">
           <span style="width: <?= (float)$barWidth ?>%"></span>
         </div>
-        <span class="chip student-att-band is-<?= e((string)$band['band']) ?>"><?= e((string)$band['label']) ?></span>
+      </div>
+      <div class="student-att-score is-<?= e((string)$band['band']) ?>">
+        <strong><?= e($fmtPct($pct)) ?></strong>
+        <span><?= e((string)$band['label']) ?></span>
       </div>
       <?php if ($card['sessions']): ?>
       <details class="student-att-details"<?= $openSubjectId === $sid ? ' open' : '' ?>>

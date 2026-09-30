@@ -687,4 +687,26 @@ CREATE TABLE IF NOT EXISTS `app_settings` (
   UNIQUE KEY `uq_setting` (`institution_id`, `setting_key`)
 ) ENGINE=InnoDB;
 
+-- ------------------------------------------------------------
+-- Professor study materials shared with an assigned class
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `study_materials` (
+  `id`                 INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `institution_id`     INT UNSIGNED NOT NULL,
+  `professor_id`       INT UNSIGNED NOT NULL,
+  `subject_id`         INT UNSIGNED NOT NULL,
+  `class_id`           INT UNSIGNED NOT NULL,
+  `title`              VARCHAR(200) NOT NULL,
+  `description`        TEXT NULL,
+  `material_type`      ENUM('notes','ppt') NOT NULL,
+  `file_path`          VARCHAR(255) NOT NULL,
+  `file_original_name` VARCHAR(255) NOT NULL,
+  `file_mime_type`     VARCHAR(120) NOT NULL,
+  `file_size`          INT UNSIGNED NOT NULL,
+  `created_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY `idx_sm_prof` (`professor_id`, `created_at`),
+  KEY `idx_sm_scope` (`institution_id`, `class_id`, `subject_id`)
+) ENGINE=InnoDB;
+
 SET FOREIGN_KEY_CHECKS = 1;
