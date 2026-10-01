@@ -10,7 +10,7 @@ $attendance = $attendance ?? ['percent' => null, 'hint' => 'No classes yet', 'to
 $pendingCount = (int)($pendingCount ?? 0);
 $pendingHint = (string)($pendingHint ?? '');
 $marks = $marks ?? ['percent' => null, 'hint' => 'Not published yet'];
-$exam = $exam ?? ['days' => null, 'hint' => 'No exam date set'];
+$exam = $exam ?? ['days' => null, 'label' => '—', 'hint' => 'No exam date set'];
 $upcoming = $upcoming ?? [];
 $notices = $notices ?? [];
 $user = \Auth::user();
@@ -44,7 +44,7 @@ if ($firstName === '') {
       <em><?= e((string)$marks['hint']) ?></em>
     </a>
     <a class="stu-dash-kpi is-exam" href="<?= e(url('/student/calendar')) ?>">
-      <strong><?= $exam['days'] === null ? '—' : (int)$exam['days'] ?></strong>
+      <strong><?= e((string)($exam['label'] ?? ($exam['days'] === null ? '—' : $exam['days']))) ?></strong>
       <span>Days to exams</span>
       <em><?= e((string)$exam['hint']) ?></em>
     </a>

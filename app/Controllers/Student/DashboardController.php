@@ -189,13 +189,27 @@ final class DashboardController extends Controller
         ];
     }
 
-    /** @return array{days:?int,hint:string} */
+    /** @return array{days:?int,label:string,hint:string} */
     private function nextExam(array $user, \DateTime $today): array
     {
-        $empty = ['days' => null, 'hint' => 'No exam date set'];
+        $empty = ['days' => null, 'label' => '—', 'hint' => 'No exam date set'];
         $instId = (int)($user['institution_id'] ?? 0);
         if ($instId < 1) {
             return $empty;
+        }
+        // Same timetable rows the student calendar shows, already scoped to this
+        // student's level, year, department, section and semester.
+        foreach (exam_timetable_for_student($user) as $exam) {
+            $when = \DateTime::createFromFormat('Y-m-d', (string)$exam['exam_date'], $today->getTimezone());
+            if (!$when) {
+                continue;
+            }
+            $when->setTime(0, 0);
+            $days = (int)$today->diff($when)->format('%r%a');
+            if ($days < 0) {
+                continue;
+            }
+            return $this->examCard($days, (string)$exam['subject_name'], $when);
         }
         $row = \Database::fetch(
             'SELECT title, event_date FROM academic_events
@@ -215,9 +229,22 @@ final class DashboardController extends Controller
         if ($days < 0) {
             return $empty;
         }
+        return $this->examCard($days, (string)$row['title'], $when);
+    }
+
+    /** @return array{days:?int,label:string,hint:string} */
+    private function examCard(int $days, string $title, \DateTime $when): array
+    {
+        $title = trim($title);
+        $whenLabel = match (true) {
+            $days === 0 => 'Today',
+            $days === 1 => 'Tomorrow',
+            default => $when->format('M j'),
+        };
         return [
             'days' => $days,
-            'hint' => 'Starts ' . $when->format('M j'),
+            'label' => $days === 0 ? 'Today' : (string)$days,
+            'hint' => $title !== '' ? $title . ' · ' . $whenLabel : $whenLabel,
         ];
     }
 

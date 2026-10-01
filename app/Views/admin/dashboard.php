@@ -43,7 +43,6 @@ $short = static function (float $amount) {
 };
 $fees = $overview['fees'] ?? ['collected' => 0.0, 'pending' => 0.0, 'students' => 0, 'overdue' => 0];
 $plans = $overview['plans'] ?? ['total' => 0, 'approved' => 0, 'percent' => null];
-$exam = $overview['exam'] ?? ['days' => null, 'label' => '—', 'hint' => 'No exam date set'];
 $year = (string)($overview['academic_year'] ?? '');
 ?>
 <div class="adm-ov">
@@ -90,11 +89,6 @@ $year = (string)($overview['academic_year'] ?? '');
       <strong><?= (int)($overview['departments'] ?? 0) ?></strong>
       <span>Departments</span>
       <small><?= number_format((int)$stats['users']) ?> accounts</small>
-    </div>
-    <div class="adm-ov-kpi is-accent">
-      <strong><?= e((string)$exam['label']) ?></strong>
-      <span>Exam Start Date</span>
-      <small><?= e((string)$exam['hint']) ?></small>
     </div>
   </div>
 
