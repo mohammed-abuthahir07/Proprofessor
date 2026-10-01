@@ -290,7 +290,30 @@ final class SalaryController extends Controller
         if ($skipped > 0) {
             $message .= ' ' . $skipped . ' already had a record and were skipped.';
         }
+        if ($notified > 0) {
+            $message .= ' ' . $notified . ' ' . ($notified === 1 ? 'faculty member was' : 'faculty members were') . ' notified.';
+        }
         $this->flash('success', $message);
+    }
+
+    /**
+     * Salary credited notice for the faculty member, through the existing
+     * notification infrastructure. Only fires when a record becomes Paid.
+     */
+    private function notifyPaid(int $facultyId, string $month, float $amount, ?string $paymentDate): void
+    {
+        $body = 'Your salary of ' . fee_money($amount) . ' for ' . $this->monthLabel($month . '-01') . ' has been paid.';
+        if ($paymentDate !== null) {
+            $body .= ' Payment date: ' . $this->dateLabel($paymentDate) . '.';
+        }
+        notify_user(
+            $facultyId,
+            'system',
+            'Salary Credited',
+            $body,
+            '/professor/notifications',
+            ['priority' => 'medium', 'category' => 'system']
+        );
     }
 
     /** @return array{month:string,department_id:int,status:string,faculty_id:int,q:string} */
