@@ -26,6 +26,8 @@ $sectionLabel = trim((string)$academic['section']) !== ''
 $yearLabel = (string)($academic['year_label'] ?: '—');
 $semesterLabel = (string)($academic['semester_label'] ?: '—');
 
+$exams = exam_timetable_for_student($user);
+
 $events = [];
 if ($classId > 0) {
     $currentSubjects = courses_for_student($user);
@@ -83,9 +85,40 @@ render_header('Academic Calendar', 'calendar', [
   <h2>Calendar</h2>
   <?php if ($classId < 1): ?>
     <div class="empty">Your account is not assigned to a class. Ask College Admin to put you in the correct year and section.</div>
-  <?php elseif (!$events): ?>
+  <?php elseif (!$events && !$exams): ?>
     <div class="empty">No calendar events for <?= e($classLabel !== '' ? $classLabel : 'your class') ?> yet.</div>
   <?php else: ?>
+  <?php if ($exams): ?>
+  <h3 class="stu-exam-h">Examination Schedule</h3>
+  <ul class="stu-exam-list">
+    <?php foreach ($exams as $exam): ?>
+      <?php
+        $examDate = DateTime::createFromFormat('Y-m-d', (string)$exam['exam_date']);
+        $start = DateTime::createFromFormat('H:i:s', (string)$exam['start_time']);
+        $end = DateTime::createFromFormat('H:i:s', (string)$exam['end_time']);
+      ?>
+      <li class="stu-exam">
+        <div class="stu-exam-date">
+          <strong><?= e($examDate ? $examDate->format('M') : '') ?></strong>
+          <span><?= e($examDate ? $examDate->format('d') : (string)$exam['exam_date']) ?></span>
+        </div>
+        <div class="stu-exam-body">
+          <strong><?= e((string)$exam['subject_name']) ?></strong>
+          <span><?= e(exam_timetable_type_label((string)$exam['exam_type'], true)) ?><?= (int)$exam['is_lab'] === 1 ? ' · Lab / Practical' : '' ?></span>
+          <em>
+            <?= e($start ? ltrim($start->format('h:i A'), '0') : (string)$exam['start_time']) ?>
+            – <?= e($end ? ltrim($end->format('h:i A'), '0') : (string)$exam['end_time']) ?>
+            <?php if (trim((string)($exam['exam_hall'] ?? '')) !== ''): ?>
+              · <?= e(trim((string)$exam['exam_hall'])) ?>
+            <?php endif; ?>
+          </em>
+        </div>
+      </li>
+    <?php endforeach; ?>
+  </ul>
+  <?php endif; ?>
+  <?php if ($events): ?>
+  <h3 class="stu-exam-h">Class Events</h3>
   <div class="table-wrap"><table>
     <thead><tr><th>Date</th><th>Event</th><th>Type</th></tr></thead>
     <tbody>
@@ -94,6 +127,7 @@ render_header('Academic Calendar', 'calendar', [
     <?php endforeach; ?>
     </tbody>
   </table></div>
+  <?php endif; ?>
   <?php endif; ?>
 </div>
 <?php render_footer(); ?>

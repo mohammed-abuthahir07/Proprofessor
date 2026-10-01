@@ -1,5 +1,5 @@
 -- ============================================================
--- ProProfessor AI ó MySQL Schema (Expandable / Multi-tenant)
+-- ProProfessor AI ù MySQL Schema (Expandable / Multi-tenant)
 -- Compatible with MySQL 8.0+ / MariaDB 10.5+
 -- ============================================================
 
@@ -761,6 +761,32 @@ CREATE TABLE IF NOT EXISTS `faculty_salaries` (
   UNIQUE KEY `uq_faculty_salary_month` (`faculty_user_id`, `salary_month`),
   KEY `idx_salary_inst_month` (`institution_id`, `salary_month`),
   CONSTRAINT `fk_salary_faculty` FOREIGN KEY (`faculty_user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Examination timetable (admin scheduled, visible to matching students)
+CREATE TABLE IF NOT EXISTS `exam_timetable` (
+  `id`              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `institution_id`  INT UNSIGNED NOT NULL,
+  `department_id`   INT UNSIGNED NOT NULL,
+  `subject_id`      INT UNSIGNED NULL,
+  `subject_name`    VARCHAR(200) NOT NULL,
+  `academic_level`  ENUM('UG','PG') NOT NULL DEFAULT 'UG',
+  `year_level`      TINYINT UNSIGNED NOT NULL,
+  `class_id`        INT UNSIGNED NULL COMMENT 'NULL = whole year/department',
+  `section`         VARCHAR(20) NULL,
+  `semester`        VARCHAR(40) NOT NULL COMMENT 'Odd Semester / Even Semester',
+  `exam_date`       DATE NOT NULL,
+  `start_time`      TIME NOT NULL,
+  `end_time`        TIME NOT NULL,
+  `exam_type`       ENUM('end_semester','internal','practical','lab') NOT NULL DEFAULT 'end_semester',
+  `is_lab`          TINYINT(1) NOT NULL DEFAULT 0,
+  `exam_hall`       VARCHAR(100) NULL,
+  `created_by`      INT UNSIGNED NULL,
+  `created_at`      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY `idx_exam_inst_date` (`institution_id`, `exam_date`),
+  KEY `idx_exam_scope` (`institution_id`, `department_id`, `year_level`, `semester`),
+  CONSTRAINT `fk_exam_tt_dept` FOREIGN KEY (`department_id`) REFERENCES `departments`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 SET FOREIGN_KEY_CHECKS = 1;

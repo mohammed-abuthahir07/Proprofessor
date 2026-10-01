@@ -505,6 +505,153 @@ function ensure_faculty_salary_schema(): void
     );
 }
 
+/**
+ * Examination timetable rows (admin scheduled). A row with no class_id/section
+ * applies to the whole year + department; otherwise it is section specific.
+ */
+function ensure_exam_timetable_schema(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    $tables = [];
+    foreach (Database::fetchAll('SHOW TABLES') as $row) {
+        $tables[strtolower((string)array_values($row)[0])] = true;
+    }
+    if (!isset($tables['exam_timetable'])) {
+        Database::query(
+            "CREATE TABLE exam_timetable (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                institution_id INT UNSIGNED NOT NULL,
+                department_id INT UNSIGNED NOT NULL,
+                subject_id INT UNSIGNED NULL,
+                subject_name VARCHAR(200) NOT NULL,
+                academic_level ENUM('UG','PG') NOT NULL DEFAULT 'UG',
+                year_level TINYINT UNSIGNED NOT NULL,
+                class_id INT UNSIGNED NULL,
+                section VARCHAR(20) NULL,
+                semester VARCHAR(40) NOT NULL,
+                exam_date DATE NOT NULL,
+                start_time TIME NOT NULL,
+                end_time TIME NOT NULL,
+                exam_type ENUM('end_semester','internal','practical','lab') NOT NULL DEFAULT 'end_semester',
+                is_lab TINYINT(1) NOT NULL DEFAULT 0,
+                exam_hall VARCHAR(100) NULL,
+                created_by INT UNSIGNED NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                KEY idx_exam_inst_date (institution_id, exam_date),
+                KEY idx_exam_scope (institution_id, department_id, year_level, semester),
+                CONSTRAINT fk_exam_tt_dept FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB"
+        );
+        return;
+    }
+    // Additive upgrade for installs created before the student visibility fields existed.
+    $cols = [];
+    foreach (Database::fetchAll('SHOW COLUMNS FROM exam_timetable') as $col) {
+        $cols[(string)$col['Field']] = (string)$col['Type'];
+    }
+    if (!isset($cols['academic_level'])) {
+        Database::query("ALTER TABLE exam_timetable ADD COLUMN academic_level ENUM('UG','PG') NOT NULL DEFAULT 'UG' AFTER subject_name");
+    }
+    if (!isset($cols['class_id'])) {
+        Database::query('ALTER TABLE exam_timetable ADD COLUMN class_id INT UNSIGNED NULL AFTER year_level');
+    }
+    if (!isset($cols['section'])) {
+        Database::query('ALTER TABLE exam_timetable ADD COLUMN section VARCHAR(20) NULL AFTER class_id');
+    }
+    if (!isset($cols['is_lab'])) {
+        Database::query('ALTER TABLE exam_timetable ADD COLUMN is_lab TINYINT(1) NOT NULL DEFAULT 0 AFTER exam_type');
+    }
+    if (!isset($cols['exam_hall'])) {
+        Database::query('ALTER TABLE exam_timetable ADD COLUMN exam_hall VARCHAR(100) NULL AFTER is_lab');
+    }
+    if (isset($cols['semester']) && !str_contains(strtolower($cols['semester']), 'varchar')) {
+        Database::query('ALTER TABLE exam_timetable MODIFY COLUMN semester VARCHAR(40) NOT NULL');
+        Database::query("UPDATE exam_timetable SET semester = IF(CAST(semester AS UNSIGNED) % 2 = 0, 'Even Semester', 'Odd Semester')");
+    }
+    if (isset($cols['exam_type']) && !str_contains($cols['exam_type'], 'end_semester')) {
+        Database::query("ALTER TABLE exam_timetable MODIFY COLUMN exam_type ENUM('theory','lab','end_semester','internal','practical') NOT NULL DEFAULT 'end_semester'");
+        Database::query("UPDATE exam_timetable SET exam_type = 'end_semester' WHERE exam_type = 'theory'");
+        Database::query("ALTER TABLE exam_timetable MODIFY COLUMN exam_type ENUM('end_semester','internal','practical','lab') NOT NULL DEFAULT 'end_semester'");
+    }
+}
+
+/**
+ * Examination timetable visible to one student: same institution, department,
+ * academic year and semester, limited to their class/section when the exam is
+ * section specific. Read-only — never creates or edits timetable rows.
+ *
+ * @param array<string,mixed> $user
+ * @return list<array<string,mixed>>
+ */
+function exam_timetable_for_student(array $user): array
+{
+    ensure_exam_timetable_schema();
+    $ctx = student_academic_context($user);
+    $instId = (int)($user['institution_id'] ?? 0);
+    $deptId = (int)$ctx['department_id'];
+    $year = (int)$ctx['year'];
+    if ($instId < 1 || $deptId < 1 || $year < 1) {
+        return [];
+    }
+    $classId = (int)$ctx['class_id'];
+    $section = trim((string)$ctx['section']);
+    $level = '';
+    if ($classId > 0) {
+        $classRow = Database::fetch('SELECT * FROM classes WHERE id = ?', [$classId]);
+        $level = class_program_level($classRow);
+    }
+
+    $sql = 'SELECT t.*, d.code AS dept_code, d.name AS dept_name
+            FROM exam_timetable t
+            LEFT JOIN departments d ON d.id = t.department_id
+            WHERE t.institution_id = :institution_id
+              AND t.department_id = :department_id
+              AND t.year_level = :year_level
+              AND t.semester = :semester';
+    $params = [
+        'institution_id' => $instId,
+        'department_id' => $deptId,
+        'year_level' => $year,
+        'semester' => subject_normalize_semester((string)$ctx['semester']),
+    ];
+    if ($level !== '') {
+        $sql .= ' AND t.academic_level = :academic_level';
+        $params['academic_level'] = $level;
+    }
+    // Whole-year rows have no class/section; section rows must match the student.
+    $sql .= ' AND (t.class_id IS NULL OR t.class_id = :class_id)';
+    $params['class_id'] = $classId;
+    $sql .= ' AND (t.section IS NULL OR t.section = "" OR LOWER(t.section) = :section)';
+    $params['section'] = mb_strtolower($section);
+    $sql .= ' ORDER BY t.exam_date, t.start_time, t.subject_name';
+
+    return Database::fetchAll($sql, $params);
+}
+
+/** Student-facing wording for an exam timetable type. */
+function exam_timetable_type_label(string $type, bool $forStudent = false): string
+{
+    $labels = $forStudent
+        ? [
+            'end_semester' => 'End Semester Examination',
+            'internal' => 'Internal Examination',
+            'practical' => 'Practical Examination',
+            'lab' => 'Lab Examination',
+        ]
+        : [
+            'end_semester' => 'End Semester Exam',
+            'internal' => 'Internal Exam',
+            'practical' => 'Practical',
+            'lab' => 'Lab',
+        ];
+    return $labels[$type] ?? $type;
+}
+
 /** Student year 1–4 from user field, else class.year fallback for legacy rows. */
 function student_academic_year_level(array $user): int
 {

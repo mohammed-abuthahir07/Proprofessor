@@ -50,6 +50,7 @@ final class NavService
                     ['key' => 'departments', 'label' => 'Departments', 'href' => '/admin/departments', 'icon' => 'grid'],
                     ['key' => 'faculty', 'label' => 'Faculty', 'href' => '/admin/faculty', 'icon' => 'users'],
                     ['key' => 'students', 'label' => 'Students', 'href' => '/admin/students', 'icon' => 'book'],
+                    ['key' => 'exams', 'label' => 'Exam Timetable', 'href' => '/admin/exam-timetable', 'icon' => 'calendar'],
                     ['key' => 'fees', 'label' => 'Fee Collection', 'href' => '/admin/fee-collection', 'icon' => 'card'],
                     ['key' => 'salary', 'label' => 'Salary & Payroll', 'href' => '/admin/salary', 'icon' => 'finance'],
                     ['key' => 'users', 'label' => 'Users & Roles', 'href' => '/admin/users', 'icon' => 'users', 'feature' => 'user_management', 'perm' => 'manage_users'],
