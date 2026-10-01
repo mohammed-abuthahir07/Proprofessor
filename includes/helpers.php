@@ -469,6 +469,42 @@ function ensure_fee_collection_schema(): void
     }
 }
 
+/**
+ * Monthly faculty payroll. Rows point at existing professor users.
+ */
+function ensure_faculty_salary_schema(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    $tables = [];
+    foreach (Database::fetchAll('SHOW TABLES') as $row) {
+        $tables[strtolower((string)array_values($row)[0])] = true;
+    }
+    if (isset($tables['faculty_salaries'])) {
+        return;
+    }
+    Database::query(
+        "CREATE TABLE faculty_salaries (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            institution_id INT UNSIGNED NOT NULL,
+            faculty_user_id INT UNSIGNED NOT NULL,
+            salary_month DATE NOT NULL,
+            amount DECIMAL(12,2) NOT NULL,
+            payment_date DATE NULL,
+            status ENUM('paid','pending','on_hold') NOT NULL DEFAULT 'pending',
+            created_by INT UNSIGNED NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_faculty_salary_month (faculty_user_id, salary_month),
+            KEY idx_salary_inst_month (institution_id, salary_month),
+            CONSTRAINT fk_salary_faculty FOREIGN KEY (faculty_user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB"
+    );
+}
+
 /** Student year 1–4 from user field, else class.year fallback for legacy rows. */
 function student_academic_year_level(array $user): int
 {

@@ -51,11 +51,13 @@ final class NavService
                     ['key' => 'faculty', 'label' => 'Faculty', 'href' => '/admin/faculty', 'icon' => 'users'],
                     ['key' => 'students', 'label' => 'Students', 'href' => '/admin/students', 'icon' => 'book'],
                     ['key' => 'fees', 'label' => 'Fee Collection', 'href' => '/admin/fee-collection', 'icon' => 'card'],
+                    ['key' => 'salary', 'label' => 'Salary & Payroll', 'href' => '/admin/salary', 'icon' => 'finance'],
                     ['key' => 'users', 'label' => 'Users & Roles', 'href' => '/admin/users', 'icon' => 'users', 'feature' => 'user_management', 'perm' => 'manage_users'],
                 ]],
                 ['label' => 'OPERATIONS', 'items' => [
                     ['key' => 'features', 'label' => 'Feature Flags', 'href' => '/admin/features', 'icon' => 'puzzle', 'perm' => 'manage_features'],
                     ['key' => 'formulas', 'label' => 'Marks Formulas', 'href' => '/admin/formulas', 'icon' => 'formula', 'perm' => 'manage_formulas'],
+                    ['key' => 'finance_overview', 'label' => 'Finance', 'href' => '/admin/finance-overview', 'icon' => 'chart', 'feature' => 'finance', 'perm' => 'manage_finance'],
                     ['key' => 'finance', 'label' => 'Expense', 'href' => '/admin/finance', 'icon' => 'finance', 'feature' => 'finance', 'perm' => 'manage_finance'],
                 ]],
                 ['label' => 'GROWTH', 'items' => [

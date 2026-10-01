@@ -744,4 +744,23 @@ CREATE TABLE IF NOT EXISTS `fee_payments` (
   CONSTRAINT `fk_fee_pay_record` FOREIGN KEY (`fee_record_id`) REFERENCES `fee_records`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- ------------------------------------------------------------
+-- Monthly faculty salary. One row per faculty member per month.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `faculty_salaries` (
+  `id`               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `institution_id`   INT UNSIGNED NOT NULL,
+  `faculty_user_id`  INT UNSIGNED NOT NULL,
+  `salary_month`     DATE NOT NULL,
+  `amount`           DECIMAL(12,2) NOT NULL,
+  `payment_date`     DATE NULL,
+  `status`           ENUM('paid','pending','on_hold') NOT NULL DEFAULT 'pending',
+  `created_by`       INT UNSIGNED NULL,
+  `created_at`       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`       TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uq_faculty_salary_month` (`faculty_user_id`, `salary_month`),
+  KEY `idx_salary_inst_month` (`institution_id`, `salary_month`),
+  CONSTRAINT `fk_salary_faculty` FOREIGN KEY (`faculty_user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 SET FOREIGN_KEY_CHECKS = 1;
