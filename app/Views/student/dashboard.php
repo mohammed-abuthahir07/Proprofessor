@@ -4,6 +4,7 @@
 /** @var string $pendingHint */
 /** @var array $marks */
 /** @var array $exam */
+/** @var array<string,mixed> $fees */
 /** @var list<array{title:string,meta:string,when:string,tone:string}> $upcoming */
 /** @var list<array{title:string,detail:string,when:string}> $notices */
 $attendance = $attendance ?? ['percent' => null, 'hint' => 'No classes yet', 'tone' => 'none'];
@@ -11,6 +12,7 @@ $pendingCount = (int)($pendingCount ?? 0);
 $pendingHint = (string)($pendingHint ?? '');
 $marks = $marks ?? ['percent' => null, 'hint' => 'Not published yet'];
 $exam = $exam ?? ['days' => null, 'label' => '—', 'hint' => 'No exam date set'];
+$fees = $fees ?? ['fees' => [], 'paid' => 0, 'pending' => 0, 'overall' => 'none', 'reminders' => [], 'academic_year' => ''];
 $upcoming = $upcoming ?? [];
 $notices = $notices ?? [];
 $user = \Auth::user();
@@ -49,6 +51,43 @@ if ($firstName === '') {
       <em><?= e((string)$exam['hint']) ?></em>
     </a>
   </div>
+
+  <section class="stu-dash-panel stu-dash-fees">
+    <div class="stu-dash-panel-h">
+      <h2><?= icon('card', 'icon-inline') ?> Fee Status</h2>
+    </div>
+    <?php if (($fees['fees'] ?? []) === []): ?>
+      <div class="empty">No fee records for <?= e((string)($fees['academic_year'] !== '' ? $fees['academic_year'] : 'this academic year')) ?>. Missing fee types are not shown as unpaid.</div>
+    <?php else: ?>
+      <?php if ($fees['reminders']): ?>
+        <div class="stu-dash-fee-remind" role="status">
+          <strong>Payment reminder</strong>
+          <?php foreach ($fees['reminders'] as $line): ?>
+            <p><?= e((string)$line) ?></p>
+          <?php endforeach; ?>
+        </div>
+      <?php endif; ?>
+      <div class="stu-dash-list">
+        <?php foreach ($fees['fees'] as $row): ?>
+          <div class="stu-dash-row">
+            <div>
+              <strong><?= e((string)$row['label']) ?></strong>
+              <span><?= e(fee_money((float)$row['paid'])) ?> paid · <?= e(fee_money((float)$row['remaining'])) ?> pending</span>
+            </div>
+            <em class="is-<?= e((string)$row['status']) ?>"><?= e(student_fee_status_label((string)$row['status'])) ?></em>
+          </div>
+        <?php endforeach; ?>
+        <div class="stu-dash-row">
+          <div>
+            <strong>Total paid <?= e(fee_money((float)$fees['paid'])) ?></strong>
+            <span>Pending <?= e(fee_money((float)$fees['pending'])) ?></span>
+          </div>
+          <em class="is-<?= e((string)$fees['overall']) ?>"><?= e(student_fee_overall_label((string)$fees['overall'])) ?></em>
+        </div>
+      </div>
+    <?php endif; ?>
+    <a class="stu-dash-more" href="<?= e(url('/student/fees')) ?>">View Fee History</a>
+  </section>
 
   <div class="stu-dash-split">
     <section class="stu-dash-panel">

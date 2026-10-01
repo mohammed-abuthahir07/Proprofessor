@@ -135,6 +135,7 @@ final class DashboardController extends Controller
             'pendingHint' => $pendingHint,
             'marks' => $marks,
             'exam' => $exam,
+            'fees' => student_fee_snapshot($user, institution_academic_year((int)($user['institution_id'] ?? 0))),
             'upcoming' => $upcoming,
             'notices' => $notices,
         ]);

@@ -469,6 +469,157 @@ function ensure_fee_collection_schema(): void
     }
 }
 
+/** Admin fee-type labels, reused read-only on the student side. */
+function student_fee_type_labels(): array
+{
+    return [
+        'tuition' => 'Tuition Fee',
+        'bus' => 'College Bus Fee',
+        'hostel' => 'Hostel Fee',
+    ];
+}
+
+function student_fee_status_label(string $status): string
+{
+    return match ($status) {
+        'paid' => 'Paid',
+        'partial' => 'Partially Paid',
+        'pending' => 'Pending',
+        default => '—',
+    };
+}
+
+function student_fee_overall_label(string $overall): string
+{
+    return match ($overall) {
+        'paid' => 'Fully Paid',
+        'partial' => 'Partially Paid',
+        'pending' => 'Pending',
+        default => 'No fees recorded',
+    };
+}
+
+/**
+ * Read-only fee snapshot for one authenticated student.
+ * Always keyed by $user['id'] — never accept a student id from the request.
+ *
+ * @param array<string,mixed> $user
+ * @return array{
+ *   student_id:int,academic_year:string,fees:list<array<string,mixed>>,
+ *   total:float,paid:float,pending:float,overall:string,reminders:list<string>
+ * }
+ */
+function student_fee_snapshot(array $user, ?string $academicYear = null): array
+{
+    ensure_fee_collection_schema();
+    $studentId = (int)($user['id'] ?? 0);
+    $instId = (int)($user['institution_id'] ?? 0);
+    $year = $academicYear !== null ? trim($academicYear) : '';
+    $empty = [
+        'student_id' => $studentId,
+        'academic_year' => $year,
+        'fees' => [],
+        'total' => 0.0,
+        'paid' => 0.0,
+        'pending' => 0.0,
+        'overall' => 'none',
+        'reminders' => [],
+    ];
+    if ($studentId < 1 || $instId < 1 || (string)($user['role'] ?? '') !== 'student') {
+        return $empty;
+    }
+
+    $sql = 'SELECT * FROM fee_records
+            WHERE student_id = :student_id AND institution_id = :institution_id';
+    $params = ['student_id' => $studentId, 'institution_id' => $instId];
+    if ($year !== '') {
+        $sql .= ' AND academic_year = :academic_year';
+        $params['academic_year'] = $year;
+    }
+    $sql .= ' ORDER BY academic_year DESC, FIELD(fee_type, "tuition", "bus", "hostel"), id';
+    $records = Database::fetchAll($sql, $params);
+    if ($records === []) {
+        return $empty;
+    }
+
+    $ids = array_map(static fn(array $row): int => (int)$row['id'], $records);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $payments = Database::fetchAll(
+        "SELECT * FROM fee_payments WHERE fee_record_id IN ($placeholders) ORDER BY payment_date, id",
+        $ids
+    );
+    $byFee = [];
+    foreach ($payments as $payment) {
+        $byFee[(int)$payment['fee_record_id']][] = $payment;
+    }
+
+    $labels = student_fee_type_labels();
+    $fees = [];
+    $total = 0.0;
+    $paidSum = 0.0;
+    $pendingSum = 0.0;
+    $reminders = [];
+    foreach ($records as $record) {
+        $id = (int)$record['id'];
+        $history = $byFee[$id] ?? [];
+        $paid = 0.0;
+        $lastDate = '';
+        foreach ($history as $payment) {
+            $paid += (float)$payment['amount'];
+            $lastDate = (string)$payment['payment_date'];
+        }
+        $paid = round($paid, 2);
+        $amount = round((float)$record['total_amount'], 2);
+        $remaining = round(max(0, $amount - $paid), 2);
+        $type = (string)$record['fee_type'];
+        $label = $labels[$type] ?? $type;
+        if ($paid <= 0) {
+            $status = 'pending';
+        } elseif ($paid + 0.001 < $amount) {
+            $status = 'partial';
+        } else {
+            $status = 'paid';
+        }
+        if ($remaining > 0) {
+            $reminders[] = 'You have ' . fee_money($remaining) . ' pending for ' . $label . '.';
+        }
+        $total += $amount;
+        $paidSum += $paid;
+        $pendingSum += $remaining;
+        $fees[] = [
+            'id' => $id,
+            'type' => $type,
+            'label' => $label,
+            'academic_year' => (string)$record['academic_year'],
+            'total' => $amount,
+            'paid' => $paid,
+            'remaining' => $remaining,
+            'status' => $status,
+            'due_date' => (string)($record['due_date'] ?? ''),
+            'last_payment_date' => $lastDate,
+            'payments' => $history,
+        ];
+    }
+
+    $overall = 'pending';
+    if ($pendingSum <= 0) {
+        $overall = 'paid';
+    } elseif ($paidSum > 0) {
+        $overall = 'partial';
+    }
+
+    return [
+        'student_id' => $studentId,
+        'academic_year' => $year,
+        'fees' => $fees,
+        'total' => round($total, 2),
+        'paid' => round($paidSum, 2),
+        'pending' => round($pendingSum, 2),
+        'overall' => $overall,
+        'reminders' => $reminders,
+    ];
+}
+
 /**
  * Monthly faculty payroll. Rows point at existing professor users.
  */

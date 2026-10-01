@@ -4031,6 +4031,19 @@ a.hod-kpi-card:hover {
 }
 .stu-dash-row em.is-warn { color: #fdba74; }
 .stu-dash-row em.is-exam { color: #f87171; }
+.stu-dash-row em.is-paid { color: #4ade80; }
+.stu-dash-row em.is-partial { color: #fdba74; }
+.stu-dash-row em.is-pending { color: #f87171; }
+.stu-dash-fees { padding-bottom: .95rem; }
+.stu-dash-fee-remind {
+  margin: .45rem 0 .15rem;
+  padding: .7rem .8rem;
+  border-radius: 12px;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.22);
+}
+.stu-dash-fee-remind strong { display: block; color: #fdba74; font-size: .8rem; }
+.stu-dash-fee-remind p { margin: .25rem 0 0; color: var(--ink-soft); font-size: .82rem; }
 .stu-dash-more {
   display: flex;
   justify-content: flex-end;
@@ -4047,6 +4060,65 @@ a.hod-kpi-card:hover {
 }
 @media (max-width: 560px) {
   .stu-dash-kpis { grid-template-columns: 1fr; }
+}
+
+/* Student fee history */
+.stu-fee { display: flex; flex-direction: column; gap: .9rem; min-width: 0; }
+.stu-fee-head h2 { margin: .2rem 0 0; font-size: clamp(1.35rem, 2.4vw, 1.7rem); }
+.stu-fee-head p, .stu-fee-back { margin: .3rem 0 0; color: var(--ink-soft); }
+.stu-fee-back { display: inline-block; color: #c4b5fd; font-size: .82rem; font-weight: 700; text-decoration: none; }
+.stu-fee-meta, .stu-fee-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .75rem; }
+.stu-fee-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stu-fee-meta div, .stu-fee-kpi, .stu-fee-history {
+  min-width: 0; padding: .9rem .85rem; border-radius: 16px;
+  background: linear-gradient(180deg, rgba(30, 24, 62, 0.96), rgba(18, 16, 40, 0.94));
+  border: 1px solid rgba(167, 139, 250, 0.16);
+}
+.stu-fee-meta span, .stu-fee-kpi span {
+  display: block; color: var(--muted); font-size: .72rem; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+}
+.stu-fee-meta strong { display: block; margin-top: .25rem; font-size: .92rem; }
+.stu-fee-kpi { display: flex; flex-direction: column; align-items: center; text-align: center; gap: .15rem; }
+.stu-fee-kpi strong { font-size: clamp(1.15rem, 2vw, 1.55rem); color: #c4b5fd; }
+.stu-fee-kpi.is-ok strong { color: #4ade80; }
+.stu-fee-kpi.is-warn strong, .stu-fee-kpi.is-partial strong { color: #fdba74; }
+.stu-fee-kpi.is-paid strong { color: #4ade80; }
+.stu-fee-kpi.is-pending strong { color: #f87171; }
+.stu-fee-status { font-size: 1rem !important; }
+.stu-fee-remind {
+  padding: .85rem 1rem; border-radius: 14px;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.22);
+}
+.stu-fee-remind strong { color: #fdba74; font-size: .82rem; }
+.stu-fee-remind p { margin: .3rem 0 0; color: var(--ink-soft); font-size: .88rem; }
+.stu-fee-table { padding: 1rem 1.05rem 1.1rem; overflow: hidden; }
+.stu-fee-table h3, .stu-fee-history h3 { margin: 0 0 .7rem; font-size: .95rem; }
+.stu-fee-table .table-wrap { border: 0; }
+.stu-fee-badge {
+  display: inline-flex; padding: .16rem .5rem; border-radius: 999px;
+  font-size: .72rem; font-weight: 700; white-space: nowrap;
+}
+.stu-fee-badge.is-paid { color: #4ade80; background: rgba(34, 197, 94, 0.12); }
+.stu-fee-badge.is-partial { color: #fdba74; background: rgba(251, 191, 36, 0.12); }
+.stu-fee-badge.is-pending { color: #f87171; background: rgba(248, 113, 113, 0.14); }
+.stu-fee-history p { margin: 0 0 .65rem; color: var(--ink-soft); font-size: .88rem; }
+.stu-fee-history ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.stu-fee-history li {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem .75rem;
+  padding: .55rem 0; border-top: 1px solid rgba(167, 139, 250, 0.12);
+}
+.stu-fee-history li span, .stu-fee-history li em { color: var(--ink-soft); font-size: .82rem; font-style: normal; }
+.stu-fee-history-foot {
+  display: flex; flex-wrap: wrap; gap: .75rem 1.2rem;
+  margin-top: .7rem; color: #ddd6fe; font-size: .84rem; font-weight: 700;
+}
+@media (max-width: 980px) {
+  .stu-fee-meta, .stu-fee-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .stu-fee-meta, .stu-fee-kpis { grid-template-columns: 1fr; }
 }
 
 /* Admin Departments */

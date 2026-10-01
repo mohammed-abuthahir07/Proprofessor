@@ -27,6 +27,7 @@ use App\Controllers\LegacyController;
 use App\Controllers\NotificationController;
 use App\Controllers\Professor\DashboardController as ProfessorDashboardController;
 use App\Controllers\Student\DashboardController as StudentDashboardController;
+use App\Controllers\Student\FeeController as StudentFeeController;
 use App\Core\Router;
 
 /** @var Router $router */
@@ -72,6 +73,7 @@ $router->post('/admin/notifications', [NotificationController::class, 'index']);
 $router->get('/professor/dashboard', [ProfessorDashboardController::class, 'index']);
 $router->post('/professor/dashboard/layout', [ProfessorDashboardController::class, 'saveLayout']);
 $router->get('/student/dashboard', [StudentDashboardController::class, 'index']);
+$router->get('/student/fees', [StudentFeeController::class, 'index']);
 $router->get('/hod/dashboard', [HodDashboardController::class, 'index']);
 $router->get('/api/hod/students', [HodStudentsController::class, 'list']);
 
