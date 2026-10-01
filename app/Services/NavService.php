@@ -47,6 +47,8 @@ final class NavService
                 ['label' => 'MAIN', 'items' => [
                     ['key' => 'dash', 'label' => 'Dashboard', 'href' => '/admin/dashboard', 'icon' => 'home'],
                     ['key' => 'institution', 'label' => 'Institution', 'href' => '/admin/institution', 'icon' => 'building', 'perm' => 'manage_institution'],
+                    ['key' => 'departments', 'label' => 'Departments', 'href' => '/admin/departments', 'icon' => 'grid'],
+                    ['key' => 'students', 'label' => 'Students', 'href' => '/admin/students', 'icon' => 'book'],
                     ['key' => 'users', 'label' => 'Users & Roles', 'href' => '/admin/users', 'icon' => 'users', 'feature' => 'user_management', 'perm' => 'manage_users'],
                 ]],
                 ['label' => 'OPERATIONS', 'items' => [
