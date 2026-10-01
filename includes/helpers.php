@@ -392,6 +392,83 @@ function ensure_professor_qualification_schema(): void
     }
 }
 
+function fee_money(float $amount): string
+{
+    $negative = $amount < -0.001;
+    $amount = round(abs($amount), 2);
+    $whole = (int)floor($amount + 0.00001);
+    $paise = (int)round(($amount - $whole) * 100);
+    if ($paise === 100) {
+        $whole++;
+        $paise = 0;
+    }
+    $digits = (string)$whole;
+    if (strlen($digits) > 3) {
+        $tail = substr($digits, -3);
+        $head = substr($digits, 0, -3);
+        $head = preg_replace('/\B(?=(\d{2})+(?!\d))/', ',', $head) ?? $head;
+        $digits = $head . ',' . $tail;
+    }
+    $text = '₹' . $digits;
+    if ($paise > 0) {
+        $text .= '.' . str_pad((string)$paise, 2, '0', STR_PAD_LEFT);
+    }
+    return ($negative ? '-' : '') . $text;
+}
+
+/**
+ * Fee tables are additive. A student with no row for a fee type does not owe that fee.
+ */
+function ensure_fee_collection_schema(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    $tables = [];
+    foreach (Database::fetchAll('SHOW TABLES') as $row) {
+        $tables[strtolower((string)array_values($row)[0])] = true;
+    }
+    if (!isset($tables['fee_records'])) {
+        Database::query(
+            "CREATE TABLE fee_records (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                institution_id INT UNSIGNED NOT NULL,
+                student_id INT UNSIGNED NOT NULL,
+                academic_year VARCHAR(20) NOT NULL,
+                fee_type ENUM('tuition','bus','hostel') NOT NULL,
+                total_amount DECIMAL(12,2) NOT NULL,
+                due_date DATE NULL,
+                notes TEXT NULL,
+                created_by INT UNSIGNED NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_fee_student_year_type (student_id, academic_year, fee_type),
+                KEY idx_fee_inst_year (institution_id, academic_year),
+                CONSTRAINT fk_fee_student FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB"
+        );
+    }
+    if (!isset($tables['fee_payments'])) {
+        Database::query(
+            "CREATE TABLE fee_payments (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                fee_record_id INT UNSIGNED NOT NULL,
+                amount DECIMAL(12,2) NOT NULL,
+                payment_date DATE NOT NULL,
+                payment_reference VARCHAR(80) NULL,
+                notes TEXT NULL,
+                recorded_by INT UNSIGNED NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                KEY idx_fee_pay_record (fee_record_id, payment_date),
+                CONSTRAINT fk_fee_pay_record FOREIGN KEY (fee_record_id) REFERENCES fee_records(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB"
+        );
+    }
+}
+
 /** Student year 1–4 from user field, else class.year fallback for legacy rows. */
 function student_academic_year_level(array $user): int
 {

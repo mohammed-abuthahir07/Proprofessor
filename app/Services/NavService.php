@@ -50,6 +50,7 @@ final class NavService
                     ['key' => 'departments', 'label' => 'Departments', 'href' => '/admin/departments', 'icon' => 'grid'],
                     ['key' => 'faculty', 'label' => 'Faculty', 'href' => '/admin/faculty', 'icon' => 'users'],
                     ['key' => 'students', 'label' => 'Students', 'href' => '/admin/students', 'icon' => 'book'],
+                    ['key' => 'fees', 'label' => 'Fee Collection', 'href' => '/admin/fee-collection', 'icon' => 'card'],
                     ['key' => 'users', 'label' => 'Users & Roles', 'href' => '/admin/users', 'icon' => 'users', 'feature' => 'user_management', 'perm' => 'manage_users'],
                 ]],
                 ['label' => 'OPERATIONS', 'items' => [
