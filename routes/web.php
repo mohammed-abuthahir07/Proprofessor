@@ -2,9 +2,9 @@
 declare(strict_types=1);
 
 use App\Controllers\Admin\AnalyticsController as AdminAnalyticsController;
-use App\Controllers\Admin\BillingController;
 use App\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Controllers\Admin\DepartmentsController;
+use App\Controllers\Admin\FacultyController as AdminFacultyController;
 use App\Controllers\Admin\FeatureController;
 use App\Controllers\Admin\FinanceController;
 use App\Controllers\Admin\FormulaController;
@@ -36,6 +36,8 @@ $router->get('/logout', [AuthController::class, 'logout']);
 $router->get('/admin/dashboard', [AdminDashboardController::class, 'index']);
 $router->get('/admin/institution', [InstitutionController::class, 'index']);
 $router->get('/admin/departments', [DepartmentsController::class, 'index']);
+$router->get('/admin/faculty', [AdminFacultyController::class, 'index']);
+$router->get('/admin/faculty/export', [AdminFacultyController::class, 'export']);
 $router->get('/admin/students', [AdminStudentsController::class, 'index']);
 $router->get('/admin/students/export', [AdminStudentsController::class, 'export']);
 $router->post('/admin/institution', [InstitutionController::class, 'save']);
@@ -50,7 +52,6 @@ $router->get('/admin/formulas', [FormulaController::class, 'index']);
 $router->post('/admin/formulas', [FormulaController::class, 'store']);
 $router->get('/admin/naac', [NaacController::class, 'index']);
 $router->get('/admin/analytics', [AdminAnalyticsController::class, 'index']);
-$router->get('/admin/billing', [BillingController::class, 'index']);
 $router->get('/admin/notifications', [NotificationController::class, 'index']);
 $router->post('/admin/notifications', [NotificationController::class, 'index']);
 

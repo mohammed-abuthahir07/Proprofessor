@@ -23,14 +23,110 @@ $audienceOptions = $audienceOptions ?? \AdminHodMessageTools::AUDIENCES;
 $audienceCounts = $audienceCounts ?? [];
 ?>
 <?php if ($canMessageHods): ?>
-<div class="grid grid-2" style="margin-bottom:1rem;align-items:start">
-  <div class="panel">
-    <div class="panel-h">
-      <h2 style="margin:0;font-size:1.05rem">Send announcement</h2>
-      <span class="chip" id="audienceCount">Choose audience</span>
+<?php
+$annWhen = static function (string $ts): string {
+    try {
+        $dt = new DateTime($ts, new DateTimeZone('Asia/Kolkata'));
+    } catch (Throwable) {
+        return $ts;
+    }
+    $diff = time() - $dt->getTimestamp();
+    if ($diff >= 0 && $diff < 60) {
+        return 'Just now';
+    }
+    if ($diff >= 0 && $diff < 3600) {
+        $m = (int)floor($diff / 60);
+        return $m . ' minute' . ($m === 1 ? '' : 's') . ' ago';
+    }
+    if ($diff >= 0 && $diff < 86400) {
+        $h = (int)floor($diff / 3600);
+        return $h . ' hour' . ($h === 1 ? '' : 's') . ' ago';
+    }
+    if ($diff >= 0 && $diff < 86400 * 7) {
+        $d = (int)floor($diff / 86400);
+        return $d . ' day' . ($d === 1 ? '' : 's') . ' ago';
+    }
+    return $dt->format('M j, Y');
+};
+?>
+<div class="adm-ann">
+  <div class="adm-ann-head">
+    <div>
+      <h2><?= icon('bell', 'icon-inline') ?> Announcements</h2>
+      <p>Broadcast notices to students, faculty &amp; staff</p>
     </div>
-    <p class="muted" style="font-size:.85rem;margin:.35rem 0 .85rem">Send a message (and optional PDF/DOCX) to the audience you select.</p>
-    <form method="post" enctype="multipart/form-data" class="form-grid" id="audienceForm">
+    <button class="btn btn-primary" type="button" id="admAnnOpen">+ New Announcement</button>
+  </div>
+  <h3 class="adm-ann-kicker">Recent announcements</h3>
+  <?php if (!$hodSentHistory): ?>
+    <div class="empty">No announcements sent yet.</div>
+  <?php else: ?>
+    <div class="adm-ann-list">
+      <?php foreach ($hodSentHistory as $h):
+        $hasAtt = trim((string)($h['attachment_path'] ?? '')) !== '';
+        $attName = (string)($h['attachment_original_name'] ?? '');
+        $attExt = strtolower(pathinfo($attName, PATHINFO_EXTENSION));
+        $hMeta = json_decode((string)($h['meta'] ?? ''), true) ?: [];
+        $noticeCode = strtoupper((string)($hMeta['notice_type'] ?? ''));
+        $tone = match ($noticeCode) {
+            'IMPORTANT' => 'is-important',
+            'ACADEMIC' => 'is-academic',
+            'EVENT' => 'is-event',
+            default => 'is-general',
+        };
+        $iconName = match ($noticeCode) {
+            'IMPORTANT' => 'alert',
+            'ACADEMIC' => 'book',
+            'EVENT' => 'spark',
+            default => 'bell',
+        };
+        $targetLabel = \AdminHodMessageTools::audienceLabel((string)($hMeta['audience'] ?? 'ALL_HODS'));
+        $noticeLabel = \AdminHodMessageTools::noticeTypeLabel($noticeCode);
+      ?>
+        <article class="adm-ann-card <?= e($tone) ?>">
+          <div class="adm-ann-card-top">
+            <span class="adm-ann-ico"><?= icon($iconName) ?></span>
+            <div class="adm-ann-copy">
+              <div class="adm-ann-title-row">
+                <h4><?= e((string)$h['title']) ?></h4>
+                <span class="adm-ann-sent">Sent</span>
+              </div>
+              <p class="adm-ann-meta">To: <?= e($targetLabel) ?> · <?= e($annWhen((string)($h['created_at'] ?? ''))) ?></p>
+              <p class="adm-ann-body"><?= e((string)$h['body']) ?></p>
+              <?php if ($hasAtt && $attName !== ''): ?>
+                <p class="adm-ann-file">
+                  <?= e($attName) ?>
+                  <a href="<?= e(base_url('/api/messages/attachment?source=admin_hod&id=' . (int)$h['id'])) ?>">Download<?= $attExt === 'pdf' ? ' PDF' : ($attExt === 'docx' ? ' DOCX' : '') ?></a>
+                </p>
+              <?php endif; ?>
+              <div class="adm-ann-chips">
+                <?php if ($noticeLabel !== ''): ?><span class="chip"><?= e($noticeLabel) ?></span><?php endif; ?>
+                <span class="chip">Target: <?= e($targetLabel) ?></span>
+                <span class="chip">Recipients: <?= (int)$h['recipient_count'] ?></span>
+              </div>
+            </div>
+            <form method="post" class="adm-ann-delete" onsubmit="return confirm('Delete this message for the admin and its recipients?');">
+              <?= csrf_field() ?>
+              <input type="hidden" name="action" value="delete_hod_message">
+              <input type="hidden" name="announcement_id" value="<?= (int)$h['id'] ?>">
+              <button class="btn btn-sm btn-ghost" type="submit">Delete</button>
+            </form>
+          </div>
+        </article>
+      <?php endforeach; ?>
+    </div>
+  <?php endif; ?>
+</div>
+<dialog class="adm-ann-dialog" id="admAnnDialog">
+  <div class="adm-ann-dialog-h">
+    <div>
+      <h2>New announcement</h2>
+      <p>Send a message (and optional PDF/DOCX) to the audience you select.</p>
+    </div>
+    <button class="btn btn-sm btn-ghost" type="button" id="admAnnClose">Close</button>
+  </div>
+  <span class="chip" id="audienceCount">Choose audience</span>
+  <form method="post" enctype="multipart/form-data" class="form-grid" id="audienceForm">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="send_hod_message">
       <div class="form-row">
@@ -67,50 +163,22 @@ $audienceCounts = $audienceCounts ?? [];
       </div>
       <button class="btn btn-primary" type="submit" id="audienceSend">Send announcement</button>
     </form>
-  </div>
-  <div class="panel" style="max-height:min(70vh, 640px);overflow:auto">
-    <div class="panel-h"><strong>Sent announcements</strong></div>
-    <?php if (!$hodSentHistory): ?>
-      <div class="empty">No announcements sent yet.</div>
-    <?php else: ?>
-      <?php foreach ($hodSentHistory as $h):
-        $hasAtt = trim((string)($h['attachment_path'] ?? '')) !== '';
-        $attName = (string)($h['attachment_original_name'] ?? '');
-        $attExt = strtolower(pathinfo($attName, PATHINFO_EXTENSION));
-        $hMeta = json_decode((string)($h['meta'] ?? ''), true) ?: [];
-        $targetLabel = \AdminHodMessageTools::audienceLabel((string)($hMeta['audience'] ?? 'ALL_HODS'));
-        $noticeLabel = \AdminHodMessageTools::noticeTypeLabel((string)($hMeta['notice_type'] ?? ''));
-      ?>
-        <div style="padding:.85rem 0;border-bottom:1px solid var(--line)">
-          <div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start">
-            <strong><?= e((string)$h['title']) ?></strong>
-            <form method="post" style="margin:0;flex-shrink:0" onsubmit="return confirm('Delete this message for the admin and its recipients?');">
-              <?= csrf_field() ?>
-              <input type="hidden" name="action" value="delete_hod_message">
-              <input type="hidden" name="announcement_id" value="<?= (int)$h['id'] ?>">
-              <button class="btn btn-sm btn-ghost" type="submit" style="color:#f87171">Delete</button>
-            </form>
-          </div>
-          <div style="white-space:pre-wrap;font-size:.92rem;margin-top:.25rem"><?= e((string)$h['body']) ?></div>
-          <?php if ($hasAtt && $attName !== ''): ?>
-            <div style="margin-top:.4rem;font-size:.88rem">
-              📄 <?= e($attName) ?>
-              <a class="btn btn-sm btn-ghost" style="margin-left:.25rem" href="<?= e(base_url('/api/messages/attachment?source=admin_hod&id=' . (int)$h['id'])) ?>">Download<?= $attExt === 'pdf' ? ' PDF' : ($attExt === 'docx' ? ' DOCX' : '') ?></a>
-            </div>
-          <?php endif; ?>
-          <div class="chip-row" style="margin-top:.35rem">
-            <?php if ($noticeLabel !== ''): ?><span class="chip"><?= e($noticeLabel) ?></span><?php endif; ?>
-            <span class="chip">Target: <?= e($targetLabel) ?></span>
-            <span class="chip">Recipients: <?= (int)$h['recipient_count'] ?></span>
-            <span class="chip"><?= e((string)$h['created_at']) ?></span>
-          </div>
-        </div>
-      <?php endforeach; ?>
-    <?php endif; ?>
-  </div>
-</div>
+</dialog>
 <script>
 (function () {
+  var dialog = document.getElementById('admAnnDialog');
+  var openBtn = document.getElementById('admAnnOpen');
+  var closeBtn = document.getElementById('admAnnClose');
+  var titleBox = document.querySelector('.topbar-title');
+  var heading = titleBox ? titleBox.querySelector('h1') : null;
+  var sub = titleBox ? titleBox.querySelector('p') : null;
+  if (heading) heading.textContent = 'Announcements';
+  if (sub) sub.textContent = 'Broadcast notices to students, faculty & staff';
+  if (titleBox) titleBox.hidden = true;
+  document.title = document.title.replace(/^Notifications/, 'Announcements');
+  if (openBtn && dialog) openBtn.addEventListener('click', function () { dialog.showModal(); });
+  if (closeBtn && dialog) closeBtn.addEventListener('click', function () { dialog.close(); });
+  if (dialog && document.querySelector('.alert-error')) dialog.showModal();
   var sel = document.getElementById('audience');
   var chip = document.getElementById('audienceCount');
   var btn = document.getElementById('audienceSend');

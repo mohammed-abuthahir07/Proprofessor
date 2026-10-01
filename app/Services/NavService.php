@@ -48,19 +48,19 @@ final class NavService
                     ['key' => 'dash', 'label' => 'Dashboard', 'href' => '/admin/dashboard', 'icon' => 'home'],
                     ['key' => 'institution', 'label' => 'Institution', 'href' => '/admin/institution', 'icon' => 'building', 'perm' => 'manage_institution'],
                     ['key' => 'departments', 'label' => 'Departments', 'href' => '/admin/departments', 'icon' => 'grid'],
+                    ['key' => 'faculty', 'label' => 'Faculty', 'href' => '/admin/faculty', 'icon' => 'users'],
                     ['key' => 'students', 'label' => 'Students', 'href' => '/admin/students', 'icon' => 'book'],
                     ['key' => 'users', 'label' => 'Users & Roles', 'href' => '/admin/users', 'icon' => 'users', 'feature' => 'user_management', 'perm' => 'manage_users'],
                 ]],
                 ['label' => 'OPERATIONS', 'items' => [
                     ['key' => 'features', 'label' => 'Feature Flags', 'href' => '/admin/features', 'icon' => 'puzzle', 'perm' => 'manage_features'],
                     ['key' => 'formulas', 'label' => 'Marks Formulas', 'href' => '/admin/formulas', 'icon' => 'formula', 'perm' => 'manage_formulas'],
-                    ['key' => 'finance', 'label' => 'Finance', 'href' => '/admin/finance', 'icon' => 'finance', 'feature' => 'finance', 'perm' => 'manage_finance'],
+                    ['key' => 'finance', 'label' => 'Expense', 'href' => '/admin/finance', 'icon' => 'finance', 'feature' => 'finance', 'perm' => 'manage_finance'],
                 ]],
                 ['label' => 'GROWTH', 'items' => [
                     ['key' => 'naac', 'label' => 'NAAC Builder', 'href' => '/admin/naac', 'icon' => 'file', 'feature' => 'naac_reports', 'perm' => 'manage_naac'],
                     ['key' => 'analytics', 'label' => 'Analytics', 'href' => '/admin/analytics', 'icon' => 'trend', 'perm' => 'view_analytics'],
-                    ['key' => 'billing', 'label' => 'Subscription', 'href' => '/admin/billing', 'icon' => 'card', 'perm' => 'manage_billing'],
-                    ['key' => 'notifications', 'label' => 'Notifications', 'href' => '/admin/notifications', 'icon' => 'bell'],
+                    ['key' => 'notifications', 'label' => 'Announcements', 'href' => '/admin/notifications', 'icon' => 'bell'],
                 ]],
             ],
             default => [

@@ -2,13 +2,13 @@
 /** @var list<array<string,mixed>> $rows */
 /** @var array{enrolled:int,detention:int,low:int,shown:int} $summary */
 /** @var list<array<string,mixed>> $departments */
-/** @var array{q:string,department_id:int,semester:string} $filters */
+/** @var array{q:string,department_id:int,semester:string,year:int} $filters */
 /** @var int $pageSize */
 /** @var string $exportQuery */
 $rows = $rows ?? [];
 $summary = $summary ?? ['enrolled' => 0, 'detention' => 0, 'low' => 0, 'shown' => 0];
 $departments = $departments ?? [];
-$filters = $filters ?? ['q' => '', 'department_id' => 0, 'semester' => ''];
+$filters = $filters ?? ['q' => '', 'department_id' => 0, 'semester' => '', 'year' => 0];
 $pageSize = max(1, (int)($pageSize ?? 10));
 $exportQuery = (string)($exportQuery ?? '');
 $shown = count($rows);
@@ -70,6 +70,12 @@ $tone = static function (?float $n): string {
       <option value="">All semesters</option>
       <option value="odd" <?= $filters['semester'] === 'odd' ? 'selected' : '' ?>>Odd</option>
       <option value="even" <?= $filters['semester'] === 'even' ? 'selected' : '' ?>>Even</option>
+    </select>
+    <select name="year" aria-label="Year">
+      <option value="">All years</option>
+      <?php foreach ([1, 2, 3, 4] as $yr): ?>
+        <option value="<?= $yr ?>" <?= (int)$filters['year'] === $yr ? 'selected' : '' ?>><?= e(subject_year_label($yr)) ?></option>
+      <?php endforeach; ?>
     </select>
     <button class="btn btn-sm btn-ghost" type="submit">Search</button>
     <a class="btn btn-sm btn-ghost" href="<?= e(url('/admin/students/export' . $exportQuery)) ?>">Export</a>

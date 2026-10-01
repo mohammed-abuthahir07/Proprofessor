@@ -60,9 +60,13 @@ final class StudentsController extends Controller
             'q' => trim((string)$this->get('q', '')),
             'department_id' => (int)$this->get('department_id', 0),
             'semester' => strtolower(trim((string)$this->get('semester', ''))),
+            'year' => (int)$this->get('year', 0),
         ];
         if (!in_array($filters['semester'], ['odd', 'even'], true)) {
             $filters['semester'] = '';
+        }
+        if ($filters['year'] < 1 || $filters['year'] > 4) {
+            $filters['year'] = 0;
         }
 
         $students = User::forInstitution($instId, ['role' => 'student', 'is_active' => 1]);
@@ -96,6 +100,7 @@ final class StudentsController extends Controller
                 'dept_code' => (string)($student['dept_code'] ?? ''),
                 'semester_key' => subject_semester_key($semester),
                 'semester_label' => $semester,
+                'year' => $year,
                 'year_label' => $year > 0 ? subject_year_label($year) : '',
                 'roll' => trim((string)($student['register_no'] ?? '')),
                 'attendance' => $pct,
@@ -109,6 +114,9 @@ final class StudentsController extends Controller
                 return false;
             }
             if ($filters['semester'] !== '' && $row['semester_key'] !== $filters['semester']) {
+                return false;
+            }
+            if ($filters['year'] > 0 && (int)$row['year'] !== $filters['year']) {
                 return false;
             }
             if ($q === '') {
@@ -129,6 +137,7 @@ final class StudentsController extends Controller
             'q' => $filters['q'],
             'department_id' => $filters['department_id'] > 0 ? (string)$filters['department_id'] : '',
             'semester' => $filters['semester'],
+            'year' => $filters['year'] > 0 ? (string)$filters['year'] : '',
         ], static fn($v) => $v !== '');
 
         return [

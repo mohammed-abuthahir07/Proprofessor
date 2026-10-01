@@ -24,6 +24,5 @@ $firstName = explode(' ', (string)($user['full_name'] ?? 'Admin'))[0];
     <a class="qa-card" href="<?= e(url('/admin/finance')) ?>"><div class="ico"><?= icon('finance') ?></div><h3>Finance</h3><p>Expenses & budgets</p></a>
     <a class="qa-card" href="<?= e(url('/admin/formulas')) ?>"><div class="ico"><?= icon('formula') ?></div><h3>Marks formulas</h3><p>NLP + patterns</p></a>
     <a class="qa-card" href="<?= e(url('/admin/naac')) ?>"><div class="ico"><?= icon('file') ?></div><h3>NAAC builder</h3><p>SSR / AQAR snapshots</p></a>
-    <a class="qa-card" href="<?= e(url('/admin/billing')) ?>"><div class="ico"><?= icon('card') ?></div><h3>Subscription</h3><p>Licenses & tiers</p></a>
   </div>
 </div>

@@ -369,6 +369,29 @@ function ensure_student_academic_schema(): void
     }
 }
 
+/**
+ * Additive professor qualification on users. Existing rows stay NULL.
+ */
+function ensure_professor_qualification_schema(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    $cols = [];
+    foreach (Database::fetchAll('SHOW COLUMNS FROM users') as $c) {
+        $cols[$c['Field']] = true;
+    }
+    if (!isset($cols['qualification'])) {
+        Database::query(
+            "ALTER TABLE users
+             ADD COLUMN qualification VARCHAR(120) NULL DEFAULT NULL
+             AFTER employee_id"
+        );
+    }
+}
+
 /** Student year 1–4 from user field, else class.year fallback for legacy rows. */
 function student_academic_year_level(array $user): int
 {

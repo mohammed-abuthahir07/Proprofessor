@@ -159,6 +159,10 @@ $userListQuery = static function (array $filters, int $page, ?int $editId = null
           </select>
         </div>
       </div>
+      <div class="form-row" id="professorQualification" hidden>
+        <label for="userQualification">Qualification</label>
+        <input id="userQualification" name="qualification" maxlength="120" placeholder="Enter qualification" value="<?= e((string)($editing['qualification'] ?? '')) ?>">
+      </div>
       <div class="form-row two">
         <div><label>Employee ID</label><input name="employee_id" value="<?= e((string)($editing['employee_id'] ?? '')) ?>"></div>
         <div><label>Phone</label><input name="phone" value="<?= e((string)($editing['phone'] ?? '')) ?>"></div>
@@ -243,6 +247,9 @@ $userListQuery = static function (array $filters, int $page, ?int $editId = null
         <td>
           <strong><?= e($u['full_name']) ?></strong>
           <div style="font-size:.75rem;color:var(--muted)"><?= e($u['email']) ?></div>
+          <?php if (($u['role'] ?? '') === 'professor' && trim((string)($u['qualification'] ?? '')) !== ''): ?>
+            <div style="font-size:.75rem;color:var(--ink-soft)"><?= e((string)$u['qualification']) ?></div>
+          <?php endif; ?>
         </td>
         <td><span class="chip"><?= e($roleLabel) ?></span></td>
         <td><?= e((string)$u['dept_name']) ?></td>
@@ -307,6 +314,7 @@ $userListQuery = static function (array $filters, int $page, ?int $editId = null
   const student = document.getElementById('studentFields');
   const academic = document.getElementById('studentAcademicFields');
   const perms = document.getElementById('permBox');
+  const qual = document.getElementById('professorQualification');
   const classSel = document.getElementById('userClass');
   const yearSel = document.getElementById('userAcademicYear');
   const sync = () => {
@@ -315,6 +323,11 @@ $userListQuery = static function (array $filters, int $page, ?int $editId = null
     if (student) student.hidden = !isStudent;
     if (academic) academic.hidden = !isStudent;
     if (perms) perms.hidden = v !== 'admin';
+    if (qual) {
+      const show = v === 'professor';
+      qual.hidden = !show;
+      qual.style.display = show ? '' : 'none';
+    }
   };
   // When class changes, suggest matching academic year (admin can still change semester).
   classSel?.addEventListener('change', () => {

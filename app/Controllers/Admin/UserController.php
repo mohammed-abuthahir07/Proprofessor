@@ -20,6 +20,7 @@ final class UserController extends Controller
     {
         require_admin_perm('manage_users');
         ensure_student_academic_schema();
+        ensure_professor_qualification_schema();
         $user = $this->user();
         $instId = (int)$user['institution_id'];
 
@@ -73,6 +74,7 @@ final class UserController extends Controller
     {
         require_admin_perm('manage_users');
         ensure_student_academic_schema();
+        ensure_professor_qualification_schema();
         $this->verifyCsrf();
         $actor = $this->user();
         $action = (string)$this->post('action');
@@ -380,6 +382,15 @@ final class UserController extends Controller
         if ($role === 'admin' && is_array($perms) && $perms !== []) {
             $extra = Permissions::encode(array_map('strval', $perms));
         }
+        $qualification = null;
+        if ($role === 'professor') {
+            $qualification = trim((string)$this->post('qualification'));
+            if (mb_strlen($qualification) > 120) {
+                $this->flash('error', 'Qualification must be 120 characters or fewer.');
+                return null;
+            }
+            $qualification = $qualification !== '' ? $qualification : null;
+        }
         $row = [
             'institution_id' => $institutionId,
             'department_id' => $deptId,
@@ -391,6 +402,7 @@ final class UserController extends Controller
             'semester' => $role === 'student' ? $semester : null,
             'register_no' => trim((string)$this->post('register_no')) ?: null,
             'employee_id' => trim((string)$this->post('employee_id')) ?: null,
+            'qualification' => $qualification,
             'phone' => trim((string)$this->post('phone')) ?: null,
             'extra' => $extra,
         ];

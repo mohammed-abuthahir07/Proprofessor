@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `password_hash`   VARCHAR(255) NOT NULL,
   `full_name`       VARCHAR(160) NOT NULL,
   `employee_id`     VARCHAR(60) NULL,
+  `qualification`   VARCHAR(120) NULL,
   `register_no`     VARCHAR(60) NULL,
   `phone`           VARCHAR(30) NULL,
   `avatar_url`      VARCHAR(255) NULL,
