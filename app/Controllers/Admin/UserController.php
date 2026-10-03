@@ -299,6 +299,10 @@ final class UserController extends Controller
                 $errors++;
                 continue;
             }
+            if ($role === 'hod' && $deptId && $this->existingHodForDepartment((int)$actor['institution_id'], (int)$deptId)) {
+                $errors++;
+                continue;
+            }
             try {
                 $newId = User::create([
                     'institution_id' => $actor['institution_id'],
@@ -339,6 +343,17 @@ final class UserController extends Controller
         if (in_array($role, ['hod', 'professor', 'student'], true) && !$deptId) {
             $this->flash('error', 'Department is required for HOD, Professor, and Student.');
             return null;
+        }
+        if ($role === 'hod' && $deptId) {
+            $exceptId = ($isUpdate && $existing) ? (int)$existing['id'] : null;
+            $otherHod = $this->existingHodForDepartment($institutionId, $deptId, $exceptId);
+            if ($otherHod) {
+                $this->flash(
+                    'error',
+                    'This department already has an HOD (' . (string)$otherHod['full_name'] . '). Only one HOD can be created per department.'
+                );
+                return null;
+            }
         }
 
         $academicYearLevel = null;
@@ -417,6 +432,32 @@ final class UserController extends Controller
             unset($row['institution_id']);
         }
         return ['row' => $row];
+    }
+
+    /**
+     * Active HOD already assigned to this department, if any.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function existingHodForDepartment(int $institutionId, int $departmentId, ?int $exceptUserId = null): ?array
+    {
+        if ($institutionId < 1 || $departmentId < 1) {
+            return null;
+        }
+        $sql = 'SELECT id, full_name, email
+                FROM users
+                WHERE institution_id = ?
+                  AND department_id = ?
+                  AND role = ?
+                  AND is_active = 1';
+        $params = [$institutionId, $departmentId, 'hod'];
+        if ($exceptUserId && $exceptUserId > 0) {
+            $sql .= ' AND id <> ?';
+            $params[] = $exceptUserId;
+        }
+        $sql .= ' LIMIT 1';
+        $row = Database::fetch($sql, $params);
+        return $row ?: null;
     }
 
     private function resolveDept(int $institutionId, int $deptId): ?int

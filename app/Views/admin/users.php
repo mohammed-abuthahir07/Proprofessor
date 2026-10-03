@@ -101,7 +101,7 @@ $userListQuery = static function (array $filters, int $page, ?int $editId = null
           <select name="role" id="userRole">
             <option value="professor" <?= $roleVal === 'professor' ? 'selected' : '' ?>>Professor</option>
             <option value="student" <?= $roleVal === 'student' ? 'selected' : '' ?>>Student</option>
-            <option value="hod" <?= $roleVal === 'hod' ? 'selected' : '' ?>>HOD</option>
+            <option value="hod" <?= $roleVal === 'hod' ? 'selected' : '' ?>>HOD (one per department)</option>
             <option value="admin" <?= $roleVal === 'admin' ? 'selected' : '' ?>>Admin / Sub-admin</option>
           </select>
         </div>
