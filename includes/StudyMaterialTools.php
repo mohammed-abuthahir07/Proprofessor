@@ -516,16 +516,42 @@ final class StudyMaterialTools
 
     private static function signatureMatches(string $tmp, string $ext): bool
     {
-        $head = @file_get_contents($tmp, false, null, 0, 8);
+        $head = @file_get_contents($tmp, false, null, 0, 16);
         if ($head === false || $head === '') {
             return false;
         }
+        $ole = str_starts_with($head, "\xD0\xCF\x11\xE0");
+        $zip = str_starts_with($head, "PK\x03\x04")
+            || str_starts_with($head, "PK\x05\x06")
+            || str_starts_with($head, "PK\x07\x08");
+
         if ($ext === 'pdf') {
-            return str_starts_with($head, '%PDF-');
+            $probe = @file_get_contents($tmp, false, null, 0, 1024);
+            $probe = $probe === false ? $head : $probe;
+            if (str_starts_with($probe, "\xEF\xBB\xBF")) {
+                $probe = substr($probe, 3);
+            }
+            return (bool)preg_match('/^\s*%PDF/', $probe);
         }
         if ($ext === 'doc' || $ext === 'ppt') {
-            return str_starts_with($head, "\xD0\xCF\x11\xE0");
+            // Legacy Office, or a newer OOXML file saved with the old extension.
+            return $ole || $zip || self::zipContainsOfficeXml($tmp, $ext === 'ppt' ? 'ppt' : 'word');
         }
+        if ($ext === 'docx' || $ext === 'pptx') {
+            if (!$zip && !$ole) {
+                return false;
+            }
+            if (self::zipContainsOfficeXml($tmp, $ext === 'pptx' ? 'ppt' : 'word')) {
+                return true;
+            }
+            // Zip extension may be missing on local PHP; ZIP/OLE magic + allow-listed extension is enough.
+            return $zip || $ole;
+        }
+        return false;
+    }
+
+    private static function zipContainsOfficeXml(string $tmp, string $kind): bool
+    {
         if (!class_exists('ZipArchive', false)) {
             return false;
         }
@@ -533,8 +559,30 @@ final class StudyMaterialTools
         if ($zip->open($tmp) !== true) {
             return false;
         }
-        $needed = $ext === 'docx' ? 'word/document.xml' : 'ppt/presentation.xml';
-        $ok = $zip->locateName($needed) !== false;
+        $needles = $kind === 'ppt'
+            ? ['ppt/presentation.xml', 'ppt/slides/slide1.xml']
+            : ['word/document.xml'];
+        $ok = false;
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $name = strtolower(str_replace('\\', '/', (string)$zip->getNameIndex($i)));
+            foreach ($needles as $needle) {
+                if ($name === $needle || str_ends_with($name, '/' . $needle)) {
+                    $ok = true;
+                    break 2;
+                }
+            }
+            if ($name === '[content_types].xml') {
+                $xml = strtolower((string)$zip->getFromIndex($i));
+                if ($kind === 'ppt' && str_contains($xml, 'presentationml')) {
+                    $ok = true;
+                    break;
+                }
+                if ($kind === 'word' && str_contains($xml, 'wordprocessingml')) {
+                    $ok = true;
+                    break;
+                }
+            }
+        }
         $zip->close();
         return $ok;
     }
