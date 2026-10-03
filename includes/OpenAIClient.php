@@ -30,9 +30,9 @@ final class OpenAIClient
     /**
      * @return array{ok:bool,text:?string,json:?array,raw:?array,error?:string,latency_ms:int,http_code?:int,model:string,provider:string}
      */
-    public function generate(string $system, string $userPrompt, ?string $model = null): array
+    public function generate(string $system, string $userPrompt, ?string $model = null, int $timeout = 90): array
     {
-        return $this->chat($system, $userPrompt, $model ?: $this->model, true, 90);
+        return $this->chat($system, $userPrompt, $model ?: $this->model, true, $timeout > 0 ? $timeout : 90);
     }
 
     /**

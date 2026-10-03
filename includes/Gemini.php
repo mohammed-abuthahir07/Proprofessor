@@ -32,9 +32,10 @@ final class Gemini
     /**
      * @return array{ok:bool,text:?string,json:?array,raw:?array,error?:string,latency_ms:int}
      */
-    public function generate(string $system, string $userPrompt, ?string $model = null): array
+    public function generate(string $system, string $userPrompt, ?string $model = null, int $timeout = 90): array
     {
         $started = hrtime(true);
+        $timeout = $timeout > 0 ? $timeout : 90;
         if (!$this->isConfigured()) {
             return [
                 'ok' => false,
@@ -53,7 +54,7 @@ final class Gemini
                 continue;
             }
             $tried[$modelName] = true;
-            $last = $this->request($system, $userPrompt, $modelName, $started);
+            $last = $this->request($system, $userPrompt, $modelName, $started, $timeout);
             if (!empty($last['ok'])) {
                 return $last;
             }
@@ -170,7 +171,7 @@ final class Gemini
     /**
      * @return array{ok:bool,text:?string,json:?array,raw:?array,error?:string,latency_ms:int}
      */
-    private function request(string $system, string $userPrompt, string $modelName, int $started): array
+    private function request(string $system, string $userPrompt, string $modelName, int $started, int $timeout = 90): array
     {
         $url = $this->endpoint . '/models/' . rawurlencode($modelName) . ':generateContent?key=' . urlencode($this->apiKey);
         $payload = [
@@ -185,6 +186,7 @@ final class Gemini
             ],
             'generationConfig' => [
                 'temperature' => 0.4,
+                'maxOutputTokens' => 8192,
                 'responseMimeType' => 'application/json',
             ],
         ];
@@ -198,7 +200,7 @@ final class Gemini
                 'x-goog-api-key: ' . $this->apiKey,
             ],
             CURLOPT_POSTFIELDS     => json_encode($payload),
-            CURLOPT_TIMEOUT        => 90,
+            CURLOPT_TIMEOUT        => $timeout,
         ]);
         $body = curl_exec($ch);
         $errno = curl_errno($ch);

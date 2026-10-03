@@ -1000,8 +1000,6 @@ final class LectureSlideBuilder
             'tip: avoid confusing this with similar concepts',
             'what markers usually expect',
             'one worked-style talking point',
-            'core idea of',
-            'definition: ',
             'reviewed the main ideas',
             'connected definitions, methods',
             'what is the most important idea from',

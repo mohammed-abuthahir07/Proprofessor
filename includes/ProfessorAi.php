@@ -50,7 +50,7 @@ final class ProfessorAi
         return method_exists($this->client, 'isConfigured') && (bool)$this->client->isConfigured();
     }
 
-    public function generate(string $system, string $userPrompt, ?string $model = null): array
+    public function generate(string $system, string $userPrompt, ?string $model = null, int $timeout = 90): array
     {
         if (!$this->byok && $this->provider === '') {
             return [
@@ -63,7 +63,7 @@ final class ProfessorAi
                 'model' => '',
             ];
         }
-        $result = $this->client->generate($system, $userPrompt, $model);
+        $result = $this->client->generate($system, $userPrompt, $model, $timeout > 0 ? $timeout : 90);
         return self::normalizeResult($result, $this->provider, $model ?: $this->model);
     }
 
@@ -246,6 +246,8 @@ final class ProfessorAi
                 $code = 'AI_PROVIDER_QUOTA';
             } elseif (str_contains($l, 'rate limit')) {
                 $code = 'AI_PROVIDER_RATE_LIMIT';
+            } elseif (str_contains($l, 'timed out') || str_contains($l, 'timeout')) {
+                $code = 'AI_PROVIDER_TIMEOUT';
             }
             json_response([
                 'ok' => false,

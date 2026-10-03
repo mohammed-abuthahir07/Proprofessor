@@ -406,6 +406,34 @@ function question_bank_is_usable(array $questions, string $type, int $count): bo
  * @param list<mixed> $raw
  * @return list<array<string,mixed>>
  */
+/**
+ * Pull a slides list out of common AI JSON shapes (PPT module only).
+ *
+ * @param mixed $json
+ * @return list<mixed>
+ */
+function extract_generated_slides($json): array
+{
+    if (!is_array($json)) {
+        return [];
+    }
+    foreach (['slides', 'deck', 'presentation_slides'] as $key) {
+        if (isset($json[$key]) && is_array($json[$key])) {
+            return array_values($json[$key]);
+        }
+    }
+    if (isset($json['presentation']) && is_array($json['presentation'])) {
+        $inner = $json['presentation']['slides'] ?? $json['presentation']['deck'] ?? null;
+        if (is_array($inner)) {
+            return array_values($inner);
+        }
+    }
+    if ($json !== [] && array_is_list($json) && is_array($json[0] ?? null) && (isset($json[0]['title']) || isset($json[0]['bullets']))) {
+        return array_values($json);
+    }
+    return [];
+}
+
 function normalize_generated_slides(array $raw, int $unit): array
 {
     $unitTag = 'Unit ' . max(1, $unit);
@@ -473,6 +501,19 @@ function normalize_generated_slides(array $raw, int $unit): array
 /**
  * @param list<array<string,mixed>> $slides
  */
+function ppt_slide_is_structural(array $slide, int $index, int $total): bool
+{
+    $title = strtolower(trim((string)($slide['title'] ?? '')));
+    $layout = strtolower(trim((string)($slide['layout'] ?? '')));
+    if (in_array($layout, ['title', 'cover', 'close', 'outro'], true)) {
+        return true;
+    }
+    if ($index === 0 || ($total > 1 && $index === $total - 1)) {
+        return true;
+    }
+    return (bool)preg_match('/^(thank you|thanks|thank you!|title|agenda|outline|overview|learning objectives|objectives|course outcomes)$/i', $title);
+}
+
 function ppt_slides_are_usable(array $slides): bool
 {
     if (count($slides) < 6) {
@@ -482,23 +523,31 @@ function ppt_slides_are_usable(array $slides): bool
         return false;
     }
     $bad = 0;
-    foreach ($slides as $slide) {
-        $title = strtolower((string)($slide['title'] ?? ''));
-        $bullets = $slide['bullets'] ?? [];
-        $joined = strtolower(implode(' ', array_map(static fn($b) => is_string($b) ? $b : json_encode($b), (array)$bullets)));
-        $notes = strtolower((string)($slide['speaker_notes'] ?? ''));
-        if (
-            preg_match('/^topic slide\s*\d*$/', $title)
-            || str_contains($joined, 'point a')
-            || str_contains($joined, 'point b')
-            || str_contains($notes, 'talking points for slide')
-            || $title === ''
-            || count((array)$bullets) < 2
-        ) {
+    $content = 0;
+    $total = count($slides);
+    foreach ($slides as $i => $slide) {
+        if (!is_array($slide)) {
             $bad++;
+            continue;
+        }
+        $title = strtolower(trim((string)($slide['title'] ?? '')));
+        $bullets = array_values(array_filter((array)($slide['bullets'] ?? []), static fn($b) => trim((string)$b) !== ''));
+        $joined = strtolower(implode("\n", array_map(static fn($b) => is_string($b) ? $b : (string)json_encode($b), $bullets)));
+        $notes = strtolower((string)($slide['speaker_notes'] ?? ''));
+        $placeholder = (bool)preg_match('/^topic slide\s*\d*$/', $title)
+            || (bool)preg_match('/(?:^|\n)\s*point [ab]\d*\s*(?:\n|$)/i', $joined)
+            || str_contains($notes, 'talking points for slide')
+            || $title === '';
+        $structural = ppt_slide_is_structural($slide, (int)$i, $total);
+        if ($placeholder || (!$structural && count($bullets) < 2)) {
+            $bad++;
+            continue;
+        }
+        if (!$structural) {
+            $content++;
         }
     }
-    return $bad === 0;
+    return $content >= 4 && $bad <= 2;
 }
 
 function render_plan_html(array $plan, int $planId = 0): string
@@ -1296,6 +1345,11 @@ try {
         $system = $tpl['system_prompt']
             ?? 'You are an expert university lecturer preparing a professional classroom PowerPoint. Return ONLY valid JSON.';
 
+        $contextForAi = $context;
+        if (strlen($contextForAi) > 6000) {
+            $contextForAi = substr($contextForAi, 0, 6000) . "\n…";
+        }
+
         $userPrompt = "Create a professional academic lecture presentation (real teaching content, not placeholders).\n"
             . "Institution: {$brandMeta['institution']}\n"
             . ($deptName !== '' ? "Department: {$deptName}\n" : '')
@@ -1303,9 +1357,9 @@ try {
             . "Course/Subject: {$subjectName}\n"
             . "Unit: {$unit} (ALL slides must be for this unit only)\n"
             . "{$unitTopicText}\n\n"
-            . "Syllabus / context:\n" . ($context !== '' ? $context : '(Use the course and unit topics above.)') . "\n\n"
+            . "Syllabus / context:\n" . ($contextForAi !== '' ? $contextForAi : '(Use the course and unit topics above.)') . "\n\n"
             . "Requirements:\n"
-            . "- Slide count should fit the syllabus (typically 12–22). Do not pad with empty slides.\n"
+            . "- Return 8–14 slides only. Prefer coverage of the main topics over a very long deck.\n"
             . "- Slide 1: college/institution title slide with subject + unit.\n"
             . "- Slide 2: specific learning objectives (action verbs; no generic \"understand the concepts\").\n"
             . "- Then teach EACH syllabus topic with real explanations, examples, comparisons, or code when useful.\n"
@@ -1323,9 +1377,12 @@ try {
         $result = ['ok' => true, 'json' => null, 'latency_ms' => 0, 'demo' => false];
 
         if ($gemini->isConfigured()) {
-            $result = $gemini->generate($system, $userPrompt);
+            if (function_exists('set_time_limit')) {
+                @set_time_limit(200);
+            }
+            $result = $gemini->generate($system, $userPrompt, null, 180);
             ProfessorAi::abortIfByokFailed($gemini, $result);
-            $rawSlides = is_array($result['json']['slides'] ?? null) ? $result['json']['slides'] : [];
+            $rawSlides = extract_generated_slides($result['json'] ?? null);
             $slides = normalize_generated_slides($rawSlides, $unit);
             if (!ppt_slides_are_usable($slides)) {
                 if (professor_ai_is_byok($gemini) || ($user['role'] ?? '') === 'professor') {

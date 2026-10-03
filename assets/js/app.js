@@ -169,7 +169,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!res.ok || !data.ok) {
           const msg = data.error || 'Generation failed';
           const code = String(data.code || '');
-          if (code.indexOf('AI_') === 0 || /settings|api key|provider|model|connect/i.test(msg)) {
+          const settingsCodes = {
+            AI_API_KEY_INVALID: 1,
+            AI_MODEL_UNAVAILABLE: 1,
+            AI_PROVIDER_NOT_CONNECTED: 1,
+            AI_PROVIDER_QUOTA: 1,
+          };
+          const openSettings = !!settingsCodes[code]
+            || /settings|api key|reconnect|select a supported model/i.test(msg);
+          if (openSettings) {
             const go = window.confirm(msg + '\n\nOpen AI Settings now?');
             if (go) window.location = data.settings_url || settingsUrl;
             return;

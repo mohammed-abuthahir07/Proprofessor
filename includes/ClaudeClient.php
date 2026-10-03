@@ -30,10 +30,10 @@ final class ClaudeClient
     /**
      * @return array{ok:bool,text:?string,json:?array,raw:?array,error?:string,latency_ms:int,http_code?:int,model:string,provider:string}
      */
-    public function generate(string $system, string $userPrompt, ?string $model = null): array
+    public function generate(string $system, string $userPrompt, ?string $model = null, int $timeout = 90): array
     {
         $system = trim($system) . "\nReturn ONLY valid JSON. No markdown fences.";
-        return $this->messages($system, $userPrompt, $model ?: $this->model, 90);
+        return $this->messages($system, $userPrompt, $model ?: $this->model, $timeout > 0 ? $timeout : 90);
     }
 
     /**
