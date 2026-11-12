@@ -288,6 +288,259 @@ final class CoursePlanTools
     }
 
     /**
+     * Fill any missing course-plan parts so a generation always has:
+     * units, learning outcomes, Bloom K1–K6, weekly plan, resources, expert advice.
+     *
+     * @param array<string,mixed> $plan
+     * @return array<string,mixed>
+     */
+    public static function ensureGeneratedParts(array $plan, string $subject, string $syllabus, string $template): array
+    {
+        $subject = trim($subject) !== '' ? trim($subject) : 'Course';
+        $template = self::normalizeTemplate($template);
+        $units = self::normalizeGeneratedUnits($plan['units'] ?? [], $subject, $syllabus);
+        $plan['units'] = $units;
+
+        $outcomes = self::stringList($plan['learning_outcomes'] ?? []);
+        if ($outcomes === []) {
+            foreach ($units as $unit) {
+                foreach ($unit['outcomes'] as $outcome) {
+                    $outcomes[] = $outcome;
+                }
+            }
+        }
+        if ($outcomes === []) {
+            $outcomes = [
+                'Explain the core concepts of ' . $subject . '.',
+                'Apply ' . $subject . ' methods to a structured problem.',
+                'Analyze a case using higher-order thinking.',
+            ];
+        }
+        $plan['learning_outcomes'] = array_values(array_slice($outcomes, 0, 12));
+
+        $weekly = [];
+        foreach (is_array($plan['weekly_plan'] ?? null) ? $plan['weekly_plan'] : [] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $week = self::plain($row['week'] ?? '');
+            $focus = self::plain($row['focus'] ?? '');
+            if ($week === '' || $focus === '') {
+                continue;
+            }
+            $weekly[] = ['week' => $week, 'focus' => $focus];
+        }
+        if ($weekly === []) {
+            foreach ($units as $i => $unit) {
+                $weekly[] = [
+                    'week' => (string)($i + 1),
+                    'focus' => trim((string)$unit['title']) . ' (' . (string)$unit['hours'] . ' hours)',
+                ];
+            }
+        }
+        $plan['weekly_plan'] = $weekly;
+
+        $resources = self::stringList($plan['resources'] ?? []);
+        if ($resources === []) {
+            $resources = [
+                'Recommended textbook for ' . $subject,
+                'NPTEL / SWAYAM lectures aligned to the syllabus units',
+                'Lecture notes and question bank for ' . $subject,
+            ];
+        }
+        $plan['resources'] = $resources;
+
+        $advice = self::stringList($plan['expert_advice'] ?? []);
+        if ($advice === []) {
+            $advice = [
+                'Map every unit outcome to a Bloom K-level and an assessment.',
+                'Keep the ' . self::templateLabel($template) . ' structure for teaching, learning, and assessment evidence. Do not add invented attainment percentages.',
+            ];
+        }
+        $plan['expert_advice'] = $advice;
+
+        $balance = self::bloomBalance([
+            'bloom_data' => json_encode(is_array($plan['bloom_distribution'] ?? null) ? $plan['bloom_distribution'] : []),
+            'plan_data' => json_encode(['units' => $units]),
+        ], $units);
+        $plan['bloom_distribution'] = $balance['distribution'];
+        $plan['accreditation_template'] = $template;
+        $plan['ai_score'] = self::scoreValue($plan['ai_score'] ?? null);
+        $title = self::plain($plan['title'] ?? '');
+        $plan['title'] = $title !== '' ? $title : ($subject . ' Course Plan');
+        return $plan;
+    }
+
+    /** Decimal ai_score. Nested provider objects become null instead of the word "Array". */
+    public static function scoreValue(mixed $value): ?float
+    {
+        if (is_array($value)) {
+            $value = $value['score'] ?? $value['ai_score'] ?? $value['value'] ?? null;
+        }
+        return is_numeric($value) ? round((float)$value, 2) : null;
+    }
+
+    private static function plain(mixed $value): string
+    {
+        if (is_string($value) || is_int($value) || is_float($value)) {
+            return trim((string)$value);
+        }
+        if (!is_array($value)) {
+            return '';
+        }
+        foreach (['text', 'title', 'name', 'focus', 'level', 'k', 'value'] as $key) {
+            if (isset($value[$key]) && is_scalar($value[$key])) {
+                return trim((string)$value[$key]);
+            }
+        }
+        foreach ($value as $item) {
+            if (is_scalar($item)) {
+                return trim((string)$item);
+            }
+        }
+        return '';
+    }
+
+    /**
+     * @param mixed $units
+     * @return list<array{unit_number:int,title:string,hours:float,topics:list<string>,outcomes:list<string>,bloom_k_level:string,teaching_methods:list<string>,assessment:list<string>}>
+     */
+    private static function normalizeGeneratedUnits(mixed $units, string $subject, string $syllabus): array
+    {
+        $rows = [];
+        if (is_array($units)) {
+            foreach ($units as $i => $unit) {
+                if (!is_array($unit)) {
+                    continue;
+                }
+                $num = (int)($unit['unit_number'] ?? ($i + 1));
+                if ($num < 1) {
+                    $num = $i + 1;
+                }
+                $title = self::plain($unit['title'] ?? '');
+                if ($title === '') {
+                    $title = 'Unit ' . $num;
+                }
+                $hoursRaw = $unit['hours'] ?? 0;
+                if (is_array($hoursRaw)) {
+                    $hoursRaw = $hoursRaw['hours'] ?? $hoursRaw['value'] ?? 0;
+                }
+                $hours = is_numeric($hoursRaw) ? (float)$hoursRaw : 0.0;
+                if ($hours <= 0) {
+                    $hours = 12;
+                }
+                $topics = self::stringList($unit['topics'] ?? []);
+                if ($topics === []) {
+                    $topics = [$title];
+                }
+                $outcomes = self::stringList($unit['outcomes'] ?? []);
+                if ($outcomes === []) {
+                    $outcomes = ['Explain the main ideas in ' . $title . '.'];
+                }
+                $level = strtoupper(self::plain($unit['bloom_k_level'] ?? ''));
+                if (!preg_match('/^K[1-6]$/', $level)) {
+                    $level = 'K' . (string)min(6, max(1, $num));
+                }
+                $methods = self::stringList($unit['teaching_methods'] ?? []);
+                if ($methods === []) {
+                    $methods = ['Lecture', 'Discussion'];
+                }
+                $assessment = self::stringList($unit['assessment'] ?? []);
+                if ($assessment === []) {
+                    $assessment = ['Quiz', 'Assignment'];
+                }
+                $rows[] = [
+                    'unit_number' => $num,
+                    'title' => $title,
+                    'hours' => $hours,
+                    'topics' => $topics,
+                    'outcomes' => $outcomes,
+                    'bloom_k_level' => $level,
+                    'teaching_methods' => $methods,
+                    'assessment' => $assessment,
+                ];
+            }
+        }
+        if ($rows !== []) {
+            return $rows;
+        }
+
+        $parsed = self::parseSyllabusIntoUnits($syllabus);
+        if ($parsed !== []) {
+            $built = [];
+            foreach ($parsed as $i => $part) {
+                $num = (int)($part['unit_number'] ?? ($i + 1));
+                $title = trim((string)($part['title'] ?? ''));
+                $topics = self::stringList($part['topics'] ?? []);
+                if ($title === '') {
+                    $title = 'Unit ' . $num;
+                }
+                if ($topics === []) {
+                    $topics = [$title];
+                }
+                $built[] = [
+                    'unit_number' => $num,
+                    'title' => 'Unit ' . $num . ' – ' . $title,
+                    'hours' => 12,
+                    'topics' => $topics,
+                    'outcomes' => [
+                        'Explain key concepts of ' . $title . '.',
+                        'Apply techniques related to ' . $title . '.',
+                    ],
+                    'bloom_k_level' => 'K' . (string)min(6, max(1, $num)),
+                    'teaching_methods' => ['Lecture', 'Discussion'],
+                    'assessment' => ['Quiz', 'Assignment'],
+                ];
+            }
+            return $built;
+        }
+
+        $fallback = [];
+        for ($n = 1; $n <= 5; $n++) {
+            $fallback[] = [
+                'unit_number' => $n,
+                'title' => 'Unit ' . $n . ' · ' . $subject,
+                'hours' => 12.0,
+                'topics' => ['Core concepts of unit ' . $n],
+                'outcomes' => ['Demonstrate the outcomes of unit ' . $n . ' in ' . $subject . '.'],
+                'bloom_k_level' => 'K' . (string)min(6, $n),
+                'teaching_methods' => ['Lecture', 'Activity'],
+                'assessment' => ['Formative quiz'],
+            ];
+        }
+        return $fallback;
+    }
+
+    /**
+     * @param mixed $value
+     * @return list<string>
+     */
+    private static function stringList(mixed $value): array
+    {
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            $value = is_array($decoded) ? $decoded : [$value];
+        }
+        if (!is_array($value)) {
+            return [];
+        }
+        $out = [];
+        foreach ($value as $item) {
+            if (is_string($item) || is_int($item) || is_float($item)) {
+                $text = trim((string)$item);
+            } elseif (is_array($item)) {
+                $text = self::plain($item);
+            } else {
+                $text = '';
+            }
+            if ($text !== '') {
+                $out[] = $text;
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Diff two plan snapshots (from course_plan_versions.snapshot or plan_data).
      *
      * @return array{added_topics:list<string>,removed_topics:list<string>,changed_units:list<array<string,string>>,changed_outcomes:list<string>,changed_bloom:list<string>,changed_hours:list<string>,changed_clo_plo:list<string>}

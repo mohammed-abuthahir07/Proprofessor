@@ -79,7 +79,7 @@ final class ProfessorAiSettings
     public static function providerLabel(string $provider): string
     {
         return match ($provider) {
-            'openai' => 'OpenAI / ChatGPT',
+            'openai' => 'ChatGPT',
             'gemini' => 'Gemini',
             'claude' => 'Claude',
             default => $provider,
@@ -99,7 +99,7 @@ final class ProfessorAiSettings
     {
         $provider = self::normalizeProvider($provider);
         if ($provider === null) {
-            return ['ok' => false, 'error' => 'Choose OpenAI, Gemini, or Claude.'];
+            return ['ok' => false, 'error' => 'Choose ChatGPT, Gemini, or Claude.'];
         }
         $model = trim($model);
         $model = preg_replace('#^models/#', '', $model) ?? $model;
@@ -199,7 +199,7 @@ final class ProfessorAiSettings
     {
         $provider = self::normalizeProvider($provider);
         if ($provider === null) {
-            return ['ok' => false, 'error' => 'Choose OpenAI, Gemini, or Claude.'];
+            return ['ok' => false, 'error' => 'Choose ChatGPT, Gemini, or Claude.'];
         }
         $modelCheck = self::validateModel($provider, $model);
         if (empty($modelCheck['ok'])) {
@@ -215,10 +215,7 @@ final class ProfessorAiSettings
         if ($client instanceof OpenAIClient || $client instanceof ClaudeClient) {
             $result = $client->ping();
         } elseif ($client instanceof Gemini) {
-            $result = $client->generate(
-                'You are a connection test. Reply with JSON only.',
-                'Return {"ok":true}'
-            );
+            $result = $client->ping();
         } else {
             return ['ok' => false, 'error' => 'Unsupported provider.'];
         }
@@ -227,7 +224,15 @@ final class ProfessorAiSettings
         if (empty($result['ok'])) {
             return ['ok' => false, 'error' => (string)($result['error'] ?? 'Connection failed.')];
         }
-        return ['ok' => true, 'message' => 'Connection successful.'];
+        $used = trim((string)($result['model'] ?? $model));
+        if ($used === '') {
+            $used = $model;
+        }
+        $message = 'Connection successful.';
+        if ($used !== $model) {
+            $message = self::providerLabel($provider) . ' connected with ' . $used . '.';
+        }
+        return ['ok' => true, 'message' => $message, 'model' => $used];
     }
 
     /**
@@ -241,9 +246,12 @@ final class ProfessorAiSettings
         if (empty($test['ok'])) {
             return $test;
         }
+        if (!empty($test['model']) && is_string($test['model'])) {
+            $model = $test['model'];
+        }
         $provider = self::normalizeProvider($provider);
         if ($provider === null) {
-            return ['ok' => false, 'error' => 'Choose OpenAI, Gemini, or Claude.'];
+            return ['ok' => false, 'error' => 'Choose ChatGPT, Gemini, or Claude.'];
         }
         $modelCheck = self::validateModel($provider, $model);
         if (empty($modelCheck['ok'])) {

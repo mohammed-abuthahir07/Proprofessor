@@ -828,4 +828,144 @@ Manual / smoke coverage for today's Professor work included:
 
 Built for Indian colleges (OBE, NAAC/NBA, CIA internal marks, Bloom's taxonomy). Extend via `feature_flags`, JSON `meta` fields, and institution `settings` without breaking core tenancy.
 
+---
+
+## Change log — 11 Nov 2026
+
+Local testing and hosting-readiness pass for PHP 8.2.35 and MariaDB 11.8.9. No Hostinger account, server, or production database was accessed. The existing `proprofessor` database was not reset.
+
+### Problems and fixes
+
+| Problem | Root cause | Fix |
+|---------|------------|-----|
+| Course-plan subtitle showed raw `<span class="badge">` text | `status_badge()` HTML was passed through `e()` in the page header | Header now renders the trusted badge HTML. Subject name stays escaped. |
+| Lesson Planner alerted `file_get_contents(): Failed to open stream` | Apache cannot load `php_curl.dll` (OpenSSL/brotli DLL mismatch). PHP streams then returned the raw warning, and a failed AI call aborted before the course-plan session builder ran | Stream client no longer shows PHP warnings. If the provider call fails, sessions are built from the course plan. |
+| Assignment generation warned `Array to string conversion` | Rubric `levels` can be an array | `AssignmentTools` joins array levels into text. |
+| Logged-out users were sent to `/auth/login.php`, which is not a route | `Auth::requireLogin()` used a stale path | Redirects to `/login`. |
+| AI POST endpoints accepted a missing CSRF token | `api/ai.php` and syllabus extract did not check the token the forms already send | Missing token returns JSON 403. |
+| Re-running `install.php` reset the admin password | Installer used `ON DUPLICATE KEY UPDATE` on existing users | Installer stops when `users` already has rows. |
+| `database/schema.sql` was downloadable from the web root | `.htaccess` served existing files | `.sql`, `.log`, `.env`, and `config.local.php` are denied. |
+| `config.local.php` did not affect the PDO connection | `Database::pdo()` loaded only `config.php` | Connection uses `config()`, which merges `config.local.php`. |
+| Student upload links were hard-coded to `/professor/uploads/...` | Path assumed this XAMPP folder name | Links use `base_url()`. |
+| Login did not rotate the session id | `Auth::attempt()` wrote the user into the existing session | `session_regenerate_id(true)` after a successful password check. |
+
+### Files modified
+
+`includes/layout.php`, `includes/HttpClient.php`, `includes/Auth.php`, `includes/Database.php`, `includes/helpers.php`, `includes/bootstrap.php`, `includes/AssignmentTools.php`, `includes/ProfessorAi.php`, `api/ai.php`, `app/Controllers/Api/AiController.php`, `professor/plan-view.php`, `student/assignments.php`, `student/attendance.php`, `install.php`, `.htaccess`, `config/config.local.php.example`, `README.md`.
+
+### Performance
+
+No query or asset rewrite. Measured locally, not claimed as a production improvement:
+
+- MariaDB `11.8.9-MariaDB`.
+- Disposable schema import: 47 tables in 150 ms, then that database was dropped.
+- Read-only `users` group query: under 1 ms.
+- Authenticated page responses: about 99–180 ms (admin dashboard 158 ms, HOD subjects 159 ms, professor plan view 147 ms).
+
+### Tests
+
+**Passed**
+
+- `php -l` on 185 PHP files, 0 syntax errors.
+- Admin login and logout redirect to `/admin/dashboard`.
+- Unauthenticated admin, HOD, professor, and student URLs redirect to `/login`.
+- Admin session: admin, HOD, and professor module pages listed in the report returned 200, except HOD faculty/settings (HOD-only) and HOD compliance/timeline (intentional redirects).
+- Student URLs as admin redirect back to the admin dashboard.
+- Course plan header renders `SQL · Approved` as a badge, including a narrow layout.
+- Login page renders on a desktop viewport and the form remains usable when the card is narrow.
+- `schema.sql` HTTP request returns 403.
+- Installer POST on the existing database returns the already-installed error and does not recreate users.
+- AI request without a CSRF token returns 403 JSON.
+- Schema import on a disposable database succeeded on MariaDB 11.8.9.
+
+**Failed, then fixed and retested**
+
+- Missing CSRF previously surfaced as HTTP 500 because status 419 was not accepted. Retested as HTTP 403.
+
+**Not tested**
+
+- Login as `csehod@test.com` with the documented seed password (rejected; the live HOD password is not the seed password).
+- Login as the current professor (`sandra@gmail.com`) and student (`abuthahirmohammed6@gmail.com`). Their passwords were not guessed.
+- Creating, editing, or deleting academic records. Those writes were not run against `proprofessor`.
+- PDF download, file upload, attendance save, marks save, and AI generation with a live provider key during this pass.
+- Every tablet and phone width for every role page.
+- Hostinger itself.
+
+### Remaining deployment steps
+
+1. Create the Hostinger MariaDB database and user. Do not reuse the local `root` account or port `3307`.
+2. Copy `config/config.local.php.example` to `config/config.local.php` with the Hostinger host, port `3306`, database name, user, and password. Set `debug` to `false`.
+3. Import `database/schema.sql`, then run the installer once only if the database is empty. Delete `install.php` after that.
+4. Confirm Apache `mod_rewrite` and `AllowOverride` so `.htaccess` works. Confirm `extension=openssl`, `pdo_mysql`, `mbstring`, `fileinfo`, and `gd`. `curl` is optional; the app falls back to PHP streams.
+5. Point the site at HTTPS. This was not verified on Hostinger.
+
+---
+
+## Change log — 12 Nov 2026
+
+Four-role smoke test and Hostinger portability pass. The live `proprofessor` database was not reset. Hostinger was not accessed.
+
+### Problems and fixes
+
+| Date | Problem | Root cause | Solution | Files | Testing |
+|------|---------|------------|----------|-------|---------|
+| 12 Nov 2026 | Question Bank rejected short, long, and essay results, and one bad MCQ rejected the whole set | The checker required an MCQ-shaped JSON object for every type, and any placeholder option failed the batch | Each type now has its own prompt and parser. MCQ keeps four options. Short, long, and essay do not. A usable question is saved instead of discarding the batch. | `api/ai.php` | Parser and syntax checked. A live provider call was not completed in this pass. |
+| 12 Nov 2026 | A phpMyAdmin/mysqldump import can fail on shared hosting, and a missing `seed.sql` would throw on PHP 8.2 | `CREATE DATABASE` from mysqldump did not match the old strip pattern. `file_get_contents()` on a missing seed is `false`, which PHP 8.2 will not pass to `preg_replace()` | The installer strips any `CREATE DATABASE` statement and skips seeding when `seed.sql` is absent | `install.php` | POST against the existing database still returns the already-installed error. No rows were changed. |
+| 12 Nov 2026 | AI calls depend on a Windows `curl.exe` path when PHP curl is missing | This XAMPP Apache build cannot load `php_curl.dll`. Hostinger Linux would not have that Windows path | The client still prefers the PHP curl extension, then `PPAI_CURL`, the XAMPP `curl.exe`, and `/usr/bin/curl`. CA bundles include the usual Linux certificate files | `includes/HttpClient.php` | Syntax check passed. A live Gemini generation still timed out in the previous local runs. |
+
+### Tests on 12 Nov 2026
+
+- PHP 8.2.35, `php -l` on 185 PHP files, 0 syntax errors.
+- MariaDB `11.8.9-MariaDB`, 56 tables in `proprofessor`.
+- Logged-out admin, HOD, professor, and student dashboards return 302.
+- `database/schema.sql` returns 403.
+- `install.php` POST on the existing database returns the already-installed error.
+- Admin, HOD, professor, and student logins reach their own dashboards. Sample module pages for each role returned 200 with no PHP error text.
+- Admin opening the student dashboard redirects to the admin dashboard. HOD and professor are redirected away from the admin dashboard. The student is redirected away from professor and admin pages.
+- Not retested: creating or deleting records, PDF downloads, uploads, every viewport, and a successful AI provider response. The last Gemini calls in the Apache log timed out with no response body.
+
+---
+
+## Change log — 12 Nov 2026, second-stage functional test
+
+Writes were run on a disposable database named `proprofessor_qa2`, then that database was dropped. The live `proprofessor` database still has 4 users. No email was sent. No live AI request was made. Hostinger was not accessed.
+
+### Problems and fixes
+
+| Date | Problem | Root cause | Solution | Files | Testing |
+|------|---------|------------|----------|-------|---------|
+| 12 Nov 2026 | A professor message with a bad CSRF token returned HTTP 500 | The endpoint used status 419. This Apache build does not pass that status through | The message API and the shared form CSRF check now return 403 | `app/Controllers/Api/ProfessorMessagesController.php`, `includes/helpers.php` | Retested: message API returns 403 JSON, settings POST without a token returns 403 and does not save |
+
+### Tests
+
+- Disposable MariaDB 11.8.9 database imported 56 tables. A test student insert, update, and unique-email rejection succeeded. A transaction rollback left no row. The disposable database was dropped. Live user count stayed 4.
+- `SimplePdf` wrote a file starting with `%PDF-1.4`.
+- Professor question-bank PDF download returned HTTP 200, `application/pdf`, and a `%PDF-1.4` body (4595 bytes).
+- A `.txt` attachment on professor messages returned HTTP 422 and the PDF/DOCX error. Announcement count stayed 1.
+- HOD `/hod/compliance` and `/hod/timeline` redirect to the HOD dashboard. Those pages are stubs, not broken routes.
+- Apache PHP is 8.2.35 with `pdo_mysql`, `mysqli`, `mbstring`, `openssl`, `fileinfo`, `gd`, `zip`, and `json`. The `curl` extension is not loaded in Apache. `upload_max_filesize` is 2M and `post_max_size` is 8M, while the app allows a 10 MB attachment.
+- Email delivery is not configured (`notifications.email` is off). No message was sent.
+- Login page at 390px width does not overflow horizontally. Other widths and role dashboards were not measured in this pass.
+- AI generation was not called.
+
+---
+
+## Change log — 12 Nov 2026, PHP and MariaDB audit
+
+PHP syntax and database-query audit. The live `proprofessor` database was only read. User count stayed 4. Hostinger was not accessed.
+
+### Problems and fixes
+
+| Date | Problem | Root cause | Solution | Files | Testing |
+|------|---------|------------|----------|-------|---------|
+| 12 Nov 2026 | Course-plan save logged `Array to string conversion` in `Database.php` | PDO was given an array for a value such as `ai_score`, a Bloom level, or a rubric field. PHP 8.2 then stores the word `Array` | Bound arrays are stored as JSON. Course-plan title, score, hours, and Bloom level are reduced to plain values before save. Rubric text uses the same safe conversion | `includes/Database.php`, `includes/CoursePlanTools.php`, `includes/AssignmentTools.php`, `includes/helpers.php`, `api/ai.php` | A read-only `SELECT ?` with an array returns JSON and no warning. A nested plan becomes title `DBMS`, score `77.0`, Bloom `K3`. A rubric with array levels becomes `Poor; Good`. User count stayed 4 |
+
+### Tests
+
+- `php -l` on 185 PHP files: 0 syntax errors.
+- MariaDB `11.8.9-MariaDB`, database charset `utf8mb4`, collation `utf8mb4_unicode_ci`.
+- 643 static SQL statements prepared against the live schema. No unknown-column errors. One reported missing `students` table is sample SQL inside a lecture slide, not a query the application runs.
+- Admin, HOD, professor, and student logins opened their module pages with HTTP 200 and no PHP error text.
+- HOD and professor are redirected away from admin and from each other's dashboards. The student is redirected away from admin, professor, and HOD pages.
+
 

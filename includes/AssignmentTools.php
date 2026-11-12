@@ -153,7 +153,7 @@ final class AssignmentTools
             if (!is_array($item)) {
                 continue;
             }
-            $criterion = trim((string)($item['criterion'] ?? $item['name'] ?? ''));
+            $criterion = self::rubricText($item['criterion'] ?? $item['name'] ?? '') ?? '';
             if ($criterion === '') {
                 continue;
             }
@@ -165,8 +165,8 @@ final class AssignmentTools
             if ($weight !== null) {
                 $weightSum += $weight;
             }
-            $clo = trim((string)($item['clo'] ?? $item['clo_code'] ?? ''));
-            $bloom = strtoupper(trim((string)($item['bloom'] ?? $item['bloom_k_level'] ?? '')));
+            $clo = self::rubricText($item['clo'] ?? $item['clo_code'] ?? '') ?? '';
+            $bloom = strtoupper(self::rubricText($item['bloom'] ?? $item['bloom_k_level'] ?? '') ?? '');
             if ($bloom !== '' && !preg_match('/^K[1-6]$/', $bloom)) {
                 if (preg_match('/([1-6])/', $bloom, $m)) {
                     $bloom = 'K' . $m[1];
@@ -176,11 +176,11 @@ final class AssignmentTools
             }
             $rows[] = [
                 'criterion' => $criterion,
-                'description' => trim((string)($item['description'] ?? $item['levels'] ?? '')),
+                'description' => self::rubricText($item['description'] ?? null) ?? (self::rubricText($item['levels'] ?? null) ?? ''),
                 'marks' => $marks ?? 0.0,
                 'clo' => $clo !== '' ? $clo : null,
                 'bloom' => $bloom !== '' ? $bloom : null,
-                'levels' => isset($item['levels']) ? (string)$item['levels'] : null,
+                'levels' => self::rubricText($item['levels'] ?? null),
                 'weight' => $weight,
             ];
         }
@@ -447,6 +447,25 @@ final class AssignmentTools
         }
         usort($out, static fn($x, $y) => $y['percent'] <=> $x['percent']);
         return $out;
+    }
+
+    private static function rubricText(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_array($value)) {
+            $parts = [];
+            foreach ($value as $part) {
+                if (is_scalar($part) && trim((string)$part) !== '') {
+                    $parts[] = trim((string)$part);
+                }
+            }
+            $text = implode('; ', $parts);
+            return $text !== '' ? $text : null;
+        }
+        $text = trim((string)$value);
+        return $text !== '' ? $text : null;
     }
 
     private static function storeSimilarityMeta(int $submissionId, int $otherStudentId, float $pct): void

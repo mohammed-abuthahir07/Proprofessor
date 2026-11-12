@@ -206,7 +206,7 @@ render_header('Settings', 'settings', ['subtitle' => 'Profile & workspace']);
         <div class="form-row">
           <label for="ai_provider">Provider</label>
           <select name="ai_provider" id="ai_provider">
-            <option value="openai">OpenAI</option>
+            <option value="openai">ChatGPT</option>
             <option value="gemini">Gemini</option>
             <option value="claude">Claude</option>
           </select>
@@ -214,10 +214,6 @@ render_header('Settings', 'settings', ['subtitle' => 'Profile & workspace']);
         <div class="form-row">
           <label for="ai_model">Model</label>
           <select name="ai_model" id="ai_model"></select>
-        </div>
-        <div class="form-row">
-          <label for="ai_model_custom">Custom model (optional)</label>
-          <input name="ai_model_custom" id="ai_model_custom" placeholder="Leave blank to use the selected model" autocomplete="off">
         </div>
         <div class="form-row">
           <label for="ai_api_key">API Key</label>
@@ -292,7 +288,7 @@ render_header('Settings', 'settings', ['subtitle' => 'Profile & workspace']);
       <h3 class="settings-ai-title">How to get an API key?</h3>
       <p class="muted settings-help">API keys belong to your own provider account. ProProfessor does not provide or include provider API keys.</p>
       <div class="settings-ai-help-block">
-        <strong>OpenAI</strong>
+        <strong>ChatGPT</strong>
         <ol>
           <li>Open the <a href="<?= e($openaiDocs ?: 'https://platform.openai.com/api-keys') ?>" target="_blank" rel="noopener noreferrer">OpenAI API keys</a> page.</li>
           <li>Sign in to your OpenAI account.</li>

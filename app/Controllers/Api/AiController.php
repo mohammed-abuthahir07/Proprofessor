@@ -34,6 +34,7 @@ final class AiController extends Controller
             if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
                 json_response(['ok' => false, 'error' => 'Method not allowed'], 405);
             }
+            verify_csrf_json();
             $user = Auth::user();
             $role = (string)($user['role'] ?? '');
             if (!in_array($role, ['professor', 'admin', 'superadmin'], true)) {

@@ -1,4 +1,11 @@
 # Apache — enable rewrite for this folder (some hosts need this)
+# Block secrets and database dumps if this folder is the web root.
+<FilesMatch "(?i)(^\.env$|^\.env\..*|config\.local\.php|.*\.(sql|log)$)">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+</FilesMatch>
+
 <IfModule mod_rewrite.c>
   RewriteEngine On
 

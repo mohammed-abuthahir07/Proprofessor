@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/HttpClient.php';
+
 /**
  * Google Gemini API client for ProProfessor AI modules.
  */
@@ -19,7 +21,7 @@ final class Gemini
             $app = $cfg ?? (require __DIR__ . '/../config/config.php')['gemini'];
         }
         $this->apiKey   = (string)($app['api_key'] ?? '');
-        $this->model    = self::normalizeModel((string)($app['model'] ?? 'gemini-2.5-flash'));
+        $this->model    = self::normalizeModel((string)($app['model'] ?? 'gemini-4-argon'));
         $this->endpoint = rtrim((string)($app['endpoint'] ?? 'https://generativelanguage.googleapis.com/v1beta'), '/');
         $this->strictModel = !empty($app['strict_model']);
     }
@@ -27,6 +29,54 @@ final class Gemini
     public function isConfigured(): bool
     {
         return $this->apiKey !== '';
+    }
+
+    /**
+     * Short connection check. Gemini 3.8 thinks before it sends any bytes, so
+     * this uses a small output cap and a short timeout.
+     *
+     * @return array{ok:bool,text:?string,json:?array,raw:?array,error?:string,latency_ms:int}
+     */
+    public function ping(): array
+    {
+        $started = hrtime(true);
+        if (!$this->isConfigured()) {
+            return [
+                'ok' => false,
+                'text' => null,
+                'json' => null,
+                'raw' => null,
+                'error' => 'Gemini API key missing. Set GEMINI_API_KEY or config/config.php gemini.api_key.',
+                'latency_ms' => 0,
+            ];
+        }
+        $preferred = self::normalizeModel($this->model);
+        $models = array_values(array_unique(array_merge([$preferred], self::capacityFallbacks($preferred))));
+        $last = null;
+        foreach ($models as $modelName) {
+            $last = $this->request(
+                'You are a connection test. Reply with JSON only.',
+                'Return {"ok":true}',
+                $modelName,
+                $started,
+                20,
+                128
+            );
+            if (!empty($last['ok'])) {
+                return $last;
+            }
+            if (!self::shouldTryAnotherModel($last)) {
+                return $last;
+            }
+        }
+        return $last ?? [
+            'ok' => false,
+            'text' => null,
+            'json' => null,
+            'raw' => null,
+            'error' => 'Gemini model is unavailable.',
+            'latency_ms' => (int)((hrtime(true) - $started) / 1e6),
+        ];
     }
 
     /**
@@ -54,13 +104,26 @@ final class Gemini
                 continue;
             }
             $tried[$modelName] = true;
-            $last = $this->request($system, $userPrompt, $modelName, $started, $timeout);
-            if (!empty($last['ok'])) {
-                return $last;
+            // High demand comes back in a second or two. Retry the same model
+            // before giving up. A request that already used the full timeout
+            // is not sent again.
+            for ($attempt = 1; $attempt <= 3; $attempt++) {
+                $last = $this->request($system, $userPrompt, $modelName, $started, $timeout, 8192);
+                if (!empty($last['ok'])) {
+                    return $last;
+                }
+                $spentMs = (int)($last['latency_ms'] ?? 0);
+                $retry = self::isRetryableModelError($last) && $spentMs < 15000 && $attempt < 3;
+                if (!$retry) {
+                    break;
+                }
+                usleep(600000 * $attempt);
             }
-            // Busy or retired models should not block the course plan.
-            // Try the next supported Gemini model before giving up.
-            if (!self::isRetryableModelError($last)) {
+            $spentMs = (int)($last['latency_ms'] ?? 0);
+            $moveOn = self::shouldTryAnotherModel($last ?? []);
+            // A request that already used most of the timeout should stop.
+            // The Settings test uses a short timeout and can move to the next model.
+            if (!$moveOn || ($spentMs >= 45000 && !self::isRetryableModelError($last ?? []))) {
                 return $last;
             }
         }
@@ -80,18 +143,25 @@ final class Gemini
         $model = trim($model);
         $model = preg_replace('#^models/#', '', $model) ?? $model;
         $retired = [
-            'gemini-1.0-pro' => 'gemini-2.5-flash',
-            'gemini-1.0-pro-latest' => 'gemini-2.5-flash',
-            'gemini-pro' => 'gemini-2.5-flash',
-            'gemini-pro-latest' => 'gemini-2.5-flash',
-            'gemini-1.5-pro' => 'gemini-2.5-flash',
-            'gemini-1.5-pro-latest' => 'gemini-2.5-flash',
-            'gemini-2.0-flash' => 'gemini-2.5-flash',
-            'gemini-2.0-flash-001' => 'gemini-2.5-flash',
-            'gemini-2.0-flash-exp' => 'gemini-2.5-flash',
-            'gemini-2.5-flash-lite' => 'gemini-2.5-flash',
-            'gemini-2.5-flash-lite-preview' => 'gemini-2.5-flash',
-            'gemini-2.5-flash-lite-preview-06-17' => 'gemini-2.5-flash',
+            'gemini-1.0-pro' => 'gemini-4-argon',
+            'gemini-1.0-pro-latest' => 'gemini-4-argon',
+            'gemini-pro' => 'gemini-4-argon',
+            'gemini-pro-latest' => 'gemini-4-argon',
+            'gemini-1.5-pro' => 'gemini-4-argon',
+            'gemini-1.5-pro-latest' => 'gemini-4-argon',
+            'gemini-1.5-flash' => 'gemini-4-argon',
+            'gemini-1.5-flash-latest' => 'gemini-4-argon',
+            'gemini-flash-latest' => 'gemini-4-argon',
+            'gemini-2.0-flash' => 'gemini-4-argon',
+            'gemini-2.0-flash-001' => 'gemini-4-argon',
+            'gemini-2.0-flash-exp' => 'gemini-4-argon',
+            'gemini-2.5-flash' => 'gemini-4-argon',
+            'gemini-2.5-flash-lite' => 'gemini-4-argon',
+            'gemini-2.5-flash-lite-preview' => 'gemini-4-argon',
+            'gemini-2.5-flash-lite-preview-06-17' => 'gemini-4-argon',
+            'gemini-3.1-flash-lite' => 'gemini-3.5-flash-lite',
+            'gemini-3.5-flash' => 'gemini-3.5-flash-lite',
+            'gemini-3.7-flash' => 'gemini-3.8-flash',
         ];
         return $retired[$model] ?? $model;
     }
@@ -130,15 +200,7 @@ final class Gemini
     /** @return list<string> */
     private static function modelCandidates(string $preferred): array
     {
-        $preferred = self::normalizeModel($preferred);
-        return array_values(array_unique(array_merge([$preferred], [
-            'gemini-2.5-flash',
-            'gemini-2.5-flash-lite',
-            'gemini-2.0-flash',
-            'gemini-1.5-flash',
-            'gemini-1.5-flash-latest',
-            'gemini-flash-latest',
-        ])));
+        return self::capacityFallbacks($preferred);
     }
 
     private static function isRetiredModelError(string $message): bool
@@ -169,9 +231,38 @@ final class Gemini
     }
 
     /**
+     * Timeout and overload should move on to the next listed model.
+     * An invalid key should not.
+     *
+     * @param array<string,mixed> $result
+     */
+    private static function shouldTryAnotherModel(array $result): bool
+    {
+        if (!empty($result['ok'])) {
+            return false;
+        }
+        $message = strtolower((string)($result['error'] ?? ''));
+        if (
+            str_contains($message, 'api key')
+            || str_contains($message, 'invalid')
+            || str_contains($message, 'permission')
+            || str_contains($message, 'billing')
+            || str_contains($message, 'quota')
+        ) {
+            return false;
+        }
+        if (self::isRetryableModelError($result)) {
+            return true;
+        }
+        return str_contains($message, 'timed out')
+            || str_contains($message, 'could not be reached')
+            || (int)($result['http_code'] ?? 0) === 0;
+    }
+
+    /**
      * @return array{ok:bool,text:?string,json:?array,raw:?array,error?:string,latency_ms:int}
      */
-    private function request(string $system, string $userPrompt, string $modelName, int $started, int $timeout = 90): array
+    private function request(string $system, string $userPrompt, string $modelName, int $started, int $timeout = 90, int $maxOutputTokens = 8192): array
     {
         $url = $this->endpoint . '/models/' . rawurlencode($modelName) . ':generateContent?key=' . urlencode($this->apiKey);
         $payload = [
@@ -185,32 +276,25 @@ final class Gemini
                 ],
             ],
             'generationConfig' => [
-                'temperature' => 0.4,
-                'maxOutputTokens' => 8192,
+                'maxOutputTokens' => max(64, $maxOutputTokens),
                 'responseMimeType' => 'application/json',
+                // Gemini 3.8 defaults to medium thinking and sends no bytes
+                // until that finishes. Low keeps Settings and course plans
+                // inside the request timeout.
+                'thinkingConfig' => ['thinkingLevel' => 'low'],
             ],
         ];
 
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'x-goog-api-key: ' . $this->apiKey,
-            ],
-            CURLOPT_POSTFIELDS     => json_encode($payload),
-            CURLOPT_TIMEOUT        => $timeout,
-        ]);
-        $body = curl_exec($ch);
-        $errno = curl_errno($ch);
-        $err   = curl_error($ch);
-        $code  = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        $http = HttpClient::post($url, (string)json_encode($payload), [
+            'Content-Type: application/json',
+            'x-goog-api-key: ' . $this->apiKey,
+        ], $timeout);
+        $body = $http['body'];
+        $code = $http['http_code'];
 
         $latency = (int)((hrtime(true) - $started) / 1e6);
-        if ($errno) {
-            return ['ok' => false, 'text' => null, 'json' => null, 'raw' => null, 'error' => $err, 'latency_ms' => $latency, 'http_code' => $code, 'model' => $modelName, 'provider' => 'gemini'];
+        if ($http['error'] !== '') {
+            return ['ok' => false, 'text' => null, 'json' => null, 'raw' => null, 'error' => $http['error'], 'latency_ms' => $latency, 'http_code' => $code, 'model' => $modelName, 'provider' => 'gemini'];
         }
 
         $raw = json_decode((string)$body, true);
@@ -221,6 +305,9 @@ final class Gemini
 
         $text = '';
         foreach (($raw['candidates'][0]['content']['parts'] ?? []) as $part) {
+            if (!empty($part['thought'])) {
+                continue;
+            }
             if (!empty($part['text'])) {
                 $text .= (string)$part['text'];
             }

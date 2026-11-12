@@ -45,6 +45,9 @@ render_header('Generate Course Plan', 'generate', ['subtitle' => 'Paste syllabus
             <option value="">Select assigned course + class</option>
             <?php foreach ($assignments as $a):
               $key = (int)$a['subject_id'] . ':' . (int)$a['class_id'];
+              $batch = $a;
+              $batch['name'] = (string)($a['class_name'] ?? '');
+              $batchLabel = class_batch_label($batch);
               $sel = $regenPlan
                 && (int)$regenPlan['subject_id'] === (int)$a['subject_id']
                 && (int)$regenPlan['class_id'] === (int)$a['class_id'];
@@ -53,9 +56,10 @@ render_header('Generate Course Plan', 'generate', ['subtitle' => 'Paste syllabus
                 data-subject-id="<?= (int)$a['subject_id'] ?>"
                 data-class-id="<?= (int)$a['class_id'] ?>"
                 data-name="<?= e($a['name']) ?>"
+                data-class="<?= e($batchLabel) ?>"
                 data-syl="<?= e($a['syllabus_text'] ?? '') ?>"
                 <?= $sel ? 'selected' : '' ?>>
-                <?= e($a['code'] . ' · ' . $a['name'] . ' · ' . class_batch_label($a)) ?>
+                <?= e($a['code'] . ' · ' . $a['name'] . ' · ' . $batchLabel) ?>
               </option>
             <?php endforeach; ?>
           </select>
@@ -144,7 +148,7 @@ render_header('Generate Course Plan', 'generate', ['subtitle' => 'Paste syllabus
     if (!subj.value) subj.value = opt.dataset.name || '';
     const syl = document.getElementById('syllabus');
     if (!syl.value) syl.value = opt.dataset.syl || '';
-    document.getElementById('class_label').value = opt.textContent.trim();
+    document.getElementById('class_label').value = opt.dataset.class || '';
   }
   key?.addEventListener('change', () => {
     const opt = key.selectedOptions[0];
@@ -153,7 +157,7 @@ render_header('Generate Course Plan', 'generate', ['subtitle' => 'Paste syllabus
     document.getElementById('class_id').value = opt.dataset.classId || '';
     document.getElementById('subject').value = opt.dataset.name || '';
     document.getElementById('syllabus').value = opt.dataset.syl || '';
-    document.getElementById('class_label').value = opt.textContent.trim();
+    document.getElementById('class_label').value = opt.dataset.class || '';
   });
   applyAssignment();
 

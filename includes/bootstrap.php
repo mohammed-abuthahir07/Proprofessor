@@ -40,6 +40,11 @@ if (is_file($autoload)) {
 
 Auth::start();
 
+if (!config('debug')) {
+    @ini_set('display_errors', '0');
+    @ini_set('display_startup_errors', '0');
+}
+
 if (!function_exists('url')) {
     function url(string $path = ''): string
     {

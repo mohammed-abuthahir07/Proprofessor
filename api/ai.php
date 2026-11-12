@@ -3,6 +3,10 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/bootstrap.php';
 Auth::requireLogin();
 require_post();
+verify_csrf_json();
+// Keep warnings out of the JSON body, and allow a full course-plan generation.
+@ini_set('display_errors', '0');
+@set_time_limit(180);
 
 $module = (string)(get('module') ?: post('module'));
 $user = Auth::user();
@@ -290,65 +294,157 @@ function answer_student_ask_ai_offline(
  * @param list<mixed> $raw
  * @return list<array<string,mixed>>
  */
+function question_option_text($value): string
+{
+    if (is_string($value)) {
+        return trim($value);
+    }
+    if (is_array($value)) {
+        foreach (['text', 'value', 'option', 'content', 'label'] as $key) {
+            if (isset($value[$key]) && is_string($value[$key]) && trim($value[$key]) !== '') {
+                return trim($value[$key]);
+            }
+        }
+    }
+    $text = trim((string)json_encode($value));
+    return $text === 'null' ? '' : $text;
+}
+
+/** @param array<string,mixed> $q @return array<string,string> */
+function question_mcq_options(array $q): array
+{
+    $buckets = [];
+    foreach (['options', 'choices', 'alternatives'] as $key) {
+        if (isset($q[$key]) && is_array($q[$key])) {
+            $buckets[] = $q[$key];
+        }
+    }
+    $direct = [];
+    foreach (['A', 'B', 'C', 'D'] as $label) {
+        foreach ([$label, strtolower($label), 'option_' . $label, 'option_' . strtolower($label), 'option' . $label] as $key) {
+            if (!array_key_exists($key, $q)) {
+                continue;
+            }
+            $text = question_option_text($q[$key]);
+            if ($text !== '') {
+                $direct[$label] = $text;
+                break;
+            }
+        }
+    }
+    if (count($direct) === 4) {
+        $buckets[] = $direct;
+    }
+    foreach ($buckets as $options) {
+        $normalized = [];
+        if (array_is_list($options)) {
+            $labels = ['A', 'B', 'C', 'D'];
+            foreach (array_slice(array_values($options), 0, 4) as $i => $opt) {
+                $normalized[$labels[$i]] = question_option_text($opt);
+            }
+        } else {
+            foreach (['A', 'B', 'C', 'D'] as $label) {
+                foreach ($options as $k => $v) {
+                    $key = strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', (string)$k));
+                    if ($key === $label || $key === 'OPTION' . $label || $key === 'CHOICE' . $label) {
+                        $normalized[$label] = question_option_text($v);
+                        break;
+                    }
+                }
+            }
+        }
+        $filled = array_filter($normalized, static fn($text) => $text !== '');
+        if (count($filled) === 4) {
+            return $normalized;
+        }
+    }
+    return [];
+}
+
+function question_mcq_is_garbage(string $stem, array $options): bool
+{
+    $joined = strtolower(implode(' ', $options));
+    $stem = strtolower($stem);
+    if (str_contains($joined, 'option a') && str_contains($joined, 'option b')) {
+        return true;
+    }
+    return str_contains($joined, 'fundamental unit')
+        || str_contains($joined, 'replaces all other')
+        || str_contains($joined, 'documentation only')
+        || str_contains($joined, 'unrelated to')
+        || str_contains($joined, 'belongs only to')
+        || (str_contains($stem, 'best defines') && str_contains($joined, 'fundamental'))
+        || (str_contains($stem, 'key term related') && preg_match('/\bis a key term\b/', $joined));
+}
+
+function question_default_marks(string $type): float
+{
+    return match ($type) {
+        'mcq' => 1.0,
+        'short' => 2.0,
+        'essay' => 15.0,
+        default => 10.0,
+    };
+}
+
 function normalize_generated_questions(array $raw, string $type, string $klevel, int $unit, int $count): array
 {
     $out = [];
     foreach ($raw as $q) {
+        if (is_string($q)) {
+            $q = ['stem' => $q];
+        }
         if (!is_array($q)) {
             continue;
         }
-        $stem = trim((string)($q['stem'] ?? $q['question'] ?? ''));
-        if ($stem === '') {
+        $stem = $q['stem'] ?? $q['question'] ?? $q['question_text'] ?? $q['prompt'] ?? $q['text'] ?? '';
+        if (is_array($stem)) {
+            $stem = $stem['text'] ?? $stem['stem'] ?? '';
+        }
+        $stem = trim((string)$stem);
+        $stemLower = strtolower($stem);
+        if ($stem === '' || str_contains($stemLower, 'explain / choose concept') || str_contains($stemLower, 'choose concept')) {
             continue;
+        }
+        $answer = $q['correct_answer'] ?? $q['answer'] ?? $q['model_answer'] ?? $q['expected_answer'] ?? null;
+        if (is_array($answer)) {
+            $parts = [];
+            foreach ($answer as $part) {
+                $parts[] = is_string($part) ? trim($part) : trim((string)json_encode($part));
+            }
+            $answer = trim(implode("\n", array_filter($parts, static fn($part) => $part !== '')));
         }
         $item = [
             'stem' => $stem,
-            'bloom_k_level' => strtoupper((string)($q['bloom_k_level'] ?? $klevel)),
-            'unit_number' => (int)($q['unit_number'] ?? $unit),
-            'marks' => (float)($q['marks'] ?? ($type === 'mcq' ? 1 : ($type === 'short' ? 5 : 10))),
+            'bloom_k_level' => strtoupper((string)($q['bloom_k_level'] ?? $q['bloom'] ?? $klevel)),
+            'unit_number' => (int)($q['unit_number'] ?? $q['unit'] ?? $unit),
+            'marks' => (float)($q['marks'] ?? $q['mark'] ?? question_default_marks($type)),
             'difficulty' => (string)($q['difficulty'] ?? 'medium'),
-            'correct_answer' => $q['correct_answer'] ?? ($q['answer'] ?? null),
-            'explanation' => $q['explanation'] ?? null,
+            'correct_answer' => $answer,
+            'explanation' => is_array($q['explanation'] ?? null)
+                ? trim(implode("\n", array_map(static fn($part) => is_string($part) ? $part : '', $q['explanation'])))
+                : ($q['explanation'] ?? null),
             'question_type' => $type,
         ];
         if ($type === 'mcq') {
-            $options = $q['options'] ?? null;
-            $normalized = [];
-            if (is_array($options)) {
-                $isList = array_keys($options) === range(0, count($options) - 1);
-                if ($isList) {
-                    $labels = ['A', 'B', 'C', 'D'];
-                    foreach (array_slice(array_values($options), 0, 4) as $i => $opt) {
-                        $normalized[$labels[$i]] = is_string($opt) ? trim($opt) : trim((string)json_encode($opt));
-                    }
-                } else {
-                    foreach (['A', 'B', 'C', 'D'] as $label) {
-                        foreach ($options as $k => $v) {
-                            if (strtoupper((string)$k) === $label || str_starts_with(strtoupper((string)$k), $label)) {
-                                $normalized[$label] = is_string($v) ? trim($v) : trim((string)json_encode($v));
-                                break;
-                            }
-                        }
+            $options = question_mcq_options($q);
+            if (count($options) !== 4 || question_mcq_is_garbage($stem, $options)) {
+                continue;
+            }
+            $item['options'] = $options;
+            $ans = strtoupper(trim((string)($item['correct_answer'] ?? '')));
+            if (!isset($options[$ans])) {
+                foreach ($options as $k => $v) {
+                    if (strcasecmp($v, (string)$item['correct_answer']) === 0) {
+                        $ans = $k;
+                        break;
                     }
                 }
             }
-            if (count($normalized) === 4) {
-                $item['options'] = $normalized;
-                $ans = strtoupper(trim((string)($item['correct_answer'] ?? '')));
-                if (!isset($normalized[$ans])) {
-                    // If model returned option text, map it back to a key.
-                    foreach ($normalized as $k => $v) {
-                        if (strcasecmp($v, (string)$item['correct_answer']) === 0) {
-                            $ans = $k;
-                            break;
-                        }
-                    }
-                }
-                if (!isset($normalized[$ans])) {
-                    $ans = 'A';
-                }
-                $item['correct_answer'] = $ans;
+            if (!isset($options[$ans])) {
+                $ans = 'A';
             }
+            $item['correct_answer'] = $ans;
         }
         $out[] = $item;
         if (count($out) >= $count) {
@@ -359,47 +455,49 @@ function normalize_generated_questions(array $raw, string $type, string $klevel,
 }
 
 /**
+ * @param mixed $json
+ * @return list<mixed>
+ */
+function extract_generated_questions($json): array
+{
+    if (!is_array($json)) {
+        return [];
+    }
+    foreach (['questions', 'question_bank', 'items', 'data', 'results'] as $key) {
+        if (isset($json[$key]) && is_array($json[$key])) {
+            $rows = $json[$key];
+            return array_is_list($rows) ? $rows : [$rows];
+        }
+    }
+    if (array_is_list($json)) {
+        return $json;
+    }
+    if (isset($json['stem']) || isset($json['question']) || isset($json['question_text'])) {
+        return [$json];
+    }
+    return [];
+}
+
+/**
  * @param list<array<string,mixed>> $questions
  */
 function question_bank_is_usable(array $questions, string $type, int $count): bool
 {
-    if (count($questions) < max(1, (int)ceil($count * 0.6))) {
-        return false;
-    }
-    $placeholderHits = 0;
+    $good = 0;
     foreach ($questions as $q) {
-        $stem = strtolower((string)($q['stem'] ?? ''));
-        if ($stem === '' || str_contains($stem, 'explain / choose concept') || str_contains($stem, 'choose concept')) {
-            $placeholderHits++;
+        $stem = trim((string)($q['stem'] ?? ''));
+        if (strlen($stem) < 12) {
             continue;
         }
         if ($type === 'mcq') {
             $opts = $q['options'] ?? null;
             if (!is_array($opts) || count($opts) < 4) {
-                $placeholderHits++;
                 continue;
-            }
-            $joined = strtolower(implode(' ', array_map(static fn($v) => is_string($v) ? $v : json_encode($v), $opts)));
-            if (str_contains($joined, 'option a') && str_contains($joined, 'option b')) {
-                $placeholderHits++;
-                continue;
-            }
-            // Reject circular / template-garbage answers that only restate the topic.
-            if (
-                str_contains($joined, 'fundamental unit')
-                || str_contains($joined, 'covering ')
-                || str_contains($joined, 'replaces all other')
-                || str_contains($joined, 'documentation only')
-                || str_contains($joined, 'unrelated to')
-                || str_contains($joined, 'belongs only to')
-                || (str_contains($stem, 'best defines') && str_contains($joined, 'fundamental'))
-                || (str_contains($stem, 'key term related') && preg_match('/\bis a key term\b/', $joined))
-            ) {
-                $placeholderHits++;
             }
         }
+        $good++;
     }
-    return $placeholderHits === 0;
+    return $good >= 1;
 }
 
 /**
@@ -417,7 +515,7 @@ function extract_generated_slides($json): array
     if (!is_array($json)) {
         return [];
     }
-    foreach (['slides', 'deck', 'presentation_slides'] as $key) {
+    foreach (['slides', 'deck', 'presentation_slides', 'slide_deck'] as $key) {
         if (isset($json[$key]) && is_array($json[$key])) {
             return array_values($json[$key]);
         }
@@ -428,10 +526,99 @@ function extract_generated_slides($json): array
             return array_values($inner);
         }
     }
-    if ($json !== [] && array_is_list($json) && is_array($json[0] ?? null) && (isset($json[0]['title']) || isset($json[0]['bullets']))) {
+    if ($json !== [] && array_is_list($json) && is_array($json[0] ?? null) && (isset($json[0]['title']) || isset($json[0]['bullets']) || isset($json[0]['points']))) {
         return array_values($json);
     }
     return [];
+}
+
+/**
+ * Recover slides when the model wraps JSON in markdown or truncates the final brace.
+ */
+function extract_slides_from_model_text(string $text): array
+{
+    $text = trim($text);
+    if ($text === '') {
+        return [];
+    }
+    $text = preg_replace('/^```(?:json)?\s*/i', '', $text) ?? $text;
+    $text = preg_replace('/\s*```$/', '', $text) ?? $text;
+    $decoded = json_decode($text, true);
+    if (is_array($decoded)) {
+        $slides = extract_generated_slides($decoded);
+        if ($slides !== []) {
+            return $slides;
+        }
+    }
+    if (preg_match('/\{[\s\S]*\}/', $text, $match)) {
+        $decoded = json_decode($match[0], true);
+        if (is_array($decoded)) {
+            $slides = extract_generated_slides($decoded);
+            if ($slides !== []) {
+                return $slides;
+            }
+        }
+    }
+
+    $found = [];
+    $length = strlen($text);
+    for ($i = 0; $i < $length; $i++) {
+        if ($text[$i] !== '{') {
+            continue;
+        }
+        $window = substr($text, $i, 80);
+        if (!preg_match('/"title"\s*:/', $window)) {
+            continue;
+        }
+        $end = ppt_balanced_json_end($text, $i);
+        if ($end === null) {
+            continue;
+        }
+        $obj = json_decode(substr($text, $i, $end - $i + 1), true);
+        if (is_array($obj) && trim((string)($obj['title'] ?? '')) !== '') {
+            $found[] = $obj;
+            $i = $end;
+        }
+    }
+    return $found;
+}
+
+function ppt_balanced_json_end(string $text, int $start): ?int
+{
+    $depth = 0;
+    $inString = false;
+    $escape = false;
+    $length = strlen($text);
+    for ($i = $start; $i < $length; $i++) {
+        $ch = $text[$i];
+        if ($inString) {
+            if ($escape) {
+                $escape = false;
+                continue;
+            }
+            if ($ch === '\\') {
+                $escape = true;
+                continue;
+            }
+            if ($ch === '"') {
+                $inString = false;
+            }
+            continue;
+        }
+        if ($ch === '"') {
+            $inString = true;
+            continue;
+        }
+        if ($ch === '{') {
+            $depth++;
+        } elseif ($ch === '}') {
+            $depth--;
+            if ($depth === 0) {
+                return $i;
+            }
+        }
+    }
+    return null;
 }
 
 function normalize_generated_slides(array $raw, int $unit): array
@@ -442,18 +629,31 @@ function normalize_generated_slides(array $raw, int $unit): array
         if (!is_array($slide)) {
             continue;
         }
-        $title = trim((string)($slide['title'] ?? ''));
-        $bulletsRaw = $slide['bullets'] ?? ($slide['points'] ?? []);
+        $title = trim((string)($slide['title'] ?? $slide['heading'] ?? $slide['slide_title'] ?? ''));
+        $bulletsRaw = $slide['bullets'] ?? $slide['points'] ?? $slide['bullet_points'] ?? $slide['content'] ?? $slide['items'] ?? $slide['key_points'] ?? [];
         $bullets = [];
         if (is_array($bulletsRaw)) {
             foreach ($bulletsRaw as $b) {
-                $text = trim(is_string($b) ? $b : (string)json_encode($b));
+                if (is_string($b) || is_int($b) || is_float($b)) {
+                    $text = trim((string)$b);
+                } elseif (is_array($b)) {
+                    $text = trim((string)($b['text'] ?? $b['content'] ?? $b['point'] ?? $b['title'] ?? ''));
+                } else {
+                    $text = '';
+                }
                 if ($text !== '') {
                     $bullets[] = $text;
                 }
             }
         } elseif (is_string($bulletsRaw) && trim($bulletsRaw) !== '') {
             $bullets[] = trim($bulletsRaw);
+        }
+        if (count($bullets) === 1) {
+            $parts = preg_split("/\r\n|\n|(?<=[.!?])\s+/", $bullets[0]) ?: [];
+            $parts = array_values(array_filter(array_map('trim', $parts), static fn($part) => $part !== ''));
+            if (count($parts) >= 2) {
+                $bullets = $parts;
+            }
         }
         if ($title === '' && !$bullets) {
             continue;
@@ -516,10 +716,7 @@ function ppt_slide_is_structural(array $slide, int $index, int $total): bool
 
 function ppt_slides_are_usable(array $slides): bool
 {
-    if (count($slides) < 6) {
-        return false;
-    }
-    if (class_exists('LectureSlideBuilder', false) && LectureSlideBuilder::containsPlaceholders($slides)) {
+    if (count($slides) < 4) {
         return false;
     }
     $bad = 0;
@@ -539,7 +736,7 @@ function ppt_slides_are_usable(array $slides): bool
             || str_contains($notes, 'talking points for slide')
             || $title === '';
         $structural = ppt_slide_is_structural($slide, (int)$i, $total);
-        if ($placeholder || (!$structural && count($bullets) < 2)) {
+        if ($placeholder || (!$structural && $bullets === [])) {
             $bad++;
             continue;
         }
@@ -547,7 +744,136 @@ function ppt_slides_are_usable(array $slides): bool
             $content++;
         }
     }
-    return $content >= 4 && $bad <= 2;
+    return $content >= 3 && $bad <= 2;
+}
+
+/**
+ * @return list<array{number:int,title:string,topics:list<string>}>
+ */
+function ppt_units_from_plan(?array $plan): array
+{
+    if (!$plan) {
+        return [];
+    }
+    $byNumber = [];
+    $planData = json_decode((string)($plan['plan_data'] ?? ''), true) ?: [];
+    foreach (($planData['units'] ?? []) as $unit) {
+        if (!is_array($unit)) {
+            continue;
+        }
+        $number = (int)($unit['unit_number'] ?? 0);
+        if ($number < 1) {
+            continue;
+        }
+        $topics = [];
+        foreach ((array)($unit['topics'] ?? []) as $topic) {
+            if (is_string($topic) && trim($topic) !== '' && !preg_match('/^topic\s*\d+(\.\d+)?$/i', $topic)) {
+                $topics[] = trim($topic);
+            }
+        }
+        $byNumber[$number] = [
+            'number' => $number,
+            'title' => trim((string)($unit['title'] ?? ('Unit ' . $number))),
+            'topics' => $topics,
+        ];
+    }
+    $planId = (int)($plan['id'] ?? 0);
+    if ($planId > 0) {
+        $rows = Database::fetchAll(
+            'SELECT unit_number, title, topics FROM plan_units WHERE plan_id = ? ORDER BY unit_number',
+            [$planId]
+        );
+        foreach ($rows as $row) {
+            $number = (int)($row['unit_number'] ?? 0);
+            if ($number < 1) {
+                continue;
+            }
+            $topics = json_decode((string)($row['topics'] ?? ''), true);
+            $clean = [];
+            if (is_array($topics)) {
+                foreach ($topics as $topic) {
+                    if (is_string($topic) && trim($topic) !== '' && !preg_match('/^topic\s*\d+(\.\d+)?$/i', $topic)) {
+                        $clean[] = trim($topic);
+                    }
+                }
+            }
+            if (!isset($byNumber[$number])) {
+                $byNumber[$number] = [
+                    'number' => $number,
+                    'title' => trim((string)($row['title'] ?? ('Unit ' . $number))),
+                    'topics' => $clean,
+                ];
+                continue;
+            }
+            if ($byNumber[$number]['topics'] === [] && $clean !== []) {
+                $byNumber[$number]['topics'] = $clean;
+            }
+            if ($byNumber[$number]['title'] === '' && trim((string)($row['title'] ?? '')) !== '') {
+                $byNumber[$number]['title'] = trim((string)$row['title']);
+            }
+        }
+    }
+    ksort($byNumber);
+    return array_values($byNumber);
+}
+
+/**
+ * @param list<array{number:int,title:string,topics:list<string>}> $units
+ * @param list<string> $unitTopics
+ * @param array<string,string> $brand
+ * @return list<array<string,mixed>>
+ */
+function ppt_fallback_deck(
+    string $title,
+    string $subject,
+    int $unit,
+    string $context,
+    array $unitTopics,
+    array $brand,
+    array $units,
+    bool $fullCourse
+): array {
+    if (!class_exists('LectureSlideBuilder', false)) {
+        require_once dirname(__DIR__) . '/includes/LectureSlideBuilder.php';
+    }
+    if ($fullCourse && count($units) > 1) {
+        $deck = [];
+        $last = count($units) - 1;
+        foreach ($units as $index => $row) {
+            $topics = $row['topics'];
+            if ($row['title'] !== '') {
+                array_unshift($topics, $row['title']);
+            }
+            $part = LectureSlideBuilder::buildDeck(
+                $index === 0 ? $title : ($subject . ' · Unit ' . $row['number']),
+                $subject,
+                (int)$row['number'],
+                $context,
+                $topics,
+                $brand
+            );
+            if ($index > 0 && $part !== []) {
+                array_shift($part);
+            }
+            if ($index < $last && $part !== []) {
+                $tail = $part[count($part) - 1];
+                if (preg_match('/thank/i', (string)($tail['title'] ?? ''))) {
+                    array_pop($part);
+                }
+            }
+            foreach ($part as $slide) {
+                $deck[] = $slide;
+            }
+        }
+        foreach ($deck as $index => &$slide) {
+            $slide['number'] = $index + 1;
+        }
+        unset($slide);
+        if (count($deck) >= 4) {
+            return $deck;
+        }
+    }
+    return Gemini::demoPresentation($title, $subject, $unit, $context, $unitTopics, 12, $brand);
 }
 
 function render_plan_html(array $plan, int $planId = 0): string
@@ -670,7 +996,7 @@ try {
                 . "\nSyllabus:\n$syllabus\n\nReturn JSON with keys: title, learning_outcomes[], units[{unit_number,title,hours,topics[],outcomes[],bloom_k_level,teaching_methods[],assessment[]}], weekly_plan[], resources[], expert_advice[], bloom_distribution{K1..K6}, ai_score.";
 
             if ($gemini->isConfigured()) {
-                $result = $gemini->generate($system, $userPrompt);
+                $result = $gemini->generate($system, $userPrompt, null, 180);
                 ProfessorAi::abortIfByokFailed($gemini, $result);
                 $plan = $result['json'] ?? null;
                 if (!$plan) {
@@ -702,12 +1028,8 @@ try {
                 $plan['units'] = CoursePlanTools::enrichUnitsFromSyllabus($plan['units'], $syllabus);
             }
 
-            // Ensure bloom_distribution exists for checker.
-            if (empty($plan['bloom_distribution']) || !is_array($plan['bloom_distribution'])) {
-                $tmpBal = CoursePlanTools::bloomBalance(['plan_data' => json_encode($plan)], $plan['units'] ?? []);
-                $plan['bloom_distribution'] = $tmpBal['distribution'];
-            }
-            $plan['accreditation_template'] = $template;
+            // Six plan parts: units, outcomes, Bloom K1–K6, weekly plan, resources, expert advice.
+            $plan = CoursePlanTools::ensureGeneratedParts($plan, $subject, $syllabus, $template);
 
             $meta = [
                 'accreditation_template' => $template,
@@ -890,7 +1212,7 @@ try {
             ];
             $result = ['ok'=>true,'json'=>$data,'latency_ms'=>0];
         }
-        $score = $data['score'] ?? $data['ai_score'] ?? null;
+        $score = CoursePlanTools::scoreValue($data['score'] ?? $data['ai_score'] ?? null);
         Database::update('course_plans', [
             'ai_score' => $score,
             'ai_review' => json_encode($data),
@@ -997,9 +1319,10 @@ try {
                 . "Distribute each unit's topics across enough sessions to cover that unit's hours — "
                 . "multiple sessions for the same topic when needed, with varied teaching method, activity, assessment, and engagement. "
                 . "Subject: " . (string)($plan['subject_name'] ?? '') . "\n\n" . (string)$plan['plan_data'];
-            $result = $gemini->generate($system, $userPrompt);
-            ProfessorAi::abortIfByokFailed($gemini, $result);
-            $sessions = extract_ai_lesson_sessions(is_array($result['json'] ?? null) ? $result['json'] : null);
+            $result = $gemini->generate($system, $userPrompt, null, 120);
+            if (!empty($result['ok'])) {
+                $sessions = extract_ai_lesson_sessions(is_array($result['json'] ?? null) ? $result['json'] : null);
+            }
         }
         // Fall back when AI under-fills hours or returns unusable content.
         if (!lesson_sessions_are_usable($sessions) || !lesson_sessions_cover_plan_hours($sessions, $plan)) {
@@ -1139,11 +1462,22 @@ try {
             . "- Distractors must be plausible misconceptions within the same subject domain.\n"
             . "- Vary stems across the batch; avoid repeating the same sentence template.\n"
             . "- Do NOT invent placeholder text like \"Explain / choose concept\", \"Option A\", \"Option B\".\n"
-            . "- For mcq: exactly 4 options as {\"A\":\"...\",\"B\":\"...\",\"C\":\"...\",\"D\":\"...\"}; correct_answer is A/B/C/D; balance correct positions when possible.\n"
-            . "- For short/long/essay: useful stem + model correct_answer outline with real content points.\n"
-            . "- Set marks appropriately (mcq≈1, short≈5, long≈10).\n"
+            . match ($type) {
+                'mcq' => "- This batch is MCQ only. Each question has exactly 4 options A, B, C and D, and correct_answer is one of A, B, C, D. Default marks: 1.\n",
+                'short' => "- This batch is short-answer only. Do not include options. correct_answer is a short model answer of a few sentences. Default marks: 2.\n",
+                'long' => "- This batch is long-answer only. Do not include options. correct_answer is a point-wise model answer. Default marks: 10.\n",
+                'essay' => "- This batch is essay only. Do not include options. correct_answer is an outline with introduction, main points, and conclusion. Default marks: 15.\n",
+                default => '',
+            }
+            . (preg_match('/(\d+(?:\.\d+)?)\s*marks?/i', $context, $markMatch)
+                ? "- The teacher asked for {$markMatch[1]}-mark questions, so set marks to {$markMatch[1]} on every question.\n"
+                : '')
             . "- Set bloom_k_level to {$klevel} and unit_number to {$unit}.\n\n"
-            . "Return JSON only: {\"questions\":[{\"stem\":\"\",\"options\":{\"A\":\"\",\"B\":\"\",\"C\":\"\",\"D\":\"\"},\"correct_answer\":\"A\",\"explanation\":\"\",\"marks\":1,\"difficulty\":\"medium\",\"bloom_k_level\":\"{$klevel}\",\"unit_number\":{$unit}}]}";
+            . "Return JSON only: {\"questions\":["
+            . ($type === 'mcq'
+                ? "{\"stem\":\"\",\"options\":{\"A\":\"\",\"B\":\"\",\"C\":\"\",\"D\":\"\"},\"correct_answer\":\"A\",\"explanation\":\"\",\"marks\":1,\"difficulty\":\"medium\",\"bloom_k_level\":\"{$klevel}\",\"unit_number\":{$unit}}"
+                : "{\"stem\":\"\",\"correct_answer\":\"\",\"explanation\":\"\",\"marks\":" . (int)question_default_marks($type) . ",\"difficulty\":\"medium\",\"bloom_k_level\":\"{$klevel}\",\"unit_number\":{$unit}}")
+            . "]}";
 
         $questions = [];
         $result = ['ok' => true, 'json' => null, 'latency_ms' => 0, 'demo' => false];
@@ -1151,8 +1485,17 @@ try {
         if ($gemini->isConfigured()) {
             $result = $gemini->generate($system, $userPrompt);
             ProfessorAi::abortIfByokFailed($gemini, $result);
-            $rawQuestions = is_array($result['json']['questions'] ?? null) ? $result['json']['questions'] : [];
+            $rawQuestions = extract_generated_questions($result['json'] ?? null);
+            if ($rawQuestions === [] && is_string($result['text'] ?? null)) {
+                $rawQuestions = extract_generated_questions(ProfessorAi::parseJsonPayload((string)$result['text']));
+            }
             $questions = normalize_generated_questions($rawQuestions, $type, $klevel, $unit, $count);
+            if (preg_match('/(\d+(?:\.\d+)?)\s*marks?/i', $context, $markMatch)) {
+                foreach ($questions as &$question) {
+                    $question['marks'] = (float)$markMatch[1];
+                }
+                unset($question);
+            }
             if (!question_bank_is_usable($questions, $type, $count)) {
                 if (professor_ai_is_byok($gemini) || ($user['role'] ?? '') === 'professor') {
                     ProfessorAi::abortIfByokUnusable($gemini, 'The AI provider returned unusable questions. Please try again.');
@@ -1242,6 +1585,7 @@ try {
         Auth::requireRole('professor', 'admin');
         $title = trim((string)post('title', 'Lecture Presentation'));
         $context = trim((string)post('context', ''));
+        $wantsFull = (bool)preg_match('/\b(full|entire|complete|all units|whole)\b/i', $title . "\n" . $context);
         $planId = (int)post('plan_id', 0) ?: null;
         $plan = null;
         $subjectName = '';
@@ -1276,29 +1620,14 @@ try {
                 $subjectName = (string)$parsed['subject'];
             }
 
-            $planData = json_decode((string)($plan['plan_data'] ?? ''), true) ?: [];
-            foreach (($planData['units'] ?? []) as $u) {
-                if ((int)($u['unit_number'] ?? 0) !== $unit) {
+            $courseUnits = ppt_units_from_plan($plan);
+            foreach ($courseUnits as $courseUnit) {
+                if (!$wantsFull && (int)$courseUnit['number'] !== $unit) {
                     continue;
                 }
-                foreach ((array)($u['topics'] ?? []) as $t) {
-                    if (is_string($t) && trim($t) !== '' && !preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
-                        $unitTopics[] = trim($t);
-                    }
-                }
-            }
-            $dbUnits = Database::fetchAll(
-                'SELECT title, topics FROM plan_units WHERE plan_id = ? AND unit_number = ?',
-                [$planId, $unit]
-            );
-            foreach ($dbUnits as $u) {
-                $topicsJson = json_decode((string)($u['topics'] ?? ''), true);
-                if (is_array($topicsJson)) {
-                    foreach ($topicsJson as $t) {
-                        if (is_string($t) && trim($t) !== '' && !preg_match('/^topic\s*\d+(\.\d+)?$/i', $t)) {
-                            $unitTopics[] = trim($t);
-                        }
-                    }
+                $prefix = $wantsFull ? ('Unit ' . $courseUnit['number'] . ': ') : '';
+                foreach ($courseUnit['topics'] as $topic) {
+                    $unitTopics[] = $prefix . $topic;
                 }
             }
         }
@@ -1308,9 +1637,15 @@ try {
         }
 
         $unitTopics = LectureSlideBuilder::filterTopics(array_values(array_unique($unitTopics)));
-        $unitTopicText = $unitTopics
-            ? ("Unit {$unit} syllabus topics (teach these — do NOT treat unit titles/hours as topics):\n- " . implode("\n- ", $unitTopics))
-            : "Infer Unit {$unit} teaching topics strictly from the syllabus/context. Never use unit titles like \"… — 12 Hours\" as slide topics.";
+        if ($wantsFull) {
+            $unitTopicText = $unitTopics
+                ? ("Cover the FULL course. Teach these topics, grouped by unit:\n- " . implode("\n- ", $unitTopics))
+                : "Cover the FULL course from the syllabus. Include every unit, not only Unit {$unit}.";
+        } else {
+            $unitTopicText = $unitTopics
+                ? ("Unit {$unit} syllabus topics (teach these — do NOT treat unit titles/hours as topics):\n- " . implode("\n- ", $unitTopics))
+                : "Infer Unit {$unit} teaching topics strictly from the syllabus/context. Never use unit titles like \"… — 12 Hours\" as slide topics.";
+        }
 
         $branding = PresentationTools::brandingForUser($user);
         $deptName = '';
@@ -1355,7 +1690,9 @@ try {
             . ($deptName !== '' ? "Department: {$deptName}\n" : '')
             . "Presentation title: {$title}\n"
             . "Course/Subject: {$subjectName}\n"
-            . "Unit: {$unit} (ALL slides must be for this unit only)\n"
+            . ($wantsFull
+                ? "Scope: FULL COURSE. Include a section for every unit in the syllabus.\n"
+                : "Unit: {$unit} (ALL slides must be for this unit only)\n")
             . "{$unitTopicText}\n\n"
             . "Syllabus / context:\n" . ($contextForAi !== '' ? $contextForAi : '(Use the course and unit topics above.)') . "\n\n"
             . "Requirements:\n"
@@ -1369,7 +1706,9 @@ try {
             . "- Forbidden placeholder phrases: \"Why this concept matters\", \"Key terms students must remember\", \"Short example or illustration\", \"Classroom demo or board work suggestion\", \"Quick practice prompt\", \"Core idea of\", \"Step-by-step explanation suitable for classroom teaching\".\n"
             . "- Include a concrete unit summary and specific revision questions near the end; final slide Thank You.\n"
             . "- Optional fields when useful: layout (content|comparison|code|diagram|summary|quiz|close), comparison{headers,rows}, code (string), diagram (string list).\n"
-            . "- unit_tag must be exactly \"Unit {$unit}\" for every slide.\n"
+            . ($wantsFull
+                ? "- unit_tag must name the unit that slide teaches, such as \"Unit 1\".\n"
+                : "- unit_tag must be exactly \"Unit {$unit}\" for every slide.\n")
             . "- speaker_notes must be useful teaching notes.\n\n"
             . "Return JSON only: {\"slides\":[{\"number\":1,\"title\":\"\",\"layout\":\"content\",\"bullets\":[\"\",\"\"],\"speaker_notes\":\"\",\"unit_tag\":\"Unit {$unit}\"}]}";
 
@@ -1383,14 +1722,15 @@ try {
             $result = $gemini->generate($system, $userPrompt, null, 180);
             ProfessorAi::abortIfByokFailed($gemini, $result);
             $rawSlides = extract_generated_slides($result['json'] ?? null);
+            if ($rawSlides === [] && is_string($result['text'] ?? null)) {
+                $rawSlides = extract_slides_from_model_text((string)$result['text']);
+            }
             $slides = normalize_generated_slides($rawSlides, $unit);
             if (!ppt_slides_are_usable($slides)) {
-                if (professor_ai_is_byok($gemini) || ($user['role'] ?? '') === 'professor') {
-                    ProfessorAi::abortIfByokUnusable($gemini, 'The AI provider returned unusable slides. Please try again.');
-                }
-                $slides = Gemini::demoPresentation($title, $subjectName, $unit, $context, $unitTopics, 12, $brandMeta);
+                $courseUnits = $plan ? ppt_units_from_plan($plan) : [];
+                $slides = ppt_fallback_deck($title, $subjectName, $unit, $context, $unitTopics, $brandMeta, $courseUnits, $wantsFull);
                 $result['demo'] = true;
-                $result['fallback'] = 'ai_unusable';
+                $result['fallback'] = 'course_plan_deck';
             }
         } else {
             if (($user['role'] ?? '') === 'professor' || professor_ai_is_byok($gemini)) {

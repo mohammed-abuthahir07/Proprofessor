@@ -27,14 +27,15 @@ return [
          'port' => 3307,
          'name' => 'proprofessor',
          'user' => 'root',
-         'pass' => '',
+         'pass' => 'root',
          'charset' => 'utf8mb4',
+        //  'collation' => 'utf8mb4_unicode_ci'
     ],
 
     // Get a key from https://aistudio.google.com/apikey
     'gemini' => [
         'api_key' => getenv('GEMINI_API_KEY') ?: '',
-        'model'   => getenv('GEMINI_MODEL') ?: 'gemini-2.5-flash',
+        'model'   => getenv('GEMINI_MODEL') ?: 'gemini-4-argon',
         'embed_model' => 'text-embedding-004',
         'endpoint' => 'https://generativelanguage.googleapis.com/v1beta',
     ],

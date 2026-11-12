@@ -32,8 +32,8 @@ final class ProfessorAi
         }
         $gemini = new Gemini();
         $model = class_exists('Gemini')
-            ? Gemini::normalizeModel((string)config('gemini.model', 'gemini-2.5-flash'))
-            : (string)config('gemini.model', 'gemini-2.5-flash');
+            ? Gemini::normalizeModel((string)config('gemini.model', 'gemini-4-argon'))
+            : (string)config('gemini.model', 'gemini-4-argon');
         return new self($gemini, false, 'gemini', $model);
     }
 
@@ -193,6 +193,16 @@ final class ProfessorAi
         }
         if (str_contains($l, 'timed out') || str_contains($l, 'timeout') || str_contains($l, 'operation timed out')) {
             return 'The AI provider request timed out. Please try again.';
+        }
+        if (
+            str_contains($l, 'file_get_contents')
+            || str_contains($l, 'failed to open stream')
+            || str_contains($l, 'http request failed')
+            || str_contains($l, 'could not be reached')
+            || str_contains($l, 'php warning')
+            || str_contains($l, 'php fatal')
+        ) {
+            return 'The AI provider could not be reached. Please try again.';
         }
 
         $clean = trim((string)preg_replace('/https?:\/\/\S+/i', '', $raw));

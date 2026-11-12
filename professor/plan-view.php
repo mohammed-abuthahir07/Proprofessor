@@ -116,7 +116,10 @@ if (!in_array($tab, $allowedTabs, true)) {
 $canComment = CoursePlanTools::canCommentOnPlan($user, $plan);
 $canExport = in_array((string)$plan['status'], ['approved'], true) || in_array((string)$user['role'], ['admin', 'superadmin', 'hod'], true);
 
-render_header($plan['title'], 'plans', ['subtitle' => $plan['subject_name'] . ' · ' . status_badge($plan['status'])]);
+$subjectLabel = trim((string)($plan['subject_name'] ?? ''));
+render_header($plan['title'], 'plans', [
+    'subtitle_html' => ($subjectLabel !== '' ? e($subjectLabel) . ' · ' : '') . status_badge((string)$plan['status']),
+]);
 ?>
 <?php if ($fb['overall'] !== '' || $fb['points']): ?>
   <div class="alert alert-warn hod-fb-summary">

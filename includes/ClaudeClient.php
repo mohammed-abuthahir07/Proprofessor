@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/HttpClient.php';
+
 /**
  * Anthropic Claude Messages API client. Returns the same shape as Gemini::generate().
  */
@@ -13,7 +15,7 @@ final class ClaudeClient
     public function __construct(string $apiKey, string $model, ?string $endpoint = null)
     {
         $this->apiKey = trim($apiKey);
-        $this->model = trim($model) !== '' ? trim($model) : 'claude-sonnet-5';
+        $this->model = trim($model) !== '' ? trim($model) : 'claude-sonnet-5-5';
         $this->endpoint = rtrim($endpoint ?: 'https://api.anthropic.com/v1', '/');
     }
 
@@ -70,26 +72,16 @@ final class ClaudeClient
         // Do not send temperature/top_p/top_k.
         // Claude Sonnet 5 / Opus 5 reject non-default sampling params (HTTP 400).
 
-        $ch = curl_init($this->endpoint . '/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $this->apiKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS => json_encode($payload),
-            CURLOPT_TIMEOUT => $timeout,
-        ]);
-        $body = curl_exec($ch);
-        $errno = curl_errno($ch);
-        $err = curl_error($ch);
-        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        $http = HttpClient::post($this->endpoint . '/messages', (string)json_encode($payload), [
+            'Content-Type: application/json',
+            'x-api-key: ' . $this->apiKey,
+            'anthropic-version: 2023-06-01',
+        ], $timeout);
+        $body = $http['body'];
+        $code = $http['http_code'];
 
-        if ($errno) {
-            return $this->fail($err !== '' ? $err : 'Network error contacting Claude.', $started, $code, $model);
+        if ($http['error'] !== '') {
+            return $this->fail($http['error'] !== '' ? $http['error'] : 'Network error contacting Claude.', $started, $code, $model);
         }
 
         $raw = json_decode((string)$body, true);

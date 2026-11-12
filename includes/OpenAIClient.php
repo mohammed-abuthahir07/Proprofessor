@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/HttpClient.php';
+
 /**
  * OpenAI Chat Completions client. Returns the same shape as Gemini::generate().
  */
@@ -92,25 +94,15 @@ final class OpenAIClient
      */
     private function post(string $path, array $payload, int $timeout, int $started, string $model): array
     {
-        $ch = curl_init($this->endpoint . $path);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . $this->apiKey,
-            ],
-            CURLOPT_POSTFIELDS => json_encode($payload),
-            CURLOPT_TIMEOUT => $timeout,
-        ]);
-        $body = curl_exec($ch);
-        $errno = curl_errno($ch);
-        $err = curl_error($ch);
-        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        $http = HttpClient::post($this->endpoint . $path, (string)json_encode($payload), [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $this->apiKey,
+        ], $timeout);
+        $body = $http['body'];
+        $code = $http['http_code'];
 
-        if ($errno) {
-            return $this->fail($err !== '' ? $err : 'Network error contacting OpenAI.', $started, $code, $model);
+        if ($http['error'] !== '') {
+            return $this->fail($http['error'] !== '' ? $http['error'] : 'Network error contacting OpenAI.', $started, $code, $model);
         }
 
         $raw = json_decode((string)$body, true);

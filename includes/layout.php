@@ -102,7 +102,11 @@ function render_header(string $title, string $active = '', array $opts = []): vo
       <div class="topbar-title">
         <?php if (empty($opts['compactTitle'])): ?>
           <h1><?= e($title) ?></h1>
-          <p><?= e($opts['subtitle'] ?? '') ?></p>
+          <?php if (!empty($opts['subtitle_html'])): ?>
+            <p><?= $opts['subtitle_html'] ?></p>
+          <?php else: ?>
+            <p><?= e($opts['subtitle'] ?? '') ?></p>
+          <?php endif; ?>
         <?php endif; ?>
       </div>
       <div class="topbar-actions">

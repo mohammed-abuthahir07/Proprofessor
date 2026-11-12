@@ -161,8 +161,16 @@ function verify_csrf(): void
 {
     $token = $_POST['csrf'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     if (!$token || !hash_equals($_SESSION['csrf'] ?? '', (string)$token)) {
-        http_response_code(419);
+        http_response_code(403);
         exit('Invalid CSRF token');
+    }
+}
+
+function verify_csrf_json(): void
+{
+    $token = $_POST['csrf'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (!$token || !hash_equals($_SESSION['csrf'] ?? '', (string)$token)) {
+        json_response(['ok' => false, 'error' => 'Your session expired. Refresh the page and try again.'], 403);
     }
 }
 
@@ -265,7 +273,7 @@ function log_ai(string $module, array $input, array $result, ?string $refType = 
     $model = trim((string)($result['model'] ?? ''));
     if ($model === '') {
         $model = class_exists('Gemini')
-            ? Gemini::normalizeModel((string)config('gemini.model', 'gemini-2.5-flash'))
+            ? Gemini::normalizeModel((string)config('gemini.model', 'gemini-4-argon'))
             : (string)config('gemini.model');
     }
     Database::insert('ai_generations', [
@@ -276,9 +284,9 @@ function log_ai(string $module, array $input, array $result, ?string $refType = 
         'input_payload' => json_encode($input),
         'output_payload' => json_encode($result['json'] ?? ['text' => $result['text'] ?? null, 'error' => $result['error'] ?? null]),
         'model' => $model,
-        'latency_ms' => $result['latency_ms'] ?? null,
+        'latency_ms' => is_numeric($result['latency_ms'] ?? null) ? (int)$result['latency_ms'] : null,
         'status' => !empty($result['ok']) ? 'success' : 'error',
-        'error_message' => $result['error'] ?? null,
+        'error_message' => is_scalar($result['error'] ?? null) ? (string)$result['error'] : (isset($result['error']) ? json_encode($result['error']) : null),
         'ref_type' => $refType,
         'ref_id' => $refId,
     ]);
@@ -2085,6 +2093,25 @@ function lesson_dedupe_plan_units(array $units): array
     return $out;
 }
 
+function lesson_plain(mixed $value, string $fallback = ''): string
+{
+    if (is_string($value) || is_int($value) || is_float($value)) {
+        $text = trim((string)$value);
+        return $text !== '' ? $text : $fallback;
+    }
+    if (is_array($value)) {
+        foreach (['text', 'title', 'name', 'focus', 'activity', 'level'] as $key) {
+            if (isset($value[$key]) && is_scalar($value[$key])) {
+                $text = trim((string)$value[$key]);
+                if ($text !== '') {
+                    return $text;
+                }
+            }
+        }
+    }
+    return $fallback;
+}
+
 function lesson_as_list(mixed $value): array
 {
     if (is_string($value)) {
@@ -2107,7 +2134,7 @@ function lesson_as_list(mixed $value): array
         if (is_string($item) && trim($item) !== '') {
             $out[] = trim($item);
         } elseif (is_array($item)) {
-            $text = trim((string)($item['text'] ?? $item['title'] ?? $item['name'] ?? $item['activity'] ?? ''));
+            $text = lesson_plain($item);
             if ($text !== '') {
                 $out[] = $text;
             }
@@ -2292,7 +2319,7 @@ function lesson_sessions_from_units_by_hours(array $units, string $subject, int 
         $methods = lesson_as_list($u['teaching_methods'] ?? []);
         $outcomes = lesson_as_list($u['outcomes'] ?? []);
         $assess = lesson_as_list($u['assessment'] ?? []);
-        $k = (string)($u['bloom_k_level'] ?? 'K2');
+        $k = lesson_plain($u['bloom_k_level'] ?? null, 'K2');
         $ped = lesson_pedagogy_for_k($k);
         $unitTitle = trim((string)($u['title'] ?? 'Unit'));
         $unitId = isset($u['id']) ? (int)$u['id'] : null;
@@ -2427,7 +2454,7 @@ function lesson_sessions_from_course_plan(array $planRow): array
                 continue;
             }
             $unit = $units[$i % max(1, count($units))] ?? [];
-            $k = (string)($unit['bloom_k_level'] ?? 'K2');
+            $k = lesson_plain($unit['bloom_k_level'] ?? null, 'K2');
             $ped = lesson_pedagogy_for_k($k);
             $n = $i + 1;
             $title = trim((string)($w['title'] ?? $w['focus'] ?? $w['topic'] ?? $w['name'] ?? ''));
@@ -2458,7 +2485,7 @@ function lesson_sessions_from_course_plan(array $planRow): array
             $methods = lesson_as_list($u['teaching_methods'] ?? []);
             $outcomes = lesson_as_list($u['outcomes'] ?? []);
             $assess = lesson_as_list($u['assessment'] ?? []);
-            $k = (string)($u['bloom_k_level'] ?? 'K2');
+            $k = lesson_plain($u['bloom_k_level'] ?? null, 'K2');
             $ped = lesson_pedagogy_for_k($k);
             $unitTitle = trim((string)($u['title'] ?? 'Unit'));
             for ($i = 0; $i < $per; $i++) {

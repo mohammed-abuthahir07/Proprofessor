@@ -39,6 +39,25 @@ function run_sql_file(PDO $pdo, string $path, array &$messages): void
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $dbName = preg_replace('/[^a-zA-Z0-9_]/', '', (string)$db['name']) ?: 'proprofessor';
+        $alreadyInstalled = false;
+        try {
+            $checkDsn = sprintf(
+                'mysql:host=%s;port=%d;dbname=%s;charset=%s',
+                $db['host'],
+                (int)$db['port'],
+                $dbName,
+                $db['charset'] ?? 'utf8mb4'
+            );
+            $check = new PDO($checkDsn, $db['user'], $db['pass'], [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            ]);
+            $alreadyInstalled = (int)$check->query('SELECT COUNT(*) FROM users')->fetchColumn() > 0;
+        } catch (Throwable $e) {
+            $alreadyInstalled = false;
+        }
+        if ($alreadyInstalled) {
+            throw new RuntimeException('This application is already installed. The installer will not reset existing accounts. Delete install.php before going live.');
+        }
         $hostDsn = sprintf('mysql:host=%s;port=%d;charset=%s', $db['host'], $db['port'], $db['charset']);
         $pdo = new PDO($hostDsn, $db['user'], $db['pass'], [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -54,17 +73,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->exec("USE `{$dbName}`");
 
         $schema = file_get_contents(__DIR__ . '/database/schema.sql');
-        // Strip CREATE DATABASE / USE so hosting DB name from config is respected
-        $schema = preg_replace('/CREATE\s+DATABASE\s+IF\s+NOT\s+EXISTS\s+`?[^`;]+`?[^;]*;/i', '', $schema);
-        $schema = preg_replace('/USE\s+`?[^`;]+`?\s*;/i', '', $schema);
+        // Strip CREATE DATABASE / USE so the hosting database name from config is used.
+        // mysqldump writes: CREATE DATABASE /*!32312 IF NOT EXISTS*/ `name` ...
+        $schema = preg_replace('/CREATE\s+DATABASE\b[^;]*;/i', '', $schema) ?? $schema;
+        $schema = preg_replace('/USE\s+`?[A-Za-z0-9_]+`?\s*;/i', '', $schema) ?? $schema;
         $pdo->exec($schema);
         $messages[] = "Schema created in `{$dbName}`.";
 
-        $seed = file_get_contents(__DIR__ . '/database/seed.sql');
-        $seed = preg_replace('/USE\s+`?[^`;]+`?\s*;/i', '', $seed);
-        // Remove broken password placeholders; users created below
-        $pdo->exec($seed);
-        $messages[] = 'Seed data loaded.';
+        $seedPath = __DIR__ . '/database/seed.sql';
+        if (is_file($seedPath)) {
+            $seed = file_get_contents($seedPath);
+            $seed = preg_replace('/USE\s+`?[A-Za-z0-9_]+`?\s*;/i', '', (string)$seed) ?? (string)$seed;
+            $pdo->exec($seed);
+            $messages[] = 'Seed data loaded.';
+        } else {
+            $messages[] = 'seed.sql was not present. Continuing with the imported schema.';
+        }
 
         $pdo->exec("USE `{$dbName}`");
         $hash = password_hash('Password@123', PASSWORD_BCRYPT);

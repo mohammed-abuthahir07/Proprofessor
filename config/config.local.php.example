@@ -7,7 +7,7 @@ declare(strict_types=1);
 
 return [
     'env' => 'production',
-    'debug' => true, // set false after everything works
+    'debug' => false,
 
     // Uncomment only if auto base path detection fails:
     // 'base_url' => '/demo/professor',
@@ -16,8 +16,10 @@ return [
     // 'encryption_key' => 'set-a-long-random-string',
 
     'db' => [
+        // Hostinger MariaDB is usually localhost port 3306.
+        // This project's local XAMPP config uses 127.0.0.1 port 3307.
         'host' => 'localhost',
-        'port' => 3307,
+        'port' => 3306,
         'name' => 'YOUR_DB_NAME',
         'user' => 'YOUR_DB_USER',
         'pass' => 'YOUR_DB_PASSWORD',

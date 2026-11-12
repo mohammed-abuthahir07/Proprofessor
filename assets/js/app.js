@@ -165,7 +165,16 @@ document.addEventListener('DOMContentLoaded', () => {
           headers: { 'X-CSRF-TOKEN': fd.get('csrf') || '' },
           body: fd,
         });
-        const data = await res.json();
+        const raw = await res.text();
+        let data = null;
+        try {
+          data = raw ? JSON.parse(raw) : null;
+        } catch (parseErr) {
+          throw new Error('Generation did not finish. Please try again.');
+        }
+        if (!data || typeof data !== 'object') {
+          throw new Error('Generation did not finish. Please try again.');
+        }
         if (!res.ok || !data.ok) {
           const msg = data.error || 'Generation failed';
           const code = String(data.code || '');

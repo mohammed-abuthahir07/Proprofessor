@@ -5,12 +5,13 @@ final class Auth
 {
     public static function start(): void
     {
-        $cfg = require __DIR__ . '/../config/config.php';
+        $sessionName = (string)(function_exists('config') ? config('session_name', 'ppai_session') : 'ppai_session');
+        $timezone = (string)(function_exists('config') ? config('timezone', 'Asia/Kolkata') : 'Asia/Kolkata');
         if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_name($cfg['session_name']);
+            session_name($sessionName);
             session_start();
         }
-        date_default_timezone_set($cfg['timezone']);
+        date_default_timezone_set($timezone);
     }
 
     public static function attempt(string $email, string $password): bool
@@ -27,6 +28,7 @@ final class Auth
             return false;
         }
         Database::query('UPDATE users SET last_login_at = NOW() WHERE id = ?', [$user['id']]);
+        session_regenerate_id(true);
         unset($user['password_hash']);
         unset($_SESSION['login_error']);
         $_SESSION['user'] = $user;
@@ -58,7 +60,7 @@ final class Auth
     public static function requireLogin(): void
     {
         if (!self::check()) {
-            redirect('/auth/login.php');
+            redirect('/login');
         }
     }
 

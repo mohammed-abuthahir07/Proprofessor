@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $dest = $dir . '/' . $name;
             if (move_uploaded_file((string)$_FILES['proof']['tmp_name'], $dest)) {
-                $proofUrl = '/professor/uploads/attendance/' . $name;
+                $proofUrl = base_url('/uploads/attendance/' . $name);
             }
         }
         $result = AttendanceTools::requestRegularization(

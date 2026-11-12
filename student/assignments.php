@@ -47,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $dest = $dir . '/' . $name;
         if (move_uploaded_file((string)$_FILES['file']['tmp_name'], $dest)) {
-            $fileUrl = '/professor/uploads/assignments/' . $name;
+            $fileUrl = base_url('/uploads/assignments/' . $name);
         }
     }
     $status = $isLate ? 'late' : 'submitted';

@@ -37,7 +37,7 @@ final class ProfessorMessagesController extends Controller
 
         $csrf = (string)($json['csrf'] ?? $json['_csrf'] ?? $_POST['csrf'] ?? $_POST['_csrf'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
         if ($csrf === '' || !hash_equals((string)csrf_token(), $csrf)) {
-            json_response(['success' => false, 'message' => 'Invalid CSRF token.', 'recipient_count' => 0], 419);
+            json_response(['success' => false, 'message' => 'Invalid CSRF token.', 'recipient_count' => 0], 403);
         }
 
         $year = (int)($json['year'] ?? $_POST['year'] ?? 0);
